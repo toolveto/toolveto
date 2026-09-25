@@ -1645,28 +1645,38 @@ code, pre {
   display: flex;
   flex-direction: column;
   position: relative;
+  overflow: visible !important;
 }
 
-.pricing-card.featured {
+.pricing-card.featured,
+.pricing-card.popular {
   border-color: var(--accent-orange);
   box-shadow: 0 0 40px -10px var(--accent-orange-glow);
   transform: scale(1.03);
   z-index: 2;
+  overflow: visible !important;
 }
 
-.pricing-featured-badge {
+.pricing-featured-badge,
+.pricing-popular-tag {
   position: absolute;
-  top: -12px;
+  top: -14px;
   left: 50%;
   transform: translateX(-50%);
-  background: var(--accent-orange);
-  color: #fff;
+  background: linear-gradient(135deg, #ff9900, #ff5500);
+  color: #ffffff;
+  font-family: var(--font-mono, monospace);
   font-size: 0.725rem;
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  padding: 4px 14px;
+  padding: 5px 16px;
   border-radius: var(--radius-full);
+  box-shadow: 0 4px 14px rgba(255, 122, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  white-space: nowrap;
+  line-height: 1;
+  z-index: 10;
 }
 
 .tier-name {
@@ -2318,10 +2328,15 @@ code, pre {
   transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.3s ease, box-shadow 0.3s ease;
 }
 
+.pricing-card.spotlight-card {
+  overflow: visible !important;
+}
+
 .spotlight-card::before {
   content: '';
   position: absolute;
   inset: 0;
+  border-radius: inherit;
   background: radial-gradient(450px circle at var(--mouse-x, -999px) var(--mouse-y, -999px), rgba(255, 122, 0, 0.18), transparent 50%);
   pointer-events: none;
   opacity: 0;
