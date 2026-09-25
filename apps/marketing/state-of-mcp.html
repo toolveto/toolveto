@@ -185,7 +185,8 @@
         <div class="report-meta-bar">
           <div><strong>DATE:</strong> September 2026</div>
           <div><strong>SCOPE:</strong> 10 Repositories (Stages 1–2 Static Contract Verification)</div>
-          <div><strong>OVERALL PASS RATE:</strong> <span style="color: var(--accent-red); font-weight: 700;">0% (10/10 REJECTED)</span></div>
+          <div><strong>CI MERGE GATE:</strong> <span style="color: var(--accent-red); font-weight: 700;">100% BLOCKED (10/10 Repositories)</span></div>
+          <div><strong>AVG SCORE:</strong> <span style="color: #cbd5e1; font-weight: 700;">70.3/100 (2 Silver • 8 Bronze)</span></div>
           <div><strong>EVALUATOR:</strong> ToolVeto Core v0.1.0</div>
         </div>
       </div>
@@ -267,133 +268,158 @@
                 <th>D4 (Bound)</th>
                 <th>D5 (Audit)</th>
                 <th>Score</th>
+            <thead>
+              <tr>
+                <th>MCP Repository</th>
+                <th>Category</th>
+                <th>Stars</th>
+                <th>D1</th>
+                <th>D2</th>
+                <th>D3</th>
+                <th>D4</th>
+                <th>D5</th>
+                <th>Score</th>
                 <th>Tier</th>
+                <th>CI Merge Gate</th>
               </tr>
             </thead>
             <tbody>
               <tr>
                 <td class="table-server-name">modelcontextprotocol/servers</td>
-                <td>Reference Impl</td>
+                <td>Protocol Standard</td>
                 <td>42.0k</td>
-                <td><span class="dim-score-badge dim-poor">20</span></td>
-                <td><span class="dim-score-badge dim-fair">50</span></td>
-                <td><span class="dim-score-badge dim-fair">50</span></td>
-                <td><span class="dim-score-badge dim-fair">50</span></td>
-                <td><span class="dim-score-badge dim-poor">30</span></td>
-                <td><strong style="color: #ff4757;">42</strong></td>
-                <td><span class="tier-pill tier-rejected">REJECTED</span></td>
-              </tr>
-              <tr>
-                <td class="table-server-name">github/github-mcp-server</td>
-                <td>Dev Tools</td>
-                <td>15.4k</td>
-                <td><span class="dim-score-badge dim-poor">20</span></td>
-                <td><span class="dim-score-badge dim-fair">50</span></td>
-                <td><span class="dim-score-badge dim-fair">50</span></td>
-                <td><span class="dim-score-badge dim-fair">50</span></td>
-                <td><span class="dim-score-badge dim-poor">30</span></td>
-                <td><strong style="color: #ff4757;">42</strong></td>
-                <td><span class="tier-pill tier-rejected">REJECTED</span></td>
+                <td><span class="dim-score-badge dim-good">60</span></td>
+                <td><span class="dim-score-badge dim-good">83</span></td>
+                <td><span class="dim-score-badge dim-good">88</span></td>
+                <td><span class="dim-score-badge dim-good">100</span></td>
+                <td><span class="dim-score-badge dim-good">70</span></td>
+                <td><strong style="color: #cbd5e1;">78</strong></td>
+                <td><span class="tier-pill tier-silver">Silver</span></td>
+                <td><span class="gate-pill">🔴 BLOCKED (4 Crit)</span></td>
               </tr>
               <tr>
                 <td class="table-server-name">anthropic/anthropic-quickstarts</td>
-                <td>Reference DB</td>
-                <td>12.0k</td>
-                <td><span class="dim-score-badge dim-poor">20</span></td>
-                <td><span class="dim-score-badge dim-fair">50</span></td>
+                <td>Official Reference</td>
+                <td>13.2k</td>
                 <td><span class="dim-score-badge dim-good">75</span></td>
-                <td><span class="dim-score-badge dim-fair">50</span></td>
-                <td><span class="dim-score-badge dim-poor">30</span></td>
-                <td><strong style="color: #ff4757;">48</strong></td>
-                <td><span class="tier-pill tier-rejected">REJECTED</span></td>
+                <td><span class="dim-score-badge dim-good">83</span></td>
+                <td><span class="dim-score-badge dim-good">63</span></td>
+                <td><span class="dim-score-badge dim-good">100</span></td>
+                <td><span class="dim-score-badge dim-good">81</span></td>
+                <td><strong style="color: #cbd5e1;">77</strong></td>
+                <td><span class="tier-pill tier-silver">Silver</span></td>
+                <td><span class="gate-pill">🔴 BLOCKED (2 Crit)</span></td>
               </tr>
               <tr>
-                <td class="table-server-name">supabase/mcp-server-supabase</td>
-                <td>Database</td>
-                <td>9.8k</td>
-                <td><span class="dim-score-badge dim-poor">20</span></td>
+                <td class="table-server-name">atlassian/mcp-server-confluence</td>
+                <td>Enterprise Wiki</td>
+                <td>2.4k</td>
                 <td><span class="dim-score-badge dim-fair">50</span></td>
-                <td><span class="dim-score-badge dim-fair">50</span></td>
-                <td><span class="dim-score-badge dim-fair">50</span></td>
-                <td><span class="dim-score-badge dim-poor">30</span></td>
-                <td><strong style="color: #ff4757;">42</strong></td>
-                <td><span class="tier-pill tier-rejected">REJECTED</span></td>
+                <td><span class="dim-score-badge dim-good">83</span></td>
+                <td><span class="dim-score-badge dim-good">81</span></td>
+                <td><span class="dim-score-badge dim-good">100</span></td>
+                <td><span class="dim-score-badge dim-good">88</span></td>
+                <td><strong style="color: #f59e0b;">75</strong></td>
+                <td><span class="tier-pill tier-bronze">Bronze</span></td>
+                <td><span class="gate-pill">🔴 BLOCKED (4 Crit)</span></td>
               </tr>
               <tr>
-                <td class="table-server-name">stripe/agent-toolkit</td>
-                <td>Payments</td>
-                <td>8.9k</td>
-                <td><span class="dim-score-badge dim-poor">20</span></td>
+                <td class="table-server-name">linear/mcp-linear</td>
+                <td>Issue Tracking</td>
+                <td>3.4k</td>
                 <td><span class="dim-score-badge dim-fair">50</span></td>
+                <td><span class="dim-score-badge dim-good">83</span></td>
+                <td><span class="dim-score-badge dim-good">81</span></td>
+                <td><span class="dim-score-badge dim-good">100</span></td>
+                <td><span class="dim-score-badge dim-good">88</span></td>
+                <td><strong style="color: #f59e0b;">75</strong></td>
+                <td><span class="tier-pill tier-bronze">Bronze</span></td>
+                <td><span class="gate-pill">🔴 BLOCKED (4 Crit)</span></td>
+              </tr>
+              <tr>
+                <td class="table-server-name">github/github-mcp-server</td>
+                <td>Developer Tools</td>
+                <td>15.8k</td>
+                <td><span class="dim-score-badge dim-fair">50</span></td>
+                <td><span class="dim-score-badge dim-good">83</span></td>
+                <td><span class="dim-score-badge dim-good">81</span></td>
+                <td><span class="dim-score-badge dim-good">100</span></td>
                 <td><span class="dim-score-badge dim-good">75</span></td>
-                <td><span class="dim-score-badge dim-fair">50</span></td>
-                <td><span class="dim-score-badge dim-poor">30</span></td>
-                <td><strong style="color: #ff4757;">48</strong></td>
-                <td><span class="tier-pill tier-rejected">REJECTED</span></td>
-              </tr>
-              <tr>
-                <td class="table-server-name">neondatabase/mcp-server-neon</td>
-                <td>Database</td>
-                <td>6.3k</td>
-                <td><span class="dim-score-badge dim-poor">20</span></td>
-                <td><span class="dim-score-badge dim-fair">50</span></td>
-                <td><span class="dim-score-badge dim-fair">50</span></td>
-                <td><span class="dim-score-badge dim-fair">50</span></td>
-                <td><span class="dim-score-badge dim-poor">30</span></td>
-                <td><strong style="color: #ff4757;">42</strong></td>
-                <td><span class="tier-pill tier-rejected">REJECTED</span></td>
-              </tr>
-              <tr>
-                <td class="table-server-name">cloudflare/mcp-server-cloudflare</td>
-                <td>Infrastructure</td>
-                <td>5.2k</td>
-                <td><span class="dim-score-badge dim-poor">20</span></td>
-                <td><span class="dim-score-badge dim-fair">50</span></td>
-                <td><span class="dim-score-badge dim-good">75</span></td>
-                <td><span class="dim-score-badge dim-fair">50</span></td>
-                <td><span class="dim-score-badge dim-poor">30</span></td>
-                <td><strong style="color: #ff4757;">48</strong></td>
-                <td><span class="tier-pill tier-rejected">REJECTED</span></td>
+                <td><strong style="color: #f59e0b;">74</strong></td>
+                <td><span class="tier-pill tier-bronze">Bronze</span></td>
+                <td><span class="gate-pill">🔴 BLOCKED (4 Crit)</span></td>
               </tr>
               <tr>
                 <td class="table-server-name">slack/mcp-server</td>
                 <td>Communication</td>
-                <td>4.5k</td>
-                <td><span class="dim-score-badge dim-poor">20</span></td>
+                <td>4.6k</td>
                 <td><span class="dim-score-badge dim-fair">50</span></td>
-                <td><span class="dim-score-badge dim-good">75</span></td>
-                <td><span class="dim-score-badge dim-fair">50</span></td>
-                <td><span class="dim-score-badge dim-poor">30</span></td>
-                <td><strong style="color: #ff4757;">48</strong></td>
-                <td><span class="tier-pill tier-rejected">REJECTED</span></td>
+                <td><span class="dim-score-badge dim-good">79</span></td>
+                <td><span class="dim-score-badge dim-good">81</span></td>
+                <td><span class="dim-score-badge dim-good">100</span></td>
+                <td><span class="dim-score-badge dim-good">63</span></td>
+                <td><strong style="color: #f59e0b;">71</strong></td>
+                <td><span class="tier-pill tier-bronze">Bronze</span></td>
+                <td><span class="gate-pill">🔴 BLOCKED (4 Crit)</span></td>
               </tr>
               <tr>
-                <td class="table-server-name">linear/mcp-linear</td>
-                <td>Productivity</td>
-                <td>3.1k</td>
-                <td><span class="dim-score-badge dim-poor">20</span></td>
-                <td><span class="dim-score-badge dim-fair">50</span></td>
-                <td><span class="dim-score-badge dim-fair">50</span></td>
-                <td><span class="dim-score-badge dim-fair">50</span></td>
-                <td><span class="dim-score-badge dim-poor">30</span></td>
-                <td><strong style="color: #ff4757;">42</strong></td>
-                <td><span class="tier-pill tier-rejected">REJECTED</span></td>
+                <td class="table-server-name">cloudflare/mcp-server-cloudflare</td>
+                <td>Cloud Infrastructure</td>
+                <td>5.4k</td>
+                <td><span class="dim-score-badge dim-poor">25</span></td>
+                <td><span class="dim-score-badge dim-good">83</span></td>
+                <td><span class="dim-score-badge dim-good">81</span></td>
+                <td><span class="dim-score-badge dim-good">100</span></td>
+                <td><span class="dim-score-badge dim-fair">56</span></td>
+                <td><strong style="color: #f59e0b;">64</strong></td>
+                <td><span class="tier-pill tier-bronze">Bronze</span></td>
+                <td><span class="gate-pill">🔴 BLOCKED (6 Crit)</span></td>
               </tr>
               <tr>
-                <td class="table-server-name">atlassian/mcp-server-confluence</td>
-                <td>Documentation</td>
-                <td>2.5k</td>
-                <td><span class="dim-score-badge dim-poor">20</span></td>
-                <td><span class="dim-score-badge dim-fair">50</span></td>
-                <td><span class="dim-score-badge dim-fair">50</span></td>
-                <td><span class="dim-score-badge dim-fair">50</span></td>
-                <td><span class="dim-score-badge dim-poor">30</span></td>
-                <td><strong style="color: #ff4757;">42</strong></td>
-                <td><span class="tier-pill tier-rejected">REJECTED</span></td>
+                <td class="table-server-name">neondatabase/mcp-server-neon</td>
+                <td>Cloud Database</td>
+                <td>6.2k</td>
+                <td><span class="dim-score-badge dim-poor">25</span></td>
+                <td><span class="dim-score-badge dim-good">83</span></td>
+                <td><span class="dim-score-badge dim-good">81</span></td>
+                <td><span class="dim-score-badge dim-good">100</span></td>
+                <td><span class="dim-score-badge dim-poor">44</span></td>
+                <td><strong style="color: #f59e0b;">63</strong></td>
+                <td><span class="tier-pill tier-bronze">Bronze</span></td>
+                <td><span class="gate-pill">🔴 BLOCKED (6 Crit)</span></td>
+              </tr>
+              <tr>
+                <td class="table-server-name">stripe/agent-toolkit</td>
+                <td>Fintech / Payments</td>
+                <td>8.5k</td>
+                <td><span class="dim-score-badge dim-poor">25</span></td>
+                <td><span class="dim-score-badge dim-good">83</span></td>
+                <td><span class="dim-score-badge dim-good">81</span></td>
+                <td><span class="dim-score-badge dim-good">100</span></td>
+                <td><span class="dim-score-badge dim-poor">44</span></td>
+                <td><strong style="color: #f59e0b;">63</strong></td>
+                <td><span class="tier-pill tier-bronze">Bronze</span></td>
+                <td><span class="gate-pill">🔴 BLOCKED (6 Crit)</span></td>
+              </tr>
+              <tr>
+                <td class="table-server-name">supabase/mcp-server-supabase</td>
+                <td>Database &amp; Backend</td>
+                <td>8.2k</td>
+                <td><span class="dim-score-badge dim-poor">25</span></td>
+                <td><span class="dim-score-badge dim-good">83</span></td>
+                <td><span class="dim-score-badge dim-good">81</span></td>
+                <td><span class="dim-score-badge dim-good">100</span></td>
+                <td><span class="dim-score-badge dim-poor">44</span></td>
+                <td><strong style="color: #f59e0b;">63</strong></td>
+                <td><span class="tier-pill tier-bronze">Bronze</span></td>
+                <td><span class="gate-pill">🔴 BLOCKED (6 Crit)</span></td>
               </tr>
             </tbody>
           </table>
         </div>
+        <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 12px; font-family: var(--font-mono);">
+          * <strong>Methodology Note:</strong> Stages 1–2 Static Contract &amp; Schema Invariant Audit. Evaluated against curated schema manifests without live destructive mutations. Manifests and verification artifacts available in <code>benchmarks/dogfood/targets/</code> and <code>benchmarks/dogfood/results/</code>.
+        </p>
       </section>
 
       <!-- 3. Server Deep Dives -->

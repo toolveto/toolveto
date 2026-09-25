@@ -511,7 +511,7 @@ function initBenchmarkGrid() {
             <span class="score-denom">/100</span>
           </div>
           <span class="tier-pill tier-${s.tier.toLowerCase()}">${s.tier}</span>
-          <span class="veto-pill">${s.criticalVeto}</span>
+          <span class="gate-pill">CI: ${s.ciGate} (${s.criticalFailures} Crit)</span>
         </div>
 
         <div class="dim-micro-bars">
@@ -590,8 +590,10 @@ function openDiffModal(server) {
   if (modalSummary) {
     modalSummary.innerHTML = `
       <p><strong>Evaluated Score:</strong> <span class="score-highlight">${server.score}/100</span> [Tier: ${server.tier}]</p>
-      <p><strong>Critical Veto:</strong> <code>${server.criticalVeto}</code></p>
+      <p><strong>CI Merge Gate:</strong> <strong style="color: #ff4757;">🔴 ${server.ciGate} (${server.criticalFailures} Critical Failures)</strong></p>
+      <p><strong>Fatal Veto Code:</strong> <code>${server.criticalVeto}</code></p>
       <p><strong>Root Cause:</strong> ${server.keyIssue}</p>
+      <p><strong>Prepared Patch Manifest:</strong> <code>${server.prArtifact}</code></p>
     `;
   }
 

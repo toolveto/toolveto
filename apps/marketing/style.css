@@ -1267,6 +1267,41 @@ code, pre {
   border: 1px solid rgba(255, 51, 85, 0.4);
 }
 
+.tier-pill.tier-silver {
+  background: rgba(148, 163, 184, 0.2);
+  color: #cbd5e1;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+}
+
+.tier-pill.tier-bronze {
+  background: rgba(217, 119, 6, 0.2);
+  color: #f59e0b;
+  border: 1px solid rgba(217, 119, 6, 0.4);
+}
+
+.tier-pill.tier-gold {
+  background: rgba(234, 179, 8, 0.2);
+  color: #fde047;
+  border: 1px solid rgba(234, 179, 8, 0.4);
+}
+
+.tier-pill.tier-platinum {
+  background: rgba(0, 245, 160, 0.2);
+  color: var(--accent-green);
+  border: 1px solid rgba(0, 245, 160, 0.4);
+}
+
+.gate-pill {
+  padding: 3px 8px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  background: rgba(255, 51, 85, 0.15);
+  border: 1px solid rgba(255, 51, 85, 0.4);
+  color: #ff4757;
+  border-radius: 4px;
+}
+
 .veto-pill {
   padding: 3px 8px;
   font-size: 0.65rem;
