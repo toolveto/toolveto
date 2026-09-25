@@ -30,14 +30,24 @@ export async function verifyCommand(tokenArg?: string, options: VerifyCommandOpt
   }
 
   const [headerB64, payloadB64, signature] = parts;
-  const secret = options.secret || process.env.TOOLVETO_SIGNING_SECRET || 'toolveto-oss-evidence-secret';
+  const secretsToTry = options.secret
+    ? [options.secret]
+    : process.env.TOOLVETO_SIGNING_SECRET
+      ? [process.env.TOOLVETO_SIGNING_SECRET]
+      : ['toolveto-oss-evidence-secret', 'toolveto-default-secret-key-2026'];
 
   try {
-    const expectedHmac = crypto.createHmac('sha256', secret);
-    expectedHmac.update(`${headerB64}.${payloadB64}`);
-    const expectedSig = expectedHmac.digest('base64url');
+    let isValidSignature = false;
+    for (const secret of secretsToTry) {
+      const expectedHmac = crypto.createHmac('sha256', secret);
+      expectedHmac.update(`${headerB64}.${payloadB64}`);
+      const expectedSig = expectedHmac.digest('base64url');
+      if (signature === expectedSig) {
+        isValidSignature = true;
+        break;
+      }
+    }
 
-    const isValidSignature = signature === expectedSig;
     const header = JSON.parse(Buffer.from(headerB64, 'base64url').toString('utf8'));
     const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8'));
 
