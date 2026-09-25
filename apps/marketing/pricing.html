@@ -183,6 +183,24 @@
       font-family: 'JetBrains Mono', monospace;
       font-size: 0.8rem;
     }
+    .pricing-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 24px;
+      max-width: 1240px;
+      margin: 0 auto;
+      align-items: stretch;
+    }
+    @media (max-width: 1100px) {
+      .pricing-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+    @media (max-width: 640px) {
+      .pricing-grid {
+        grid-template-columns: 1fr;
+      }
+    }
   </style>
 </head>
 <body>
@@ -345,96 +363,92 @@
   <section class="section" style="padding-top: 0;">
     <div class="pricing-grid">
       <!-- Tier 1: Free -->
-      <div class="pricing-card">
-        <div class="pricing-tier-header">
-          <div class="pricing-name">Free CLI Gate</div>
-          <div class="pricing-desc">Deterministic CI blocking gate for every open-source developer.</div>
-        </div>
-        <div class="pricing-price">
-          <span class="price-val">$0</span>
-          <span class="price-period">/ forever</span>
+      <div class="pricing-card tier-community spotlight-card">
+        <div class="tier-pill tier-pill-green">Open Source Core</div>
+        <h4 class="tier-name">Free CLI Gate</h4>
+        <p class="tier-desc">Deterministic CI blocking gate for every open-source developer.</p>
+        <div class="tier-price-row">
+          <span class="price-num">$0</span>
+          <span class="price-cycle">/ forever</span>
         </div>
         <ul class="pricing-features">
-          <li><span>✓</span> <code>npx toolveto check &lt;target&gt;</code></li>
-          <li><span>✓</span> Full 5-dimension deterministic battery</li>
-          <li><span>✓</span> 3-line actionable AST code patches</li>
-          <li><span>✓</span> Zero signup, zero API keys, $0 run cost</li>
-          <li><span>✓</span> Sub-90s execution in GitHub Actions</li>
-          <li><span>✓</span> Standalone README SVG badge generator</li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg><span><code>npx toolveto check &lt;target&gt;</code></span></li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg><span>Full 5-dimension deterministic battery</span></li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg><span>3-line actionable AST code patches</span></li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg><span>Zero signup, zero API keys, $0 run cost</span></li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg><span>Sub-90s execution in GitHub Actions</span></li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg><span>Standalone README SVG badge generator</span></li>
         </ul>
-        <a href="./index.html#playground" class="btn-pricing">Get Started Free</a>
+        <a href="./index.html#playground" class="btn-pricing btn-pricing-community">Get Started Free</a>
       </div>
 
       <!-- Tier 2: Team -->
-      <div class="pricing-card popular">
+      <div class="pricing-card featured popular spotlight-card">
         <div class="pricing-popular-tag">MOST POPULAR</div>
-        <div class="pricing-tier-header">
-          <div class="pricing-name">Team</div>
-          <div class="pricing-desc">Continuous audit history, drift sentinel, and automated PR comments.</div>
-        </div>
-        <div class="pricing-price">
-          <span class="price-val">$249</span>
-          <span class="price-period">/ month</span>
+        <div class="tier-pill tier-pill-orange">Continuous CI Gate</div>
+        <h4 class="tier-name">Team</h4>
+        <p class="tier-desc">Continuous audit history, drift sentinel, and automated PR comments.</p>
+        <div class="tier-price-row">
+          <span class="price-num">$249</span>
+          <span class="price-cycle">/ month</span>
         </div>
         <ul class="pricing-features">
-          <li><span>✓</span> <strong>Everything in Free</strong></li>
-          <li><span>✓</span> Automated GitHub PR inline diff comments</li>
-          <li><span>✓</span> Hourly continuous schema drift sentinel</li>
-          <li><span>✓</span> Hosted audit history dashboard (toolveto.ai)</li>
-          <li><span>✓</span> Dynamic edge-cached CDN README badges</li>
-          <li><span>✓</span> Stage 4 LLM E_heal self-healing judge</li>
-          <li><span>✓</span> Slack &amp; Discord incident webhooks</li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg><span><strong>Everything in Free</strong></span></li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg><span>Automated GitHub PR inline diff comments</span></li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg><span>Hourly continuous schema drift sentinel</span></li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg><span>Hosted audit history dashboard (toolveto.ai)</span></li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg><span>Dynamic edge-cached CDN README badges</span></li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg><span>Stage 4 LLM E_heal self-healing judge</span></li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg><span>Slack &amp; Discord incident webhooks</span></li>
         </ul>
-        <a href="./index.html#playground" class="btn-pricing">Start 14-Day Free Trial</a>
+        <a href="./index.html#playground" class="btn-pricing btn-pricing-featured">Start 14-Day Free Trial &rarr;</a>
       </div>
 
       <!-- Tier 3: Shield -->
-      <div class="pricing-card">
-        <div class="pricing-tier-header">
-          <div class="pricing-name">Runtime Shield</div>
-          <div class="pricing-desc">Active reverse proxy airbag for third-party MCP servers you don't control.</div>
-        </div>
-        <div class="pricing-price">
-          <span class="price-val">$499</span>
-          <span class="price-period">/ month</span>
+      <div class="pricing-card tier-cyan spotlight-card">
+        <div class="tier-pill tier-pill-cyan">Runtime Airbag</div>
+        <h4 class="tier-name">Runtime Shield</h4>
+        <p class="tier-desc">Active reverse proxy airbag for third-party MCP servers you don't control.</p>
+        <div class="tier-price-row">
+          <span class="price-num">$499</span>
+          <span class="price-cycle">/ month</span>
         </div>
         <ul class="pricing-features">
-          <li><span>✓</span> <strong>Everything in Team</strong></li>
-          <li><span>✓</span> <code>@toolveto/shield</code> middleware proxy</li>
-          <li><span>✓</span> Multi-instance Redis sliding-window loop breaker</li>
-          <li><span>✓</span> Atomic idempotency cache with UUID dedup</li>
-          <li><span>✓</span> Response token budget context clipper</li>
-          <li><span>✓</span> Sub-5ms p99 overhead latency guarantee</li>
-          <li><span>✓</span> LangSmith &amp; OTel failure lakehouse export</li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg><span><strong>Everything in Team</strong></span></li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg><span><code>@toolveto/shield</code> middleware proxy</span></li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg><span>Multi-instance Redis sliding-window loop breaker</span></li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg><span>Atomic idempotency cache with UUID dedup</span></li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg><span>Response token budget context clipper</span></li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg><span>Sub-5ms p99 overhead latency guarantee</span></li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg><span>LangSmith &amp; OTel failure lakehouse export</span></li>
         </ul>
-        <a href="./index.html#playground" class="btn-pricing">Deploy Shield Gateway</a>
+        <a href="./index.html#playground" class="btn-pricing btn-pricing-enterprise">Deploy Shield Gateway &rarr;</a>
       </div>
 
       <!-- Tier 4: Enterprise -->
-      <div class="pricing-card">
-        <div class="pricing-tier-header">
-          <div class="pricing-name">Enterprise</div>
-          <div class="pricing-desc">AIUC-1 compliance packets, gVisor private clusters &amp; custom SLAs.</div>
-        </div>
-        <div class="pricing-price">
-          <span class="price-val">Custom</span>
-          <span class="price-period">/ annual</span>
+      <div class="pricing-card tier-purple spotlight-card">
+        <div class="tier-pill tier-pill-purple">Mission Critical &amp; HA</div>
+        <h4 class="tier-name">Enterprise</h4>
+        <p class="tier-desc">AIUC-1 compliance packets, gVisor private clusters &amp; custom SLAs.</p>
+        <div class="tier-price-row">
+          <span class="price-num">Custom</span>
+          <span class="price-cycle">/ annual</span>
         </div>
         <ul class="pricing-features">
-          <li><span>✓</span> <strong>Everything in Shield</strong></li>
-          <li><span>✓</span> Cryptographic JWS RFC 7515 evidence packets</li>
-          <li><span>✓</span> AIUC-1 &amp; OWASP Agentic Top 10 compliance audit</li>
-          <li><span>✓</span> Dedicated hermetic gVisor runner fleet</li>
-          <li><span>✓</span> On-prem / VPC private cloud deployment</li>
-          <li><span>✓</span> 99.99% gateway SLA &amp; 24/7 incident hotline</li>
-          <li><span>✓</span> Custom security questionnaire &amp; SOC 2 signoff</li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg><span><strong>Everything in Shield</strong></span></li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg><span>Cryptographic JWS RFC 7515 evidence packets</span></li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg><span>AIUC-1 &amp; OWASP Agentic Top 10 compliance audit</span></li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg><span>Dedicated hermetic gVisor runner fleet</span></li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg><span>On-prem / VPC private cloud deployment</span></li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg><span>99.99% gateway SLA &amp; 24/7 incident hotline</span></li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg><span>Custom security questionnaire &amp; SOC 2 signoff</span></li>
         </ul>
-        <a href="mailto:enterprise@toolveto.ai" class="btn-pricing">Contact Sales</a>
+        <a href="mailto:enterprise@toolveto.ai" class="btn-pricing btn-pricing-purple">Contact Sales &rarr;</a>
       </div>
     </div>
 
     <!-- Feature Comparison Table -->
-    <div style="max-width: 1040px; margin: 80px auto 0 auto; background: #0d101a; border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 32px; overflow-x: auto;">
+    <div style="max-width: 1040px; margin: 80px auto 80px auto; background: #0d101a; border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 32px; overflow-x: auto; box-shadow: 0 16px 44px -12px rgba(0,0,0,0.6);">
       <h3 style="font-size: 1.4rem; font-weight: 800; margin: 0 0 20px 0; text-align: center;">Detailed Capability Comparison</h3>
       <table class="comparison-table">
         <thead>
@@ -503,17 +517,28 @@
 
   <!-- Footer -->
   <footer class="site-footer">
-    <div class="footer-container">
-      <div class="footer-brand">
-        <div class="footer-logo">Tool<span>Veto</span></div>
-        <p class="footer-desc">
-          Deterministic chaos testing, CI blocking gates, and runtime airbags for MCP servers.
-        </p>
-      </div>
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <a href="./index.html" class="brand-link" style="text-decoration: none; display: inline-flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+            <div class="brand-logo-icon">
+              <svg width="26" height="26" viewBox="0 0 40 40" fill="none">
+                <path d="M20 4.5 L33 9.5 V21 C33 29 20 35 20 35 C20 35 7 29 7 21 V9.5 L20 4.5 Z" fill="#0a0d16" stroke="url(#pricing-logo-border)" stroke-width="2" stroke-linejoin="round" />
+                <path d="M20 6 L31.5 10.5 V20.5 C31.5 27 20 32.5 20 32.5 V6 Z" fill="url(#pricing-logo-shield)" fill-opacity="0.95" />
+                <path d="M20 6 L8.5 10.5 V20.5 C8.5 27 20 32.5 20 32.5 V6 Z" fill="url(#pricing-logo-shield)" fill-opacity="0.65" />
+                <path d="M14 14.5 L20 25.5 L26 14.5 L23 14.5 L20 20 L17 14.5 Z" fill="url(#pricing-logo-core)" />
+                <circle cx="20" cy="20" r="1.5" fill="#ffffff" />
+              </svg>
+            </div>
+            <div class="brand-title" style="font-size: 1.3rem;">Tool<span>Veto</span></div>
+          </a>
+          <p>
+            Deterministic chaos testing, CI blocking gates, and runtime airbags for MCP servers.
+          </p>
+        </div>
 
-      <div class="footer-links-grid">
         <div class="footer-col">
-          <div class="footer-col-title">PRODUCT</div>
+          <h5>Product</h5>
           <ul>
             <li><a href="./index.html#playground">Crash Lab Demo</a></li>
             <li><a href="./docs.html">Documentation</a></li>
@@ -522,7 +547,7 @@
           </ul>
         </div>
         <div class="footer-col">
-          <div class="footer-col-title">DEVELOPERS</div>
+          <h5>Developers</h5>
           <ul>
             <li><a href="https://github.com/toolveto/toolveto" target="_blank" rel="noreferrer">GitHub Repository</a></li>
             <li><a href="./state-of-mcp.html">State of MCP 2026</a></li>
@@ -531,7 +556,7 @@
           </ul>
         </div>
         <div class="footer-col">
-          <div class="footer-col-title">COMMUNITY</div>
+          <h5>Community</h5>
           <ul>
             <li><a href="https://x.com/toolveto" target="_blank" rel="noreferrer">Twitter / X</a></li>
             <li><a href="https://discord.gg/toolveto" target="_blank" rel="noreferrer">Discord Community</a></li>
@@ -539,9 +564,11 @@
           </ul>
         </div>
       </div>
-    </div>
-    <div class="footer-bottom">
-      <div>&copy; 2026 ToolVeto Technologies Inc. Open-source core under MIT License.</div>
+
+      <div class="footer-bottom">
+        <div>&copy; 2026 ToolVeto Technologies Inc. Open-source core under MIT License.</div>
+        <div>Built for the Model Context Protocol ecosystem.</div>
+      </div>
     </div>
   </footer>
 
@@ -565,6 +592,8 @@
       document.getElementById('stat-tokens').innerText = (tokens > 1000000 ? (tokens / 1000000).toFixed(1) + 'M' : Math.round(tokens / 1000) + 'k') + ' tok';
       document.getElementById('stat-roi').innerText = roi.toLocaleString() + '×';
     }
+    document.addEventListener('DOMContentLoaded', updateRoi);
+    updateRoi();
   </script>
 </body>
 </html>

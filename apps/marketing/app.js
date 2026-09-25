@@ -254,7 +254,6 @@ if (typeof document !== "undefined") {
     initHeroChaosCanvas();
     initHeroFlightDeck();
     initWaveformOscilloscope();
-    initAudioSynthesizer();
     initBentoSpotlight();
     initRoiSlider();
   });
@@ -907,7 +906,6 @@ function initHeroFlightDeck() {
   if (btnReplay) {
     btnReplay.addEventListener("click", () => {
       setActive(btnReplay);
-      audioSynth.crash();
       if (chaosCanvasBurst) chaosCanvasBurst();
       if (needle) needle.style.transform = "rotate(50deg)";
       setDialColor("#ff3355");
@@ -938,7 +936,6 @@ function initHeroFlightDeck() {
   if (btnContext) {
     btnContext.addEventListener("click", () => {
       setActive(btnContext);
-      audioSynth.crash();
       if (chaosCanvasBurst) chaosCanvasBurst();
       if (needle) needle.style.transform = "rotate(62deg)";
       setDialColor("#ff3355");
@@ -969,7 +966,6 @@ function initHeroFlightDeck() {
   if (btnLoop) {
     btnLoop.addEventListener("click", () => {
       setActive(btnLoop);
-      audioSynth.crash();
       if (chaosCanvasBurst) chaosCanvasBurst();
       if (needle) needle.style.transform = "rotate(40deg)";
       setDialColor("#ff7a00");
@@ -1000,7 +996,6 @@ function initHeroFlightDeck() {
   if (btnAirbag) {
     btnAirbag.addEventListener("click", () => {
       setActive(btnAirbag);
-      audioSynth.airbag();
       if (needle) needle.style.transform = "rotate(-45deg)";
       setDialColor("#00f5a0");
       if (window.setHudWaveformState) window.setHudWaveformState("safe");
@@ -1113,100 +1108,7 @@ function initWaveformOscilloscope() {
   requestAnimationFrame(drawWaveform);
 }
 
-// 10. Web Audio API Cyber Synthesizer
-const audioSynth = {
-  enabled: false,
-  ctx: null,
-  init() {
-    if (!this.ctx) {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      if (AudioCtx) this.ctx = new AudioCtx();
-    }
-    if (this.ctx && this.ctx.state === "suspended") {
-      this.ctx.resume();
-    }
-  },
-  toggle() {
-    this.init();
-    this.enabled = !this.enabled;
-    return this.enabled;
-  },
-  click() {
-    if (!this.enabled || !this.ctx) return;
-    try {
-      const osc = this.ctx.createOscillator();
-      const gain = this.ctx.createGain();
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(1200, this.ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(800, this.ctx.currentTime + 0.015);
-      gain.gain.setValueAtTime(0.06, this.ctx.currentTime);
-      gain.gain.linearRampToValueAtTime(0.001, this.ctx.currentTime + 0.015);
-      osc.connect(gain);
-      gain.connect(this.ctx.destination);
-      osc.start();
-      osc.stop(this.ctx.currentTime + 0.015);
-    } catch (_) {}
-  },
-  crash() {
-    if (!this.enabled || !this.ctx) return;
-    try {
-      const osc = this.ctx.createOscillator();
-      const gain = this.ctx.createGain();
-      osc.type = "sawtooth";
-      osc.frequency.setValueAtTime(110, this.ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(35, this.ctx.currentTime + 0.14);
-      gain.gain.setValueAtTime(0.15, this.ctx.currentTime);
-      gain.gain.linearRampToValueAtTime(0.001, this.ctx.currentTime + 0.14);
-      osc.connect(gain);
-      gain.connect(this.ctx.destination);
-      osc.start();
-      osc.stop(this.ctx.currentTime + 0.14);
-    } catch (_) {}
-  },
-  airbag() {
-    if (!this.enabled || !this.ctx) return;
-    try {
-      const t = this.ctx.currentTime;
-      [440, 554.37, 659.25, 880].forEach((freq, i) => {
-        const osc = this.ctx.createOscillator();
-        const gain = this.ctx.createGain();
-        osc.type = "triangle";
-        osc.frequency.setValueAtTime(freq, t + i * 0.04);
-        gain.gain.setValueAtTime(0.06, t + i * 0.04);
-        gain.gain.exponentialRampToValueAtTime(0.001, t + i * 0.04 + 0.22);
-        osc.connect(gain);
-        gain.connect(this.ctx.destination);
-        osc.start(t + i * 0.04);
-        osc.stop(t + i * 0.04 + 0.22);
-      });
-    } catch (_) {}
-  }
-};
-
-function initAudioSynthesizer() {
-  const toggleBtn = document.getElementById("btn-audio-toggle");
-  const toggleText = document.getElementById("audio-toggle-text");
-  if (!toggleBtn) return;
-
-  toggleBtn.addEventListener("click", () => {
-    const isNowOn = audioSynth.toggle();
-    if (isNowOn) {
-      toggleBtn.classList.add("active");
-      if (toggleText) toggleText.textContent = "SFX: ON";
-      audioSynth.airbag();
-    } else {
-      toggleBtn.classList.remove("active");
-      if (toggleText) toggleText.textContent = "SFX: OFF";
-    }
-  });
-
-  // Attach hover clicks to interactive elements
-  document.querySelectorAll("button, a.btn-primary, a.btn-github, .nav-link, .btn-chaos-trigger").forEach(el => {
-    el.addEventListener("mouseenter", () => audioSynth.click());
-  });
-}
-
-// 11. Bento Mouse-Tracking Spotlight Effect
+// 10. Bento Mouse-Tracking Spotlight Effect
 function initBentoSpotlight() {
   const cards = document.querySelectorAll(".spotlight-card, .wrecks-card, .flight-deck-wrapper");
   cards.forEach(card => {
@@ -1241,7 +1143,7 @@ function initRoiSlider() {
 
     // 0.0064% of mutating agent calls encounter transient timeouts leading to replayed duplicates
     const doubleCharges = Math.max(1, Math.round((invocations * 0.000064) * (tools / 8)));
-    const tokenWaste = (invocations * 0.0168).toFixed(1); // M tokens
+    const tokenWaste = ((invocations * 16.8) / 1000000).toFixed(1); // M tokens
     const dollarsSaved = doubleCharges * 340;
     const teamCost = 249;
     const roiMultiplier = ((dollarsSaved - teamCost) / teamCost).toFixed(1);
@@ -1250,6 +1152,18 @@ function initRoiSlider() {
     if (tokensEl) tokensEl.textContent = `${tokenWaste}M`;
     if (dollarsEl) dollarsEl.textContent = `$${dollarsSaved.toLocaleString()}`;
     if (multipleEl) multipleEl.textContent = `${Math.max(1.0, roiMultiplier)}×`;
+
+    updateSliderTrack(invocationsSlider);
+    updateSliderTrack(toolsSlider);
+  }
+
+  function updateSliderTrack(slider) {
+    if (!slider) return;
+    const min = parseFloat(slider.min) || 0;
+    const max = parseFloat(slider.max) || 100;
+    const val = parseFloat(slider.value) || 0;
+    const pct = ((val - min) / (max - min)) * 100;
+    slider.style.background = `linear-gradient(to right, #ff7a00 0%, #ff5500 ${pct}%, rgba(255,255,255,0.12) ${pct}%, rgba(255,255,255,0.12) 100%)`;
   }
 
   if (invocationsSlider) invocationsSlider.addEventListener("input", calculate);
