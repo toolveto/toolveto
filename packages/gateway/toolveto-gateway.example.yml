@@ -1,0 +1,32 @@
+# ToolVeto Gateway Multi-Upstream Configuration Example
+version: '1'
+port: 8080
+defaultPolicy: standard # strict | standard | permissive
+
+auth:
+  type: bearer # bearer | passthrough | none
+  secret: "${TOOLVETO_GATEWAY_SECRET:-toolveto-demo-gateway-key}"
+
+upstreams:
+  stripe:
+    url: "https://mcp.stripe.com/v1"
+    prefix: "/stripe"
+    toolPrefix: "stripe_"
+    policy: strict
+    authHeader: "Bearer ${STRIPE_API_KEY}"
+
+  neon:
+    url: "https://mcp.neon.tech/v1"
+    prefix: "/neon"
+    toolPrefix: "neon_"
+    policy: standard
+
+  github:
+    url: "https://mcp.github.com/v1"
+    prefix: "/github"
+    toolPrefix: "github_"
+    policy: standard
+
+  default:
+    url: "http://localhost:3000"
+    policy: standard
