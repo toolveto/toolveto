@@ -251,6 +251,12 @@ if (typeof document !== "undefined") {
     initBenchmarkGrid();
     initDiffModal();
     initStatsCounters();
+    initHeroChaosCanvas();
+    initHeroFlightDeck();
+    initWaveformOscilloscope();
+    initAudioSynthesizer();
+    initBentoSpotlight();
+    initRoiSlider();
   });
 }
 
@@ -656,4 +662,529 @@ function initStatsCounters() {
       stat.textContent = formatted;
     }, 40);
   });
+}
+
+// 7. Hero Interactive Chaos Particle Canvas
+let chaosCanvasBurst = null;
+
+function initHeroChaosCanvas() {
+  const canvas = document.getElementById("chaos-particle-canvas");
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+
+  const parent = canvas.parentElement;
+  let width = (canvas.width = window.innerWidth);
+  let height = (canvas.height = (parent && parent.offsetHeight) ? parent.offsetHeight : 750);
+
+  function onResize() {
+    width = canvas.width = window.innerWidth;
+    height = canvas.height = (parent && parent.offsetHeight) ? parent.offsetHeight : 750;
+  }
+  window.addEventListener("resize", onResize);
+
+  let mouse = { x: -9999, y: -9999, radius: 130 };
+  window.addEventListener("mousemove", (e) => {
+    const rect = canvas.getBoundingClientRect();
+    mouse.x = e.clientX - rect.left;
+    mouse.y = e.clientY - rect.top;
+  });
+  window.addEventListener("mouseleave", () => {
+    mouse.x = -9999;
+    mouse.y = -9999;
+  });
+
+  // Particle pool
+  const particles = [];
+  const PARTICLE_COUNT = 45;
+
+  class Packet {
+    constructor() {
+      this.reset();
+    }
+    reset() {
+      this.x = Math.random() * (width * 0.45);
+      this.y = Math.random() * height;
+      this.vx = 1.2 + Math.random() * 2.2;
+      this.vy = (Math.random() - 0.5) * 0.8;
+      this.radius = 2.5 + Math.random() * 2.5;
+      this.isChaos = Math.random() > 0.45;
+      this.color = this.isChaos ? "#ff3355" : "#00f5a0";
+      this.glowColor = this.isChaos ? "rgba(255, 51, 85, 0.4)" : "rgba(0, 245, 160, 0.4)";
+      this.alpha = 0.4 + Math.random() * 0.6;
+      this.history = [];
+    }
+    update() {
+      // Mouse magnetic repel
+      const dx = mouse.x - this.x;
+      const dy = mouse.y - this.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < mouse.radius && dist > 0) {
+        const force = (mouse.radius - dist) / mouse.radius;
+        this.x -= (dx / dist) * force * 5;
+        this.y -= (dy / dist) * force * 5;
+      }
+
+      this.x += this.vx;
+      this.y += this.vy;
+
+      // History trail
+      this.history.push({ x: this.x, y: this.y });
+      if (this.history.length > 5) this.history.shift();
+
+      // Shield barrier collision at width * 0.58
+      const barrierX = width * 0.58;
+      if (this.isChaos && this.x >= barrierX - 25 && this.x <= barrierX + 15) {
+        // Veto deflection!
+        this.vx = -Math.abs(this.vx) * 0.8;
+        this.alpha *= 0.6;
+        triggerSpark(this.x, this.y, this.color);
+      }
+
+      // Reset when off bounds
+      if (this.x > width + 40 || this.x < -40 || this.y < -40 || this.y > height + 40 || this.alpha < 0.1) {
+        this.reset();
+      }
+    }
+    draw() {
+      // Trail
+      if (this.history.length > 1) {
+        ctx.beginPath();
+        ctx.moveTo(this.history[0].x, this.history[0].y);
+        for (let i = 1; i < this.history.length; i++) {
+          ctx.lineTo(this.history[i].x, this.history[i].y);
+        }
+        ctx.strokeStyle = this.glowColor;
+        ctx.lineWidth = this.radius * 0.7;
+        ctx.stroke();
+      }
+
+      // Packet head
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+      ctx.fillStyle = this.color;
+      ctx.shadowBlur = 10;
+      ctx.shadowColor = this.color;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+  }
+
+  for (let i = 0; i < PARTICLE_COUNT; i++) {
+    particles.push(new Packet());
+  }
+
+  // Sparks array for VETO impacts
+  const sparks = [];
+  function triggerSpark(x, y, color) {
+    for (let i = 0; i < 6; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 1.2 + Math.random() * 3.2;
+      sparks.push({
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        radius: 1.5,
+        color,
+        life: 1.0
+      });
+    }
+  }
+
+  chaosCanvasBurst = function() {
+    const burstX = width * 0.58;
+    const burstY = height * 0.45;
+    for (let i = 0; i < 35; i++) {
+      triggerSpark(burstX + (Math.random() - 0.5) * 50, burstY + (Math.random() - 0.5) * 100, "#ff3355");
+    }
+  };
+
+  let isVisible = true;
+  if ("IntersectionObserver" in window) {
+    const observer = new IntersectionObserver(([entry]) => {
+      isVisible = entry.isIntersecting;
+    }, { threshold: 0.1 });
+    observer.observe(canvas);
+  }
+
+  function animate() {
+    if (isVisible) {
+      ctx.clearRect(0, 0, width, height);
+
+      // Draw subtle defensive shield barrier
+      const barrierX = width * 0.58;
+      const grad = ctx.createLinearGradient(0, 0, 0, height);
+      grad.addColorStop(0, "rgba(255, 122, 0, 0)");
+      grad.addColorStop(0.3, "rgba(255, 122, 0, 0.2)");
+      grad.addColorStop(0.5, "rgba(255, 51, 85, 0.35)");
+      grad.addColorStop(0.7, "rgba(255, 122, 0, 0.2)");
+      grad.addColorStop(1, "rgba(255, 122, 0, 0)");
+
+      ctx.beginPath();
+      ctx.moveTo(barrierX, 60);
+      ctx.quadraticCurveTo(barrierX + 35, height * 0.5, barrierX, height - 60);
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([6, 6]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Update & draw packets
+      for (const p of particles) {
+        p.update();
+        p.draw();
+      }
+
+      // Update & draw sparks
+      for (let i = sparks.length - 1; i >= 0; i--) {
+        const s = sparks[i];
+        s.x += s.vx;
+        s.y += s.vy;
+        s.life -= 0.04;
+        if (s.life <= 0) {
+          sparks.splice(i, 1);
+          continue;
+        }
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.radius * s.life, 0, Math.PI * 2);
+        ctx.fillStyle = s.color;
+        ctx.globalAlpha = s.life;
+        ctx.fill();
+        ctx.globalAlpha = 1.0;
+      }
+    }
+    requestAnimationFrame(animate);
+  }
+  requestAnimationFrame(animate);
+}
+
+// 8. Interactive Flight Deck & Collision Simulator
+function initHeroFlightDeck() {
+  const needle = document.getElementById("hud-gauge-needle");
+  const threatScore = document.getElementById("hud-threat-score");
+  const gaugeLabel = document.getElementById("hud-gauge-label");
+  const gaugeSub = document.getElementById("hud-gauge-sub");
+  const beacon = document.getElementById("hud-beacon");
+  const deckTitle = document.getElementById("hud-deck-title");
+  const terminal = document.getElementById("hud-stream-terminal");
+
+  const btnReplay = document.getElementById("btn-fault-replay");
+  const btnContext = document.getElementById("btn-fault-context");
+  const btnLoop = document.getElementById("btn-fault-loop");
+  const btnAirbag = document.getElementById("btn-fault-airbag");
+
+  const buttons = [btnReplay, btnContext, btnLoop, btnAirbag];
+
+  function setActive(btn) {
+    buttons.forEach(b => b && b.classList.remove("active"));
+    if (btn) btn.classList.add("active");
+  }
+
+  function appendStreamLines(lines) {
+    if (!terminal) return;
+    terminal.innerHTML = "";
+    lines.forEach((l, idx) => {
+      const el = document.createElement("div");
+      el.className = `terminal-stream-line ${l.type || ""}`;
+      el.textContent = l.text;
+      el.style.opacity = "0";
+      terminal.appendChild(el);
+      setTimeout(() => {
+        el.style.transition = "opacity 0.2s ease";
+        el.style.opacity = "1";
+        terminal.scrollTop = terminal.scrollHeight;
+      }, idx * 60);
+    });
+  }
+
+  if (btnReplay) {
+    btnReplay.addEventListener("click", () => {
+      setActive(btnReplay);
+      audioSynth.crash();
+      if (chaosCanvasBurst) chaosCanvasBurst();
+      if (needle) needle.style.transform = "rotate(50deg)";
+      if (threatScore) {
+        threatScore.textContent = "94";
+        threatScore.className = "gauge-val danger";
+      }
+      if (gaugeLabel) {
+        gaugeLabel.textContent = "🔴 CRITICAL VETO ENGAGED";
+        gaugeLabel.style.color = "#ff4757";
+      }
+      if (gaugeSub) gaugeSub.textContent = "Missing idempotency key: $340 double charge risk";
+      if (beacon) beacon.className = "beacon-pulse red";
+      if (deckTitle) deckTitle.textContent = "INJECT: 10× CONCURRENT REPLAY";
+
+      appendStreamLines([
+        { text: "// Fault Injected: 10× Simultaneous Replays on 504 Timeout", type: "dim" },
+        { text: "[0.00s] > tools/call: stripe.create_payment_intent({ amount: 3400 })", type: "" },
+        { text: "[1.20s] ! 504 Gateway Timeout from socket", type: "warn" },
+        { text: "[1.22s] > Replay storm: 10 concurrent requests fired in Δt < 15ms", type: "warn" },
+        { text: "[1.25s] ❌ FATAL VETO (TC-IDEMP-001): Zero deduplication key found", type: "err" },
+        { text: "[1.26s] 💥 Merge Gate Blocked: Direct overcharge vulnerability", type: "err" }
+      ]);
+    });
+  }
+
+  if (btnContext) {
+    btnContext.addEventListener("click", () => {
+      setActive(btnContext);
+      audioSynth.crash();
+      if (chaosCanvasBurst) chaosCanvasBurst();
+      if (needle) needle.style.transform = "rotate(62deg)";
+      if (threatScore) {
+        threatScore.textContent = "98";
+        threatScore.className = "gauge-val danger";
+      }
+      if (gaugeLabel) {
+        gaugeLabel.textContent = "💣 VETO_DATALOSS (CONTEXT BOMB)";
+        gaugeLabel.style.color = "#ff4757";
+      }
+      if (gaugeSub) gaugeSub.textContent = "57,200 tokens dumped; prompt window eviction";
+      if (beacon) beacon.className = "beacon-pulse red";
+      if (deckTitle) deckTitle.textContent = "INJECT: 57k CONTEXT BOMB";
+
+      appendStreamLines([
+        { text: "// Fault Injected: Unbounded list_customers query", type: "dim" },
+        { text: "[0.00s] > tools/call: stripe.list_customers({ status: 'active' })", type: "" },
+        { text: "[0.45s] ! Streaming 2,480 JSON objects (412 KB unpaginated)", type: "warn" },
+        { text: "[0.48s] ⚠️ Token window overflow: 57,200 tokens consumed (44% of context)", type: "warn" },
+        { text: "[0.50s] ❌ FATAL VETO (TC-CTX-001): Query exceeds 8,000 token limit", type: "err" },
+        { text: "[0.52s] 💥 Older system reasoning evicted from LLM memory", type: "err" }
+      ]);
+    });
+  }
+
+  if (btnLoop) {
+    btnLoop.addEventListener("click", () => {
+      setActive(btnLoop);
+      audioSynth.crash();
+      if (chaosCanvasBurst) chaosCanvasBurst();
+      if (needle) needle.style.transform = "rotate(40deg)";
+      if (threatScore) {
+        threatScore.textContent = "88";
+        threatScore.className = "gauge-val danger";
+      }
+      if (gaugeLabel) {
+        gaugeLabel.textContent = "🔄 VETO_PANIC (47× RETRY SPIRAL)";
+        gaugeLabel.style.color = "#ff4757";
+      }
+      if (gaugeSub) gaugeSub.textContent = "Raw 500 error causes recursive agent retry spiral";
+      if (beacon) beacon.className = "beacon-pulse red";
+      if (deckTitle) deckTitle.textContent = "INJECT: 47× RETRY SPIRAL";
+
+      appendStreamLines([
+        { text: "// Fault Injected: Cryptic 500 stack trace returned to LLM", type: "dim" },
+        { text: "[0.00s] > tools/call: schedule_meeting({ date: 'tomorrow morning' })", type: "" },
+        { text: "[0.12s] ! 500 Internal Server Error: TypeError at parseDate()", type: "err" },
+        { text: "[0.15s] > Agent has no citation for failing field; retrying #2...", type: "warn" },
+        { text: "[1.85s] ! Recursion detected: Identical call repeated 47 times", type: "warn" },
+        { text: "[1.88s] ❌ FATAL VETO (TC-ERR-001): Missing structured self-correction format", type: "err" }
+      ]);
+    });
+  }
+
+  if (btnAirbag) {
+    btnAirbag.addEventListener("click", () => {
+      setActive(btnAirbag);
+      audioSynth.airbag();
+      if (needle) needle.style.transform = "rotate(-45deg)";
+      if (threatScore) {
+        threatScore.textContent = "04";
+        threatScore.className = "gauge-val safe";
+      }
+      if (gaugeLabel) {
+        gaugeLabel.textContent = "🛡️ TOOLVETO AIRBAG DEPLOYED";
+        gaugeLabel.style.color = "#00f5a0";
+      }
+      if (gaugeSub) gaugeSub.textContent = "Atomic deduplication + circuit breaker active (Platinum)";
+      if (beacon) beacon.className = "beacon-pulse green";
+      if (deckTitle) deckTitle.textContent = "TOOLVETO SHIELD: ACTIVE DEFENSE";
+
+      appendStreamLines([
+        { text: "// Engaging @toolveto/shield Runtime Airbag Middleware...", type: "dim" },
+        { text: "[0.00s] 🛡️ Synthesizing atomic IdempotencyKey token on mutation", type: "pass" },
+        { text: "[0.02s] 🛡️ Memory deduplication lock acquired for customer cus_9a2b", type: "pass" },
+        { text: "[0.04s] 🛡️ Sequential replayed calls intercepted & returned cached ch_101", type: "pass" },
+        { text: "[0.05s] 🛡️ Pagination bounds injected: limit=25, cursor forward token", type: "pass" },
+        { text: "✅ EVALUATION PASSED: 100/100 PLATINUM (Φ = 1.0). Zero Overcharges.", type: "pass" }
+      ]);
+    });
+  }
+}
+
+// 9. Live Waveform Oscilloscope
+function initWaveformOscilloscope() {
+  const canvas = document.getElementById("hud-waveform-canvas");
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+
+  let step = 0;
+  function drawWaveform() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.beginPath();
+    ctx.moveTo(0, canvas.height / 2);
+
+    for (let x = 0; x < canvas.width; x++) {
+      const y = (canvas.height / 2) + Math.sin((x * 0.08) + step) * 8 * Math.cos((x * 0.03) + (step * 0.5));
+      ctx.lineTo(x, y);
+    }
+
+    ctx.strokeStyle = "#00f5a0";
+    ctx.lineWidth = 1.5;
+    ctx.shadowBlur = 8;
+    ctx.shadowColor = "rgba(0, 245, 160, 0.5)";
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    step += 0.08;
+    requestAnimationFrame(drawWaveform);
+  }
+  requestAnimationFrame(drawWaveform);
+}
+
+// 10. Web Audio API Cyber Synthesizer
+const audioSynth = {
+  enabled: false,
+  ctx: null,
+  init() {
+    if (!this.ctx) {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (AudioCtx) this.ctx = new AudioCtx();
+    }
+    if (this.ctx && this.ctx.state === "suspended") {
+      this.ctx.resume();
+    }
+  },
+  toggle() {
+    this.init();
+    this.enabled = !this.enabled;
+    return this.enabled;
+  },
+  click() {
+    if (!this.enabled || !this.ctx) return;
+    try {
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(1200, this.ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(800, this.ctx.currentTime + 0.015);
+      gain.gain.setValueAtTime(0.06, this.ctx.currentTime);
+      gain.gain.linearRampToValueAtTime(0.001, this.ctx.currentTime + 0.015);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start();
+      osc.stop(this.ctx.currentTime + 0.015);
+    } catch (_) {}
+  },
+  crash() {
+    if (!this.enabled || !this.ctx) return;
+    try {
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(110, this.ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(35, this.ctx.currentTime + 0.14);
+      gain.gain.setValueAtTime(0.15, this.ctx.currentTime);
+      gain.gain.linearRampToValueAtTime(0.001, this.ctx.currentTime + 0.14);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start();
+      osc.stop(this.ctx.currentTime + 0.14);
+    } catch (_) {}
+  },
+  airbag() {
+    if (!this.enabled || !this.ctx) return;
+    try {
+      const t = this.ctx.currentTime;
+      [440, 554.37, 659.25, 880].forEach((freq, i) => {
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = "triangle";
+        osc.frequency.setValueAtTime(freq, t + i * 0.04);
+        gain.gain.setValueAtTime(0.06, t + i * 0.04);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + i * 0.04 + 0.22);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(t + i * 0.04);
+        osc.stop(t + i * 0.04 + 0.22);
+      });
+    } catch (_) {}
+  }
+};
+
+function initAudioSynthesizer() {
+  const toggleBtn = document.getElementById("btn-audio-toggle");
+  const toggleText = document.getElementById("audio-toggle-text");
+  if (!toggleBtn) return;
+
+  toggleBtn.addEventListener("click", () => {
+    const isNowOn = audioSynth.toggle();
+    if (isNowOn) {
+      toggleBtn.classList.add("active");
+      if (toggleText) toggleText.textContent = "SFX: ON";
+      audioSynth.airbag();
+    } else {
+      toggleBtn.classList.remove("active");
+      if (toggleText) toggleText.textContent = "SFX: OFF";
+    }
+  });
+
+  // Attach hover clicks to interactive elements
+  document.querySelectorAll("button, a.btn-primary, a.btn-github, .nav-link, .btn-chaos-trigger").forEach(el => {
+    el.addEventListener("mouseenter", () => audioSynth.click());
+  });
+}
+
+// 11. Bento Mouse-Tracking Spotlight Effect
+function initBentoSpotlight() {
+  const cards = document.querySelectorAll(".spotlight-card, .wrecks-card, .flight-deck-wrapper");
+  cards.forEach(card => {
+    card.addEventListener("mousemove", (e) => {
+      const rect = card.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      card.style.setProperty("--mouse-x", `${x}px`);
+      card.style.setProperty("--mouse-y", `${y}px`);
+    });
+  });
+}
+
+// 12. Interactive Incident & ROI Dynamic Calculator
+function initRoiSlider() {
+  const invocationsSlider = document.getElementById("roi-invocations-slider");
+  const toolsSlider = document.getElementById("roi-tools-slider");
+  const invocationsVal = document.getElementById("roi-invocations-val");
+  const toolsVal = document.getElementById("roi-tools-val");
+
+  const chargesEl = document.getElementById("roi-charges-prevented");
+  const tokensEl = document.getElementById("roi-tokens-saved");
+  const dollarsEl = document.getElementById("roi-dollars-saved");
+  const multipleEl = document.getElementById("roi-multiple-val");
+
+  function calculate() {
+    const invocations = parseInt(invocationsSlider ? invocationsSlider.value : 250000, 10);
+    const tools = parseInt(toolsSlider ? toolsSlider.value : 8, 10);
+
+    if (invocationsVal) invocationsVal.textContent = `${(invocations).toLocaleString()} / mo`;
+    if (toolsVal) toolsVal.textContent = `${tools} Tools`;
+
+    // 0.0064% of mutating agent calls encounter transient timeouts leading to replayed duplicates
+    const doubleCharges = Math.max(1, Math.round((invocations * 0.000064) * (tools / 8)));
+    const tokenWaste = (invocations * 0.0168).toFixed(1); // M tokens
+    const dollarsSaved = doubleCharges * 340;
+    const teamCost = 249;
+    const roiMultiplier = ((dollarsSaved - teamCost) / teamCost).toFixed(1);
+
+    if (chargesEl) chargesEl.textContent = doubleCharges;
+    if (tokensEl) tokensEl.textContent = `${tokenWaste}M`;
+    if (dollarsEl) dollarsEl.textContent = `$${dollarsSaved.toLocaleString()}`;
+    if (multipleEl) multipleEl.textContent = `${Math.max(1.0, roiMultiplier)}×`;
+  }
+
+  if (invocationsSlider) invocationsSlider.addEventListener("input", calculate);
+  if (toolsSlider) toolsSlider.addEventListener("input", calculate);
+  calculate();
 }

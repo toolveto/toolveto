@@ -186,12 +186,41 @@
   </style>
 </head>
 <body>
+  <!-- Global SVG Gradient & Filter Defs for Holographic Brand Mark -->
+  <svg style="position: absolute; width: 0; height: 0; overflow: hidden;" aria-hidden="true">
+    <defs>
+      <linearGradient id="tv-grad-shield" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#ff9900" />
+        <stop offset="50%" stop-color="#ff3355" />
+        <stop offset="100%" stop-color="#880033" />
+      </linearGradient>
+      <linearGradient id="tv-grad-core" x1="0%" y1="0%" x2="0%" y2="100%">
+        <stop offset="0%" stop-color="#ffffff" />
+        <stop offset="100%" stop-color="#ffa040" />
+      </linearGradient>
+      <linearGradient id="tv-grad-border" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#ffffff" stop-opacity="0.8" />
+        <stop offset="50%" stop-color="#ff7a00" stop-opacity="0.5" />
+        <stop offset="100%" stop-color="#ff0055" stop-opacity="0.9" />
+      </linearGradient>
+      <filter id="tv-logo-glow" x="-20%" y="-20%" width="140%" height="140%">
+        <feDropShadow dx="0" dy="0" stdDeviation="3" flood-color="#ff7a00" flood-opacity="0.5" />
+      </filter>
+    </defs>
+  </svg>
+
   <!-- Header / Navigation -->
   <header class="site-header">
     <div class="header-container">
       <a href="./index.html" class="brand-link">
-        <div class="brand-logo">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+        <div class="brand-logo-icon">
+          <svg width="24" height="24" viewBox="0 0 40 40" fill="none">
+            <path d="M20 4.5 L33 9.5 V21 C33 29 20 35 20 35 C20 35 7 29 7 21 V9.5 L20 4.5 Z" fill="#0a0d16" stroke="url(#tv-grad-border)" stroke-width="2" stroke-linejoin="round" />
+            <path d="M20 6 L31.5 10.5 V20.5 C31.5 27 20 32.5 20 32.5 V6 Z" fill="url(#tv-grad-shield)" fill-opacity="0.95" />
+            <path d="M20 6 L8.5 10.5 V20.5 C8.5 27 20 32.5 20 32.5 V6 Z" fill="url(#tv-grad-shield)" fill-opacity="0.65" />
+            <path d="M14 14.5 L20 25.5 L26 14.5 L23 14.5 L20 20 L17 14.5 Z" fill="url(#tv-grad-core)" />
+            <circle cx="20" cy="20" r="1.5" fill="#ffffff" />
+          </svg>
         </div>
         <div class="brand-text">Tool<span>Veto</span></div>
         <span class="brand-badge">DOCS</span>

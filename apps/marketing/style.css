@@ -1834,8 +1834,13 @@ code, pre {
   .benchmark-stats-banner,
   .evidence-grid,
   .pricing-grid,
-  .footer-grid {
+  .footer-grid,
+  .roi-results-grid {
     grid-template-columns: 1fr;
+  }
+
+  .chaos-injector-bar {
+    grid-template-columns: repeat(2, 1fr);
   }
 
   .wrecks-nav {
@@ -1851,3 +1856,415 @@ code, pre {
     font-size: 2.2rem;
   }
 }
+
+/* ==========================================================================
+   IMAGINATION UPGRADE: High-End Futuristic Cybernetics & Animations
+   ========================================================================== */
+
+/* Upgraded Holographic Brand Logo */
+.brand-logo-icon {
+  width: 40px;
+  height: 40px;
+  background: #07090e;
+  border: 1px solid rgba(255, 122, 0, 0.45);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 20px -2px rgba(255, 122, 0, 0.5), inset 0 0 14px rgba(255, 122, 0, 0.2);
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s ease, border-color 0.3s ease;
+  flex-shrink: 0;
+}
+
+.brand-logo-icon:hover {
+  transform: scale(1.08) rotate(-2deg);
+  border-color: #ff3355;
+  box-shadow: 0 0 30px rgba(255, 51, 85, 0.7), inset 0 0 16px rgba(255, 122, 0, 0.35);
+}
+
+.brand-logo-icon::after {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: conic-gradient(from 0deg, transparent 0deg, rgba(255, 122, 0, 0.4) 60deg, transparent 120deg);
+  animation: logo-radar 5s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes logo-radar {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Audio Synthesizer Toggle Button */
+.btn-audio-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-audio-toggle:hover {
+  border-color: var(--accent-orange);
+  color: var(--text-primary);
+  background: rgba(255, 122, 0, 0.08);
+}
+
+.btn-audio-toggle.active {
+  border-color: var(--accent-green);
+  color: var(--accent-green);
+  background: rgba(0, 245, 160, 0.1);
+  box-shadow: 0 0 14px rgba(0, 245, 160, 0.3);
+}
+
+/* Hero Background Chaos Particle Canvas */
+.hero-chaos-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.85;
+  mix-blend-mode: screen;
+}
+
+/* Interactive Flight Deck HUD */
+.flight-deck-wrapper {
+  background: #080b15;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 20px 50px -10px rgba(0, 0, 0, 0.85), 0 0 45px -10px rgba(255, 122, 0, 0.3);
+  overflow: hidden;
+  position: relative;
+  z-index: 1;
+}
+
+.flight-deck-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 18px;
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid var(--border-subtle);
+  font-family: var(--font-mono);
+  font-size: 0.775rem;
+}
+
+.beacon-pulse {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background: #ff7a00;
+  border-radius: 50%;
+  box-shadow: 0 0 10px #ff7a00;
+  animation: pulse-dot 1.5s infinite;
+  margin-right: 6px;
+}
+
+.beacon-pulse.green {
+  background: #00f5a0;
+  box-shadow: 0 0 10px #00f5a0;
+}
+
+.beacon-pulse.red {
+  background: #ff3355;
+  box-shadow: 0 0 10px #ff3355;
+}
+
+/* Speedometer Threat Gauge & Waveform Bar */
+.gauge-section {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  background: rgba(0, 0, 0, 0.45);
+  border-bottom: 1px solid var(--border-subtle);
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.hud-gauge-container {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.speedometer-svg {
+  filter: drop-shadow(0 0 12px rgba(255, 51, 85, 0.35));
+  overflow: visible;
+}
+
+.gauge-readout {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: -14px;
+}
+
+.gauge-val {
+  font-family: var(--font-mono);
+  font-size: 1.4rem;
+  font-weight: 800;
+  line-height: 1;
+  transition: color 0.4s ease;
+}
+
+.gauge-val.danger {
+  color: #ff3355;
+  text-shadow: 0 0 10px rgba(255, 51, 85, 0.6);
+}
+
+.gauge-val.safe {
+  color: #00f5a0;
+  text-shadow: 0 0 10px rgba(0, 245, 160, 0.6);
+}
+
+.gauge-unit {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+}
+
+.gauge-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.gauge-status-label {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #ff4757;
+  letter-spacing: 0.04em;
+  transition: color 0.3s ease;
+}
+
+.gauge-sub {
+  font-size: 0.775rem;
+  color: var(--text-secondary);
+}
+
+.waveform-box {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.waveform-label {
+  font-family: var(--font-mono);
+  font-size: 0.675rem;
+  color: var(--text-muted);
+  letter-spacing: 0.06em;
+}
+
+#hud-waveform-canvas {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  background: #03050a;
+}
+
+/* Chaos Trigger Control Bar */
+.chaos-injector-bar {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  padding: 14px 18px;
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.btn-chaos-trigger {
+  padding: 8px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 0.725rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.btn-chaos-trigger:hover {
+  background: rgba(255, 122, 0, 0.14);
+  border-color: var(--accent-orange);
+  color: #fff;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(255, 122, 0, 0.25);
+}
+
+.btn-chaos-trigger.active {
+  background: rgba(255, 51, 85, 0.2);
+  border-color: var(--accent-red);
+  color: #fff;
+  box-shadow: 0 0 16px rgba(255, 51, 85, 0.45);
+}
+
+.btn-chaos-trigger.airbag {
+  background: rgba(0, 245, 160, 0.1);
+  border-color: rgba(0, 245, 160, 0.4);
+  color: var(--accent-green);
+  font-weight: 700;
+}
+
+.btn-chaos-trigger.airbag:hover,
+.btn-chaos-trigger.airbag.active {
+  background: rgba(0, 245, 160, 0.25);
+  border-color: var(--accent-green);
+  color: #fff;
+  box-shadow: 0 0 18px rgba(0, 245, 160, 0.5);
+}
+
+/* Flight Deck Real-Time Terminal Feed */
+.flight-deck-terminal {
+  padding: 14px 18px;
+  background: #05070c;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.55;
+  min-height: 140px;
+  max-height: 180px;
+  overflow-y: auto;
+  color: #cbd5e1;
+}
+
+.terminal-stream-line {
+  margin-bottom: 4px;
+}
+
+.terminal-stream-line.err {
+  color: #ff4757;
+  font-weight: 600;
+}
+
+.terminal-stream-line.warn {
+  color: #ffa502;
+}
+
+.terminal-stream-line.pass {
+  color: #00f5a0;
+  font-weight: 700;
+}
+
+.terminal-stream-line.dim {
+  color: #64748b;
+}
+
+/* Bento Mouse-Tracking Spotlight Effect */
+.spotlight-card {
+  position: relative;
+  background: rgba(14, 18, 30, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.spotlight-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(450px circle at var(--mouse-x, -999px) var(--mouse-y, -999px), rgba(255, 122, 0, 0.18), transparent 50%);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.spotlight-card:hover::before {
+  opacity: 1;
+}
+
+.spotlight-card:hover {
+  transform: translateY(-4px) scale(1.01);
+  border-color: rgba(255, 122, 0, 0.45);
+  box-shadow: 0 16px 40px -12px rgba(0, 0, 0, 0.8), 0 0 24px -4px rgba(255, 122, 0, 0.25);
+}
+
+/* Interactive ROI Dynamic Calculator Widget */
+.roi-calculator-box {
+  background: rgba(14, 18, 30, 0.85);
+  border: 1px solid rgba(255, 122, 0, 0.35);
+  border-radius: var(--radius-lg);
+  padding: 36px;
+  box-shadow: 0 20px 50px -10px rgba(0, 0, 0, 0.8), 0 0 35px -10px rgba(255, 122, 0, 0.25);
+  margin-top: 48px;
+}
+
+.roi-slider-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.roi-slider-label {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+}
+
+.roi-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  outline: none;
+}
+
+.roi-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent-orange);
+  cursor: pointer;
+  box-shadow: 0 0 14px var(--accent-orange);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.roi-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.3);
+  background: #ff9900;
+}
+
+.roi-results-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+  padding-top: 28px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.roi-stat-num {
+  font-family: var(--font-mono);
+  font-size: 1.85rem;
+  font-weight: 800;
+  color: var(--accent-green);
+  text-shadow: 0 0 16px rgba(0, 245, 160, 0.45);
+}
+
