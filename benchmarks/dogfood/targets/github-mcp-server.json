@@ -1,0 +1,65 @@
+{
+  "repo": "github/github-mcp-server",
+  "name": "GitHub Official MCP Server",
+  "stars": 15800,
+  "description": "GitHub MCP server for issues, pull requests, repository management, and code search",
+  "tools": [
+    {
+      "name": "create_issue",
+      "description": "Creates a new issue in a GitHub repository",
+      "isMutation": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "owner": { "type": "string", "description": "Repository owner" },
+          "repo": { "type": "string", "description": "Repository name" },
+          "title": { "type": "string", "description": "Issue title" },
+          "body": { "type": "string", "description": "Markdown body" }
+        },
+        "required": ["owner", "repo", "title"]
+      }
+    },
+    {
+      "name": "get_issue",
+      "description": "Retrieves issue metadata, comments, and current state",
+      "isMutation": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "owner": { "type": "string", "description": "Owner" },
+          "repo": { "type": "string", "description": "Repo" },
+          "issue_number": { "type": "integer", "description": "Issue number" }
+        },
+        "required": ["owner", "repo", "issue_number"]
+      }
+    },
+    {
+      "name": "list_pull_requests",
+      "description": "Lists pull requests in repository",
+      "isMutation": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "owner": { "type": "string", "description": "Owner" },
+          "repo": { "type": "string", "description": "Repo" }
+        },
+        "required": ["owner", "repo"]
+      }
+    },
+    {
+      "name": "merge_pull_request",
+      "description": "Merges an approved pull request into target branch",
+      "isMutation": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "owner": { "type": "string", "description": "Owner" },
+          "repo": { "type": "string", "description": "Repo" },
+          "pull_number": { "type": "integer", "description": "PR number" },
+          "commit_message": { "type": "string", "description": "Commit title" }
+        },
+        "required": ["owner", "repo", "pull_number"]
+      }
+    }
+  ]
+}

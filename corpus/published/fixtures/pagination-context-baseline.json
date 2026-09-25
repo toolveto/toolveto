@@ -1,0 +1,9 @@
+{
+  "version": "1.0",
+  "test_class": "TC-CTX-HYGIENE",
+  "rules": {
+    "max_default_limit": 50,
+    "max_response_token_budget": 4000,
+    "required_query_list_parameters": ["limit", "cursor"]
+  }
+}

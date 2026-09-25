@@ -1,0 +1,1028 @@
+{
+  "target": "modelcontextprotocol/servers",
+  "totalChecks": 60,
+  "passed": 40,
+  "failed": 8,
+  "warned": 12,
+  "fatalVetoTriggered": true,
+  "fatalVetoCode": "VETO_NONE",
+  "phi": 1,
+  "score": 78,
+  "tier": "Silver",
+  "durationMs": 0,
+  "llmTokensUsed": 0,
+  "dimensionalScores": {
+    "D1": {
+      "score": 60,
+      "weight": 0.3,
+      "metrics": {}
+    },
+    "D2": {
+      "score": 83,
+      "weight": 0.25,
+      "metrics": {}
+    },
+    "D3": {
+      "score": 88,
+      "weight": 0.25,
+      "metrics": {}
+    },
+    "D4": {
+      "score": 100,
+      "weight": 0.1,
+      "metrics": {}
+    },
+    "D5": {
+      "score": 70,
+      "weight": 0.1,
+      "metrics": {}
+    }
+  },
+  "results": [
+    {
+      "checkId": "TC-IDEMP-001",
+      "dimension": "D1",
+      "tool": "fetch",
+      "status": "PASS",
+      "severity": "CRITICAL",
+      "description": "Idempotency key parameter found on 'fetch'",
+      "evidence": {
+        "requestsSent": 5,
+        "mutationsCreated": 1,
+        "expectedMutations": 1,
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-002",
+      "dimension": "D1",
+      "tool": "fetch",
+      "status": "PASS",
+      "severity": "CRITICAL",
+      "description": "Pure query tool 'fetch' is free from concurrent mutation race conditions",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-003",
+      "dimension": "D1",
+      "tool": "fetch",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Query tool 'fetch' is read-only and does not require explicit idempotency key",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-FUZZ-001",
+      "dimension": "D2",
+      "tool": "fetch",
+      "status": "PASS",
+      "severity": "HIGH",
+      "description": "Fuzz tests on 'fetch' parameters conform to schema contracts",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-FUZZ-002",
+      "dimension": "D2",
+      "tool": "fetch",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "Tool 'fetch' does not specify 'additionalProperties: false', allowing hallucinated LLM arguments through",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'additionalProperties: false' to inputSchema",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "json-schema",
+            "code": "+ \"additionalProperties\": false"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-ERR-001",
+      "dimension": "D2",
+      "tool": "fetch",
+      "status": "PASS",
+      "severity": "HIGH",
+      "description": "Tool 'fetch' has no strict semantic date formats requiring healing evaluation",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-CTX-001",
+      "dimension": "D3",
+      "tool": "fetch",
+      "status": "PASS",
+      "severity": "CRITICAL",
+      "description": "Token budget compliance passed: payload size is well within agent limits",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SCHEMA-001",
+      "dimension": "D3",
+      "tool": "fetch",
+      "status": "PASS",
+      "severity": "MEDIUM",
+      "description": "Pagination parameters properly defined on 'fetch'",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SCHEMA-002",
+      "dimension": "D3",
+      "tool": "fetch",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool description clarity adequate (61 chars)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SCHEMA-003",
+      "dimension": "D3",
+      "tool": "fetch",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "Schema boundary vulnerability: Tool 'fetch' omits 'additionalProperties: false', allowing hallucinated LLM properties to leak into backend logic",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'additionalProperties: false' or .strict() validation",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "json-schema",
+            "code": "+ \"additionalProperties\": false"
+          },
+          {
+            "language": "typescript-zod",
+            "code": "+ z.object({ ... }).strict()"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-PAIR-001",
+      "dimension": "D5",
+      "tool": "fetch",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Query tool 'fetch' is an inspection tool",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-DRYRUN-001",
+      "dimension": "D5",
+      "tool": "fetch",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Query tool 'fetch' has no side-effects and does not require dry_run parameter",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-001",
+      "dimension": "D1",
+      "tool": "filesystem_read_file",
+      "status": "PASS",
+      "severity": "CRITICAL",
+      "description": "Idempotency key parameter found on 'filesystem_read_file'",
+      "evidence": {
+        "requestsSent": 5,
+        "mutationsCreated": 1,
+        "expectedMutations": 1,
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-002",
+      "dimension": "D1",
+      "tool": "filesystem_read_file",
+      "status": "PASS",
+      "severity": "CRITICAL",
+      "description": "Pure query tool 'filesystem_read_file' is free from concurrent mutation race conditions",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-003",
+      "dimension": "D1",
+      "tool": "filesystem_read_file",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Query tool 'filesystem_read_file' is read-only and does not require explicit idempotency key",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-FUZZ-001",
+      "dimension": "D2",
+      "tool": "filesystem_read_file",
+      "status": "PASS",
+      "severity": "HIGH",
+      "description": "Fuzz tests on 'filesystem_read_file' parameters conform to schema contracts",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-FUZZ-002",
+      "dimension": "D2",
+      "tool": "filesystem_read_file",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "Tool 'filesystem_read_file' does not specify 'additionalProperties: false', allowing hallucinated LLM arguments through",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'additionalProperties: false' to inputSchema",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "json-schema",
+            "code": "+ \"additionalProperties\": false"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-ERR-001",
+      "dimension": "D2",
+      "tool": "filesystem_read_file",
+      "status": "PASS",
+      "severity": "HIGH",
+      "description": "Tool 'filesystem_read_file' has no strict semantic date formats requiring healing evaluation",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-CTX-001",
+      "dimension": "D3",
+      "tool": "filesystem_read_file",
+      "status": "PASS",
+      "severity": "CRITICAL",
+      "description": "Token budget compliance passed: payload size is well within agent limits",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SCHEMA-001",
+      "dimension": "D3",
+      "tool": "filesystem_read_file",
+      "status": "PASS",
+      "severity": "MEDIUM",
+      "description": "Pagination parameters properly defined on 'filesystem_read_file'",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SCHEMA-002",
+      "dimension": "D3",
+      "tool": "filesystem_read_file",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool description clarity adequate (75 chars)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SCHEMA-003",
+      "dimension": "D3",
+      "tool": "filesystem_read_file",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "Schema boundary vulnerability: Tool 'filesystem_read_file' omits 'additionalProperties: false', allowing hallucinated LLM properties to leak into backend logic",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'additionalProperties: false' or .strict() validation",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "json-schema",
+            "code": "+ \"additionalProperties\": false"
+          },
+          {
+            "language": "typescript-zod",
+            "code": "+ z.object({ ... }).strict()"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-PAIR-001",
+      "dimension": "D5",
+      "tool": "filesystem_read_file",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Query tool 'filesystem_read_file' is an inspection tool",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-DRYRUN-001",
+      "dimension": "D5",
+      "tool": "filesystem_read_file",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Query tool 'filesystem_read_file' has no side-effects and does not require dry_run parameter",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-001",
+      "dimension": "D1",
+      "tool": "filesystem_write_file",
+      "status": "FAIL",
+      "severity": "CRITICAL",
+      "description": "Sequential replay check failed: Mutation tool 'filesystem_write_file' accepts no idempotency key",
+      "evidence": {
+        "requestsSent": 5,
+        "mutationsCreated": 5,
+        "expectedMutations": 1,
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add idempotency_key parameter to tool input schema and deduplicate calls by key/payload hash",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ idempotencyKey: z.string().uuid().describe(\"Unique key to prevent duplicate mutations on retry\")"
+          },
+          {
+            "language": "python-fastmcp",
+            "code": "+ idempotency_key: str = Field(..., description=\"Unique key to prevent duplicate mutations on retry\")"
+          },
+          {
+            "language": "go",
+            "code": "+ IdempotencyKey string `json:\"idempotency_key\" jsonschema:\"description=Unique key to prevent duplicate mutations on retry\"`"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-002",
+      "dimension": "D1",
+      "tool": "filesystem_write_file",
+      "status": "FAIL",
+      "severity": "CRITICAL",
+      "description": "Concurrent burst vulnerability: Tool 'filesystem_write_file' exposes no concurrency lock or idempotency parameter",
+      "evidence": {
+        "requestsSent": 10,
+        "mutationsCreated": 10,
+        "expectedMutations": 1,
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Enforce atomic idempotency key parameter and backend deduplication",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ idempotencyKey: z.string().uuid().describe(\"Unique key for atomic deduplication\")"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-003",
+      "dimension": "D1",
+      "tool": "filesystem_write_file",
+      "status": "FAIL",
+      "severity": "HIGH",
+      "description": "Missing explicit idempotency key in schema definition for mutation tool 'filesystem_write_file'",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'idempotency_key: string' parameter to schema",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ idempotency_key: z.string().uuid().describe(\"Unique token for idempotent request processing\")"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-FUZZ-001",
+      "dimension": "D2",
+      "tool": "filesystem_write_file",
+      "status": "PASS",
+      "severity": "HIGH",
+      "description": "Fuzz tests on 'filesystem_write_file' parameters conform to schema contracts",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-FUZZ-002",
+      "dimension": "D2",
+      "tool": "filesystem_write_file",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "Tool 'filesystem_write_file' does not specify 'additionalProperties: false', allowing hallucinated LLM arguments through",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'additionalProperties: false' to inputSchema",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "json-schema",
+            "code": "+ \"additionalProperties\": false"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-ERR-001",
+      "dimension": "D2",
+      "tool": "filesystem_write_file",
+      "status": "PASS",
+      "severity": "HIGH",
+      "description": "Tool 'filesystem_write_file' has no strict semantic date formats requiring healing evaluation",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-CTX-001",
+      "dimension": "D3",
+      "tool": "filesystem_write_file",
+      "status": "PASS",
+      "severity": "CRITICAL",
+      "description": "Token budget compliance passed: payload size is well within agent limits",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SCHEMA-001",
+      "dimension": "D3",
+      "tool": "filesystem_write_file",
+      "status": "PASS",
+      "severity": "MEDIUM",
+      "description": "Pagination parameters properly defined on 'filesystem_write_file'",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SCHEMA-002",
+      "dimension": "D3",
+      "tool": "filesystem_write_file",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool description clarity adequate (48 chars)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SCHEMA-003",
+      "dimension": "D3",
+      "tool": "filesystem_write_file",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "Schema boundary vulnerability: Tool 'filesystem_write_file' omits 'additionalProperties: false', allowing hallucinated LLM properties to leak into backend logic",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'additionalProperties: false' or .strict() validation",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "json-schema",
+            "code": "+ \"additionalProperties\": false"
+          },
+          {
+            "language": "typescript-zod",
+            "code": "+ z.object({ ... }).strict()"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-PAIR-001",
+      "dimension": "D5",
+      "tool": "filesystem_write_file",
+      "status": "FAIL",
+      "severity": "HIGH",
+      "description": "State auditability blind-write violation: Mutation tool 'filesystem_write_file' lacks companion query tool ('get_filesystem_write_file' or 'read_filesystem_write_file'). Agents cannot verify pre/post state changes",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY",
+        "details": {
+          "targetEntity": "filesystem_write_file",
+          "expectedCompanion": "get_filesystem_write_file"
+        }
+      },
+      "fix": {
+        "summary": "Expose a companion read-only query tool 'get_filesystem_write_file' accepting primary entity ID",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ // Define companion inspection query tool:\n+ server.tool(\"get_filesystem_write_file\", { filesystem_write_file_id: z.string() }, async ({ filesystem_write_file_id }) => {\n+   return { content: [{ type: \"text\", text: JSON.stringify(await db.get(filesystem_write_file_id)) }] };\n+ });"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-DRYRUN-001",
+      "dimension": "D5",
+      "tool": "filesystem_write_file",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "Dry-run transaction simulation missing on mutation tool 'filesystem_write_file'. Agents cannot preview side-effects before persisting real mutations",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add optional 'dry_run: boolean' parameter to allow safe execution preview",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ dry_run: z.boolean().optional().describe(\"If true, validates transaction without persisting state changes\")"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-001",
+      "dimension": "D1",
+      "tool": "git_create_commit",
+      "status": "FAIL",
+      "severity": "CRITICAL",
+      "description": "Sequential replay check failed: Mutation tool 'git_create_commit' accepts no idempotency key",
+      "evidence": {
+        "requestsSent": 5,
+        "mutationsCreated": 5,
+        "expectedMutations": 1,
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add idempotency_key parameter to tool input schema and deduplicate calls by key/payload hash",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ idempotencyKey: z.string().uuid().describe(\"Unique key to prevent duplicate mutations on retry\")"
+          },
+          {
+            "language": "python-fastmcp",
+            "code": "+ idempotency_key: str = Field(..., description=\"Unique key to prevent duplicate mutations on retry\")"
+          },
+          {
+            "language": "go",
+            "code": "+ IdempotencyKey string `json:\"idempotency_key\" jsonschema:\"description=Unique key to prevent duplicate mutations on retry\"`"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-002",
+      "dimension": "D1",
+      "tool": "git_create_commit",
+      "status": "FAIL",
+      "severity": "CRITICAL",
+      "description": "Concurrent burst vulnerability: Tool 'git_create_commit' exposes no concurrency lock or idempotency parameter",
+      "evidence": {
+        "requestsSent": 10,
+        "mutationsCreated": 10,
+        "expectedMutations": 1,
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Enforce atomic idempotency key parameter and backend deduplication",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ idempotencyKey: z.string().uuid().describe(\"Unique key for atomic deduplication\")"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-003",
+      "dimension": "D1",
+      "tool": "git_create_commit",
+      "status": "FAIL",
+      "severity": "HIGH",
+      "description": "Missing explicit idempotency key in schema definition for mutation tool 'git_create_commit'",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'idempotency_key: string' parameter to schema",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ idempotency_key: z.string().uuid().describe(\"Unique token for idempotent request processing\")"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-FUZZ-001",
+      "dimension": "D2",
+      "tool": "git_create_commit",
+      "status": "PASS",
+      "severity": "HIGH",
+      "description": "Fuzz tests on 'git_create_commit' parameters conform to schema contracts",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-FUZZ-002",
+      "dimension": "D2",
+      "tool": "git_create_commit",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "Tool 'git_create_commit' does not specify 'additionalProperties: false', allowing hallucinated LLM arguments through",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'additionalProperties: false' to inputSchema",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "json-schema",
+            "code": "+ \"additionalProperties\": false"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-ERR-001",
+      "dimension": "D2",
+      "tool": "git_create_commit",
+      "status": "PASS",
+      "severity": "HIGH",
+      "description": "Tool 'git_create_commit' has no strict semantic date formats requiring healing evaluation",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-CTX-001",
+      "dimension": "D3",
+      "tool": "git_create_commit",
+      "status": "PASS",
+      "severity": "CRITICAL",
+      "description": "Token budget compliance passed: payload size is well within agent limits",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SCHEMA-001",
+      "dimension": "D3",
+      "tool": "git_create_commit",
+      "status": "PASS",
+      "severity": "MEDIUM",
+      "description": "Pagination parameters properly defined on 'git_create_commit'",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SCHEMA-002",
+      "dimension": "D3",
+      "tool": "git_create_commit",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool description clarity adequate (56 chars)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SCHEMA-003",
+      "dimension": "D3",
+      "tool": "git_create_commit",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "Schema boundary vulnerability: Tool 'git_create_commit' omits 'additionalProperties: false', allowing hallucinated LLM properties to leak into backend logic",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'additionalProperties: false' or .strict() validation",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "json-schema",
+            "code": "+ \"additionalProperties\": false"
+          },
+          {
+            "language": "typescript-zod",
+            "code": "+ z.object({ ... }).strict()"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-PAIR-001",
+      "dimension": "D5",
+      "tool": "git_create_commit",
+      "status": "FAIL",
+      "severity": "HIGH",
+      "description": "State auditability blind-write violation: Mutation tool 'git_create_commit' lacks companion query tool ('get_git_create_commit' or 'read_git_create_commit'). Agents cannot verify pre/post state changes",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY",
+        "details": {
+          "targetEntity": "git_create_commit",
+          "expectedCompanion": "get_git_create_commit"
+        }
+      },
+      "fix": {
+        "summary": "Expose a companion read-only query tool 'get_git_create_commit' accepting primary entity ID",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ // Define companion inspection query tool:\n+ server.tool(\"get_git_create_commit\", { git_create_commit_id: z.string() }, async ({ git_create_commit_id }) => {\n+   return { content: [{ type: \"text\", text: JSON.stringify(await db.get(git_create_commit_id)) }] };\n+ });"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-DRYRUN-001",
+      "dimension": "D5",
+      "tool": "git_create_commit",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "Dry-run transaction simulation missing on mutation tool 'git_create_commit'. Agents cannot preview side-effects before persisting real mutations",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add optional 'dry_run: boolean' parameter to allow safe execution preview",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ dry_run: z.boolean().optional().describe(\"If true, validates transaction without persisting state changes\")"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-001",
+      "dimension": "D1",
+      "tool": "git_status",
+      "status": "PASS",
+      "severity": "CRITICAL",
+      "description": "Idempotency key parameter found on 'git_status'",
+      "evidence": {
+        "requestsSent": 5,
+        "mutationsCreated": 1,
+        "expectedMutations": 1,
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-002",
+      "dimension": "D1",
+      "tool": "git_status",
+      "status": "PASS",
+      "severity": "CRITICAL",
+      "description": "Pure query tool 'git_status' is free from concurrent mutation race conditions",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-003",
+      "dimension": "D1",
+      "tool": "git_status",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Query tool 'git_status' is read-only and does not require explicit idempotency key",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-FUZZ-001",
+      "dimension": "D2",
+      "tool": "git_status",
+      "status": "PASS",
+      "severity": "HIGH",
+      "description": "Fuzz tests on 'git_status' parameters conform to schema contracts",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-FUZZ-002",
+      "dimension": "D2",
+      "tool": "git_status",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "Tool 'git_status' does not specify 'additionalProperties: false', allowing hallucinated LLM arguments through",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'additionalProperties: false' to inputSchema",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "json-schema",
+            "code": "+ \"additionalProperties\": false"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-ERR-001",
+      "dimension": "D2",
+      "tool": "git_status",
+      "status": "PASS",
+      "severity": "HIGH",
+      "description": "Tool 'git_status' has no strict semantic date formats requiring healing evaluation",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-CTX-001",
+      "dimension": "D3",
+      "tool": "git_status",
+      "status": "PASS",
+      "severity": "CRITICAL",
+      "description": "Token budget compliance passed: payload size is well within agent limits",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SCHEMA-001",
+      "dimension": "D3",
+      "tool": "git_status",
+      "status": "PASS",
+      "severity": "MEDIUM",
+      "description": "Pagination parameters properly defined on 'git_status'",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SCHEMA-002",
+      "dimension": "D3",
+      "tool": "git_status",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool description clarity adequate (47 chars)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SCHEMA-003",
+      "dimension": "D3",
+      "tool": "git_status",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "Schema boundary vulnerability: Tool 'git_status' omits 'additionalProperties: false', allowing hallucinated LLM properties to leak into backend logic",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'additionalProperties: false' or .strict() validation",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "json-schema",
+            "code": "+ \"additionalProperties\": false"
+          },
+          {
+            "language": "typescript-zod",
+            "code": "+ z.object({ ... }).strict()"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-PAIR-001",
+      "dimension": "D5",
+      "tool": "git_status",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Query tool 'git_status' is an inspection tool",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-DRYRUN-001",
+      "dimension": "D5",
+      "tool": "git_status",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Query tool 'git_status' has no side-effects and does not require dry_run parameter",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    }
+  ]
+}

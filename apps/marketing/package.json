@@ -1,0 +1,20 @@
+{
+  "name": "@toolveto/marketing",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "description": "ToolVeto Crash Lab Marketing Landing Page & State of MCP 2026 Interactive Report",
+  "scripts": {
+    "dev": "npx serve -l 3000 .",
+    "start": "npx serve -l 3000 ."
+  },
+  "keywords": [
+    "mcp",
+    "modelcontextprotocol",
+    "chaos-testing",
+    "agentic-ai",
+    "landing-page"
+  ],
+  "author": "ToolVeto Team",
+  "license": "BSL-1.1"
+}

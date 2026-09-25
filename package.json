@@ -1,0 +1,28 @@
+{
+  "name": "toolveto-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ToolVeto — Stateful Chaos Testing, CI Gate & Runtime Shield for Model Context Protocol (MCP) Servers",
+  "license": "MIT",
+  "author": "ToolVeto Team",
+  "packageManager": "pnpm@11.12.0",
+  "scripts": {
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "dogfood": "node benchmarks/dogfood/runner.ts",
+    "marketing": "pnpm --filter @toolveto/marketing dev",
+    "bench": "pnpm --filter @toolveto/benchmarks-overhead run bench",
+    "clean": "turbo run clean && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "turbo": "^2.4.4",
+    "typescript": "^5.7.3",
+    "@types/node": "^22.13.1"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  }
+}

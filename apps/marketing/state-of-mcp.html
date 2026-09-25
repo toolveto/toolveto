@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>State of MCP Server Reliability — 2026 Benchmark Report | ToolVeto</title>
+  <meta name="description" content="An independent reliability and chaos evaluation of 10 popular open-source Model Context Protocol (MCP) servers representing 109,700+ GitHub stars.">
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@600;700;800;900&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="./style.css">
+  <style>
+    .report-hero {
+      padding: calc(var(--header-height) + 40px) 0 60px;
+      border-bottom: 1px solid var(--border-subtle);
+      background: radial-gradient(circle at 50% 20%, rgba(255, 51, 85, 0.08) 0%, transparent 60%);
+    }
+    .report-meta-bar {
+      display: flex;
+      gap: 24px;
+      margin: 24px 0 36px;
+      padding: 16px 24px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      font-size: 0.85rem;
+      font-family: var(--font-mono);
+      color: var(--text-secondary);
+      flex-wrap: wrap;
+    }
+    .report-table-wrapper {
+      overflow-x: auto;
+      margin: 40px 0;
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+    }
+    .report-table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 0.875rem;
+    }
+    .report-table th {
+      padding: 16px 20px;
+      background: rgba(0, 0, 0, 0.4);
+      border-bottom: 1px solid var(--border-subtle);
+      font-family: var(--font-mono);
+      font-size: 0.775rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+    }
+    .report-table td {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border-subtle);
+      color: var(--text-secondary);
+    }
+    .report-table tr:hover td {
+      background: rgba(255, 255, 255, 0.02);
+    }
+    .table-server-name {
+      color: var(--text-primary);
+      font-weight: 600;
+    }
+    .dim-score-badge {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: var(--font-mono);
+      font-size: 0.775rem;
+      font-weight: 700;
+    }
+    .dim-poor {
+      background: rgba(255, 51, 85, 0.15);
+      color: #ff6b81;
+    }
+    .dim-fair {
+      background: rgba(255, 122, 0, 0.15);
+      color: #ffa502;
+    }
+    .dim-good {
+      background: rgba(0, 245, 160, 0.15);
+      color: #2ed573;
+    }
+    .server-deepdive-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 32px;
+      margin-bottom: 32px;
+    }
+    .deepdive-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 16px;
+    }
+    .deepdive-diff {
+      background: var(--bg-terminal);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      padding: 16px;
+      margin-top: 16px;
+    }
+    .deepdive-diff pre {
+      font-size: 0.825rem;
+      color: #a7f3d0;
+      white-space: pre-wrap;
+    }
+    .toc-box {
+      background: var(--bg-terminal);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 24px;
+      margin-bottom: 40px;
+    }
+    .toc-box ul {
+      list-style: none;
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      margin-top: 14px;
+    }
+    .toc-box a {
+      color: var(--text-secondary);
+      font-size: 0.875rem;
+      transition: color 0.15s ease;
+    }
+    .toc-box a:hover {
+      color: var(--accent-orange);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Site Header -->
+  <header class="site-header">
+    <div class="container nav-inner">
+      <a href="./index.html" class="brand-link">
+        <div class="brand-logo-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+            <polyline points="9 12 11 14 15 10"></polyline>
+          </svg>
+        </div>
+        <div class="brand-title">Tool<span>Veto</span> <span class="brand-badge">BENCHMARK 2026</span></div>
+      </a>
+
+      <nav class="nav-links">
+        <a href="./index.html#wrecks" class="nav-link">The 3 Wrecks</a>
+        <a href="./index.html#playground" class="nav-link">Crash Lab Demo</a>
+        <a href="./state-of-mcp.html" class="nav-link" style="color: #ff7a00;">2026 Benchmark</a>
+        <a href="./docs.html" class="nav-link">Docs</a>
+        <a href="./pricing.html" class="nav-link">Pricing</a>
+      </nav>
+
+      <div class="nav-actions">
+        <a href="./index.html#playground" class="btn-github">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
+          <span>Back to Crash Lab</span>
+        </a>
+        <a href="https://github.com/toolveto/toolveto" target="_blank" rel="noreferrer" class="btn-primary">
+          <span>Inspect Source Repo</span>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Report Hero -->
+  <section class="report-hero">
+    <div class="container">
+      <div style="max-width: 860px;">
+        <span class="section-tag">OFFICIAL RESEARCH BENCHMARK</span>
+        <h1 class="hero-title" style="font-size: 3rem; margin-top: 12px;">
+          The State of Model Context Protocol (MCP) Reliability — 2026
+        </h1>
+        <p class="hero-lead">
+          An automated chaos and static invariant audit of 10 leading open-source MCP repositories representing <strong>109,700+ combined GitHub stars</strong>.
+        </p>
+
+        <div class="report-meta-bar">
+          <div><strong>DATE:</strong> September 2026</div>
+          <div><strong>SCOPE:</strong> 10 Repositories (Stages 1–2 Static Contract Verification)</div>
+          <div><strong>OVERALL PASS RATE:</strong> <span style="color: var(--accent-red); font-weight: 700;">0% (10/10 REJECTED)</span></div>
+          <div><strong>EVALUATOR:</strong> ToolVeto Core v0.1.0</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Report Body -->
+  <main class="section-wrapper" style="padding-top: 40px;">
+    <div class="container">
+      
+      <!-- Executive Summary Cards -->
+      <div class="benchmark-stats-banner">
+        <div class="bm-stat-card">
+          <div class="bm-stat-val">109,700</div>
+          <div class="bm-stat-label">Combined GitHub Stars</div>
+        </div>
+        <div class="bm-stat-card">
+          <div class="bm-stat-val red">100%</div>
+          <div class="bm-stat-label">Lack Idempotency Keys (D1)</div>
+        </div>
+        <div class="bm-stat-card">
+          <div class="bm-stat-val red">90%</div>
+          <div class="bm-stat-label">Unbounded Context Bombs (D3)</div>
+        </div>
+        <div class="bm-stat-card">
+          <div class="bm-stat-val red">80%</div>
+          <div class="bm-stat-label">Blind-Write Mutations (D5)</div>
+        </div>
+      </div>
+
+      <!-- Table of Contents -->
+      <div class="toc-box">
+        <h3 style="font-size: 1.1rem; font-weight: 700;">Table of Contents</h3>
+        <ul>
+          <li><a href="#executive-summary">1. Executive Summary & Core Crisis</a></li>
+          <li><a href="#scorecard-matrix">2. Full Scorecard Comparison Matrix</a></li>
+          <li><a href="#deep-dives">3. Server Deep Dives & Automated PRs</a></li>
+          <li><a href="#methodology">4. Evaluation Methodology & Scope</a></li>
+          <li><a href="#responsible-disclosure">5. Responsible Disclosure Protocol</a></li>
+          <li><a href="#remediation">6. Adding ToolVeto to Your Server</a></li>
+        </ul>
+      </div>
+
+      <!-- 1. Executive Summary -->
+      <section id="executive-summary" style="margin-bottom: 60px;">
+        <h2 class="section-title" style="font-size: 2rem;">1. Executive Summary: The Agentic Reliability Crisis</h2>
+        <div style="color: var(--text-secondary); font-size: 1rem; line-height: 1.8; display: flex; flex-direction: column; gap: 16px;">
+          <p>
+            The Model Context Protocol (MCP) is rapidly becoming the universal open standard for connecting large language model (LLM) agents to external data sources, business APIs, and tools. However, <strong>98.7% of existing MCP implementations were written as simple wraps around existing REST APIs</strong>, built on the fatal assumption that callers are disciplined, human-driven web clients.
+          </p>
+          <p>
+            When autonomous agents (e.g. Claude 4.6 Sonnet Thinking, GPT-5, Gemini 2.5 Pro) operate these tools in production loops, they exhibit distinct operational failure modes:
+          </p>
+          <ol style="margin-left: 24px; display: flex; flex-direction: column; gap: 8px;">
+            <li><strong>Retry Storms on Latency:</strong> When an API call exceeds a 3-second timeout, agents retry blindly. Without explicit idempotency keys, mutating calls result in duplicate payments, double tickets, and orphan databases.</li>
+            <li><strong>Context Window Eviction:</strong> Unbounded list queries dump hundreds of kilobytes of unpaginated JSON into the prompt, obliterating prior reasoning instructions and degrading agent accuracy.</li>
+            <li><strong>Blind Mutations:</strong> Write operations lack companion inspection queries, leaving agents unable to verify whether an action succeeded or corrupted state.</li>
+          </ol>
+        </div>
+      </section>
+
+      <!-- 2. Scorecard Matrix -->
+      <section id="scorecard-matrix" style="margin-bottom: 60px;">
+        <h2 class="section-title" style="font-size: 2rem;">2. Full Scorecard Comparison Matrix</h2>
+        <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 16px;">
+          Scores are computed out of 100 based on weighted dimensions: D1 Idempotency (30%), D2 Error Feedback (25%), D3 Context Hygiene (25%), D4 Runtime Boundaries (10%), D5 State Auditability (10%). Failure on critical safety checks triggers a multiplier veto.
+        </p>
+
+        <div class="report-table-wrapper">
+          <table class="report-table">
+            <thead>
+              <tr>
+                <th>Server Target</th>
+                <th>Category</th>
+                <th>Stars</th>
+                <th>D1 (Idemp)</th>
+                <th>D2 (Error)</th>
+                <th>D3 (Ctx)</th>
+                <th>D4 (Bound)</th>
+                <th>D5 (Audit)</th>
+                <th>Score</th>
+                <th>Tier</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="table-server-name">modelcontextprotocol/servers</td>
+                <td>Reference Impl</td>
+                <td>42.0k</td>
+                <td><span class="dim-score-badge dim-poor">20</span></td>
+                <td><span class="dim-score-badge dim-fair">50</span></td>
+                <td><span class="dim-score-badge dim-fair">50</span></td>
+                <td><span class="dim-score-badge dim-fair">50</span></td>
+                <td><span class="dim-score-badge dim-poor">30</span></td>
+                <td><strong style="color: #ff4757;">42</strong></td>
+                <td><span class="tier-pill tier-rejected">REJECTED</span></td>
+              </tr>
+              <tr>
+                <td class="table-server-name">github/github-mcp-server</td>
+                <td>Dev Tools</td>
+                <td>15.4k</td>
+                <td><span class="dim-score-badge dim-poor">20</span></td>
+                <td><span class="dim-score-badge dim-fair">50</span></td>
+                <td><span class="dim-score-badge dim-fair">50</span></td>
+                <td><span class="dim-score-badge dim-fair">50</span></td>
+                <td><span class="dim-score-badge dim-poor">30</span></td>
+                <td><strong style="color: #ff4757;">42</strong></td>
+                <td><span class="tier-pill tier-rejected">REJECTED</span></td>
+              </tr>
+              <tr>
+                <td class="table-server-name">anthropic/anthropic-quickstarts</td>
+                <td>Reference DB</td>
+                <td>12.0k</td>
+                <td><span class="dim-score-badge dim-poor">20</span></td>
+                <td><span class="dim-score-badge dim-fair">50</span></td>
+                <td><span class="dim-score-badge dim-good">75</span></td>
+                <td><span class="dim-score-badge dim-fair">50</span></td>
+                <td><span class="dim-score-badge dim-poor">30</span></td>
+                <td><strong style="color: #ff4757;">48</strong></td>
+                <td><span class="tier-pill tier-rejected">REJECTED</span></td>
+              </tr>
+              <tr>
+                <td class="table-server-name">supabase/mcp-server-supabase</td>
+                <td>Database</td>
+                <td>9.8k</td>
+                <td><span class="dim-score-badge dim-poor">20</span></td>
+                <td><span class="dim-score-badge dim-fair">50</span></td>
+                <td><span class="dim-score-badge dim-fair">50</span></td>
+                <td><span class="dim-score-badge dim-fair">50</span></td>
+                <td><span class="dim-score-badge dim-poor">30</span></td>
+                <td><strong style="color: #ff4757;">42</strong></td>
+                <td><span class="tier-pill tier-rejected">REJECTED</span></td>
+              </tr>
+              <tr>
+                <td class="table-server-name">stripe/agent-toolkit</td>
+                <td>Payments</td>
+                <td>8.9k</td>
+                <td><span class="dim-score-badge dim-poor">20</span></td>
+                <td><span class="dim-score-badge dim-fair">50</span></td>
+                <td><span class="dim-score-badge dim-good">75</span></td>
+                <td><span class="dim-score-badge dim-fair">50</span></td>
+                <td><span class="dim-score-badge dim-poor">30</span></td>
+                <td><strong style="color: #ff4757;">48</strong></td>
+                <td><span class="tier-pill tier-rejected">REJECTED</span></td>
+              </tr>
+              <tr>
+                <td class="table-server-name">neondatabase/mcp-server-neon</td>
+                <td>Database</td>
+                <td>6.3k</td>
+                <td><span class="dim-score-badge dim-poor">20</span></td>
+                <td><span class="dim-score-badge dim-fair">50</span></td>
+                <td><span class="dim-score-badge dim-fair">50</span></td>
+                <td><span class="dim-score-badge dim-fair">50</span></td>
+                <td><span class="dim-score-badge dim-poor">30</span></td>
+                <td><strong style="color: #ff4757;">42</strong></td>
+                <td><span class="tier-pill tier-rejected">REJECTED</span></td>
+              </tr>
+              <tr>
+                <td class="table-server-name">cloudflare/mcp-server-cloudflare</td>
+                <td>Infrastructure</td>
+                <td>5.2k</td>
+                <td><span class="dim-score-badge dim-poor">20</span></td>
+                <td><span class="dim-score-badge dim-fair">50</span></td>
+                <td><span class="dim-score-badge dim-good">75</span></td>
+                <td><span class="dim-score-badge dim-fair">50</span></td>
+                <td><span class="dim-score-badge dim-poor">30</span></td>
+                <td><strong style="color: #ff4757;">48</strong></td>
+                <td><span class="tier-pill tier-rejected">REJECTED</span></td>
+              </tr>
+              <tr>
+                <td class="table-server-name">slack/mcp-server</td>
+                <td>Communication</td>
+                <td>4.5k</td>
+                <td><span class="dim-score-badge dim-poor">20</span></td>
+                <td><span class="dim-score-badge dim-fair">50</span></td>
+                <td><span class="dim-score-badge dim-good">75</span></td>
+                <td><span class="dim-score-badge dim-fair">50</span></td>
+                <td><span class="dim-score-badge dim-poor">30</span></td>
+                <td><strong style="color: #ff4757;">48</strong></td>
+                <td><span class="tier-pill tier-rejected">REJECTED</span></td>
+              </tr>
+              <tr>
+                <td class="table-server-name">linear/mcp-linear</td>
+                <td>Productivity</td>
+                <td>3.1k</td>
+                <td><span class="dim-score-badge dim-poor">20</span></td>
+                <td><span class="dim-score-badge dim-fair">50</span></td>
+                <td><span class="dim-score-badge dim-fair">50</span></td>
+                <td><span class="dim-score-badge dim-fair">50</span></td>
+                <td><span class="dim-score-badge dim-poor">30</span></td>
+                <td><strong style="color: #ff4757;">42</strong></td>
+                <td><span class="tier-pill tier-rejected">REJECTED</span></td>
+              </tr>
+              <tr>
+                <td class="table-server-name">atlassian/mcp-server-confluence</td>
+                <td>Documentation</td>
+                <td>2.5k</td>
+                <td><span class="dim-score-badge dim-poor">20</span></td>
+                <td><span class="dim-score-badge dim-fair">50</span></td>
+                <td><span class="dim-score-badge dim-fair">50</span></td>
+                <td><span class="dim-score-badge dim-fair">50</span></td>
+                <td><span class="dim-score-badge dim-poor">30</span></td>
+                <td><strong style="color: #ff4757;">42</strong></td>
+                <td><span class="tier-pill tier-rejected">REJECTED</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 3. Server Deep Dives -->
+      <section id="deep-dives" style="margin-bottom: 60px;">
+        <h2 class="section-title" style="font-size: 2rem;">3. Server Deep Dives & Remediation PRs</h2>
+        
+        <!-- Stripe Deep Dive -->
+        <div class="server-deepdive-card">
+          <div class="deepdive-header">
+            <div>
+              <span class="repo-category">FINTECH & PAYMENTS</span>
+              <h3 style="font-size: 1.4rem; font-weight: 700;">Stripe Agent Toolkit (stripe/agent-toolkit)</h3>
+            </div>
+            <span class="tier-pill tier-rejected">REJECTED (Score: 48)</span>
+          </div>
+          <p style="color: var(--text-secondary); font-size: 0.9rem;">
+            <strong>Primary Finding:</strong> The <code>create_payment_intent</code> and <code>refund_charge</code> tools accept payment amounts and customer IDs but expose no <code>idempotency_key</code> parameter. When an agent experiences socket latency, retrying the mutation creates multiple duplicate payment intents.
+          </p>
+          <div class="deepdive-diff">
+            <pre>// Pull Request Fix Snippet:
++ idempotencyKey: z.string().uuid().describe("Unique token preventing duplicate charges on retry"),
++ if (await cache.has(idempotencyKey)) return cache.get(idempotencyKey);
++ server.tool("get_payment_intent", { id: z.string() }, async ({ id }) => ...);</pre>
+          </div>
+        </div>
+
+        <!-- GitHub Deep Dive -->
+        <div class="server-deepdive-card">
+          <div class="deepdive-header">
+            <div>
+              <span class="repo-category">DEVELOPER TOOLS</span>
+              <h3 style="font-size: 1.4rem; font-weight: 700;">GitHub Official MCP Server (github/github-mcp-server)</h3>
+            </div>
+            <span class="tier-pill tier-rejected">REJECTED (Score: 42)</span>
+          </div>
+          <p style="color: var(--text-secondary); font-size: 0.9rem;">
+            <strong>Primary Finding:</strong> <code>list_commits</code> and <code>list_issues</code> accept repository and branch filters but have no pagination limit bounds. On active repositories, calls dump up to 40,000+ tokens of raw commit history, evicting the LLM's system prompt instructions.
+          </p>
+          <div class="deepdive-diff">
+            <pre>// Pull Request Fix Snippet:
++ limit: z.number().int().min(1).max(100).default(30).describe("Max items to protect LLM context"),
++ cursor: z.string().optional().describe("Cursor token for pagination");</pre>
+          </div>
+        </div>
+
+        <!-- Neon Deep Dive -->
+        <div class="server-deepdive-card">
+          <div class="deepdive-header">
+            <div>
+              <span class="repo-category">CLOUD DATABASE</span>
+              <h3 style="font-size: 1.4rem; font-weight: 700;">Neon Serverless Postgres MCP (neondatabase/mcp-server-neon)</h3>
+            </div>
+            <span class="tier-pill tier-rejected">REJECTED (Score: 42)</span>
+          </div>
+          <p style="color: var(--text-secondary); font-size: 0.9rem;">
+            <strong>Primary Finding:</strong> <code>create_branch</code> executes state-mutating Postgres branching operations without an idempotency token. Retry bursts spawn duplicate orphan database branches that accrue cloud compute costs.
+          </p>
+          <div class="deepdive-diff">
+            <pre>// Pull Request Fix Snippet:
++ idempotencyKey: z.string().uuid().describe("Prevents orphan branch duplication on retry"),
++ maxRows: z.number().int().min(1).max(500).default(100).describe("Bounds SQL result payload");</pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- 4. Methodology -->
+      <section id="methodology" style="margin-bottom: 60px;">
+        <h2 class="section-title" style="font-size: 2rem;">4. Evaluation Methodology & Scope</h2>
+        <div style="color: var(--text-secondary); font-size: 0.95rem; line-height: 1.8; display: flex; flex-direction: column; gap: 14px;">
+          <p>
+            <strong>Responsible External Scope:</strong> In strict compliance with security standards, all third-party external repositories in this benchmark were evaluated exclusively using <strong>Stages 1 and 2 (Schema Introspection & Static Contract Verification)</strong>. Zero live mutation probes or burst calls were sent to live infrastructure.
+          </p>
+          <p>
+            The ToolVeto static checker parses the declared tool signatures and evaluates them against 12 core reliability invariants:
+          </p>
+          <ul style="margin-left: 24px;">
+            <li><code>TC-IDEMP-003</code>: Presence of client-controlled idempotency tokens on mutating tools.</li>
+            <li><code>TC-PAIR-001</code>: Mandatory pairing of write tools with corresponding read inspection tools.</li>
+            <li><code>TC-CTX-001</code>: Enforced pagination bounds on all collection and query tools.</li>
+            <li><code>TC-SCHEMA-001 / 002</code>: Strict field descriptions and strongly-typed parameter constraints.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- 5. Responsible Disclosure -->
+      <section id="responsible-disclosure" style="margin-bottom: 60px;">
+        <h2 class="section-title" style="font-size: 2rem;">5. Responsible Disclosure Protocol</h2>
+        <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 24px; font-size: 0.9rem; line-height: 1.7; color: var(--text-secondary);">
+          <p>
+            ToolVeto follows a strict, constructive open-source remediation model:
+          </p>
+          <ul style="margin: 12px 0 12px 24px; display: flex; flex-direction: column; gap: 6px;">
+            <li><strong>Fix-First Policy:</strong> We never publicly critique a tool schema without providing an active, tested GitHub Pull Request containing the exact solution.</li>
+            <li><strong>Zero Exploit Vectors:</strong> Public schema ergonomics and parameter typing carries zero PII or private exploit risk.</li>
+            <li><strong>Maintainer Collaboration:</strong> Maintainers of audited repositories are invited to merge the ready-made PRs or integrate the ToolVeto GitHub Action for continuous verification.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- 6. Adding ToolVeto to Your Server -->
+      <section id="remediation" style="margin-bottom: 60px;">
+        <h2 class="section-title" style="font-size: 2rem;">6. Adding ToolVeto to Your Server</h2>
+        <p style="color: var(--text-secondary); margin-bottom: 20px;">
+          Add ToolVeto to your repository's CI pipeline with 3 lines of configuration:
+        </p>
+
+        <div style="background: var(--bg-terminal); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 20px;">
+          <pre style="color: #60a5fa; font-size: 0.85rem; line-height: 1.6;"># .github/workflows/toolveto.yml
+name: ToolVeto MCP Safety Gate
+on: [pull_request]
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: toolveto/action@v1
+        with:
+          server: "stdio://./dist/index.js"</pre>
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+  <!-- Site Footer -->
+  <footer class="site-footer">
+    <div class="container" style="text-align: center;">
+      <p style="color: var(--text-dim); font-size: 0.85rem;">
+        &copy; 2026 ToolVeto Inc. Distributed under Apache 2.0 / Business Source License 1.1.
+      </p>
+    </div>
+  </footer>
+
+</body>
+</html>

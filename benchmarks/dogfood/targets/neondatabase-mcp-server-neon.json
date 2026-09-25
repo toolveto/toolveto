@@ -1,0 +1,56 @@
+{
+  "repo": "neondatabase/mcp-server-neon",
+  "name": "Neon Database Server",
+  "stars": 6200,
+  "description": "Neon serverless Postgres MCP integration for branch management and SQL execution",
+  "tools": [
+    {
+      "name": "run_sql_query",
+      "description": "Executes raw SQL query against serverless Postgres instance",
+      "isMutation": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project_id": { "type": "string", "description": "Neon Project ID" },
+          "sql": { "type": "string", "description": "SQL statement to execute" }
+        },
+        "required": ["project_id", "sql"]
+      }
+    },
+    {
+      "name": "create_branch",
+      "description": "Creates a point-in-time branch fork of a Postgres database",
+      "isMutation": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project_id": { "type": "string", "description": "Project ID" },
+          "branch_name": { "type": "string", "description": "Branch name" }
+        },
+        "required": ["project_id"]
+      }
+    },
+    {
+      "name": "delete_branch",
+      "description": "Permanently deletes a database branch",
+      "isMutation": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project_id": { "type": "string", "description": "Project ID" },
+          "branch_id": { "type": "string", "description": "Branch ID to delete" }
+        },
+        "required": ["project_id", "branch_id"]
+      }
+    },
+    {
+      "name": "list_projects",
+      "description": "Lists all projects in the organization",
+      "isMutation": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ]
+}

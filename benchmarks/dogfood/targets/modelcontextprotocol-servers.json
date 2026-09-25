@@ -1,0 +1,67 @@
+{
+  "repo": "modelcontextprotocol/servers",
+  "name": "Reference MCP Servers",
+  "stars": 42000,
+  "description": "Official reference servers maintained by the Model Context Protocol working group",
+  "tools": [
+    {
+      "name": "fetch",
+      "description": "Fetches a URL from the internet and extracts readable content",
+      "isMutation": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "description": "URL to fetch" },
+          "max_length": { "type": "integer", "description": "Maximum characters to extract" }
+        },
+        "required": ["url"]
+      }
+    },
+    {
+      "name": "filesystem_read_file",
+      "description": "Reads the complete contents of a file from the permitted filesystem sandbox",
+      "isMutation": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string", "description": "Path to file" }
+        },
+        "required": ["path"]
+      }
+    },
+    {
+      "name": "filesystem_write_file",
+      "description": "Writes contents to a file path in the filesystem",
+      "isMutation": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string", "description": "Destination file path" },
+          "content": { "type": "string", "description": "Text content to write" }
+        },
+        "required": ["path", "content"]
+      }
+    },
+    {
+      "name": "git_create_commit",
+      "description": "Creates a new git commit with staged changes and message",
+      "isMutation": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "message": { "type": "string", "description": "Commit message" }
+        },
+        "required": ["message"]
+      }
+    },
+    {
+      "name": "git_status",
+      "description": "Shows working tree status of the git repository",
+      "isMutation": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ]
+}

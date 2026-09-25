@@ -1,0 +1,9 @@
+# Global owners for ToolVeto repository
+* @toolveto-core-team
+
+# Package specific ownership
+/packages/core/         @toolveto-engineers
+/packages/cli/          @toolveto-engineers
+/packages/shield/       @toolveto-security
+/packages/gateway/      @toolveto-infrastructure
+/apps/marketing/        @toolveto-design

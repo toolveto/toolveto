@@ -1,0 +1,59 @@
+{
+  "repo": "stripe/agent-toolkit",
+  "name": "Stripe Agent Toolkit",
+  "stars": 8500,
+  "description": "Stripe official toolkit allowing LLM agents to interact with the Stripe Payments API",
+  "tools": [
+    {
+      "name": "create_payment_intent",
+      "description": "Creates a payment intent on Stripe to initiate charging a customer",
+      "isMutation": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "amount": { "type": "number", "description": "Amount in cents" },
+          "currency": { "type": "string", "description": "Three-letter ISO currency code (e.g. usd)" },
+          "customer": { "type": "string", "description": "ID of customer to charge" },
+          "description": { "type": "string", "description": "Arbitrary string for receipt notes" }
+        },
+        "required": ["amount", "currency"]
+      }
+    },
+    {
+      "name": "create_customer",
+      "description": "Creates a new customer record on Stripe",
+      "isMutation": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "email": { "type": "string", "description": "Customer email" },
+          "name": { "type": "string", "description": "Customer full name" }
+        }
+      }
+    },
+    {
+      "name": "list_charges",
+      "description": "Lists all charges created in the Stripe account",
+      "isMutation": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "customer": { "type": "string", "description": "Filter by customer ID" }
+        }
+      }
+    },
+    {
+      "name": "refund_charge",
+      "description": "Refunds a customer charge by charge_id",
+      "isMutation": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "charge": { "type": "string", "description": "Charge ID to refund" },
+          "amount": { "type": "number", "description": "Partial refund amount in cents" }
+        },
+        "required": ["charge"]
+      }
+    }
+  ]
+}

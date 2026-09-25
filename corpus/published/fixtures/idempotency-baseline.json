@@ -1,0 +1,20 @@
+{
+  "version": "1.0",
+  "test_class": "TC-IDEMP",
+  "cases": [
+    {
+      "id": "TC-IDEMP-001",
+      "name": "sequential_replay_k5",
+      "description": "5 sequential identical calls with same idempotency key must result in exactly 1 mutation",
+      "iterations": 5,
+      "expected_mutations": 1
+    },
+    {
+      "id": "TC-IDEMP-002",
+      "name": "concurrent_burst_n10",
+      "description": "10 pipelined concurrent requests with same idempotency key must result in exactly 1 mutation",
+      "concurrency": 10,
+      "expected_mutations": 1
+    }
+  ]
+}

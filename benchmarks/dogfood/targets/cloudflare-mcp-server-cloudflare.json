@@ -1,0 +1,60 @@
+{
+  "repo": "cloudflare/mcp-server-cloudflare",
+  "name": "Cloudflare MCP Server",
+  "stars": 5400,
+  "description": "Cloudflare management MCP server for Workers, KV, DNS and cache purging",
+  "tools": [
+    {
+      "name": "deploy_worker",
+      "description": "Deploys JavaScript worker script to Cloudflare global edge network",
+      "isMutation": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "script_name": { "type": "string", "description": "Worker script name" },
+          "code": { "type": "string", "description": "JavaScript/Wasm bundle string" }
+        },
+        "required": ["script_name", "code"]
+      }
+    },
+    {
+      "name": "purge_cache",
+      "description": "Purges cached assets across Cloudflare global edge",
+      "isMutation": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "zone_id": { "type": "string", "description": "Cloudflare Zone ID" },
+          "purge_everything": { "type": "boolean", "description": "Purge all cached files" }
+        },
+        "required": ["zone_id"]
+      }
+    },
+    {
+      "name": "list_dns_records",
+      "description": "Lists all DNS records for a given zone",
+      "isMutation": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "zone_id": { "type": "string", "description": "Zone ID" }
+        },
+        "required": ["zone_id"]
+      }
+    },
+    {
+      "name": "update_dns_record",
+      "description": "Updates an existing DNS record IP or hostname mapping",
+      "isMutation": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "zone_id": { "type": "string", "description": "Zone ID" },
+          "record_id": { "type": "string", "description": "Record ID" },
+          "content": { "type": "string", "description": "Target IP or CNAME" }
+        },
+        "required": ["zone_id", "record_id", "content"]
+      }
+    }
+  ]
+}

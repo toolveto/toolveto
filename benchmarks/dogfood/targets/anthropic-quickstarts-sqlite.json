@@ -1,0 +1,53 @@
+{
+  "repo": "anthropic/anthropic-quickstarts",
+  "name": "Anthropic SQLite Server",
+  "stars": 13200,
+  "description": "Anthropic official reference SQLite MCP server from quickstarts collection",
+  "tools": [
+    {
+      "name": "read_query",
+      "description": "Runs SELECT query on database",
+      "isMutation": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "description": "SELECT query to run" }
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "write_query",
+      "description": "Executes modifying query",
+      "isMutation": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "description": "INSERT/UPDATE/DELETE query" }
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "list_tables",
+      "description": "Lists all tables in database",
+      "isMutation": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "describe_table",
+      "description": "Describes the schema columns of a table",
+      "isMutation": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "table_name": { "type": "string", "description": "Name of table" }
+        },
+        "required": ["table_name"]
+      }
+    }
+  ]
+}

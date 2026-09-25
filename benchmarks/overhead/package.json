@@ -1,0 +1,20 @@
+{
+  "name": "@toolveto/benchmarks-overhead",
+  "version": "0.1.0",
+  "description": "Reproducible latency and throughput overhead benchmarks for ToolVeto Shield",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "bench": "node dist/autocannon-bench.js",
+    "bench:k6": "k6 run k6-shield-overhead.js",
+    "build": "tsc -b",
+    "clean": "rm -rf dist tsconfig.tsbuildinfo"
+  },
+  "dependencies": {
+    "@toolveto/shield": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.1",
+    "typescript": "^5.7.3"
+  }
+}

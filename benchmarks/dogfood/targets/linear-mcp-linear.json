@@ -1,0 +1,60 @@
+{
+  "repo": "linear/mcp-linear",
+  "name": "Linear MCP Server",
+  "stars": 3400,
+  "description": "Linear issue tracking MCP server popular among AI-native engineering teams",
+  "tools": [
+    {
+      "name": "create_issue",
+      "description": "Creates a new issue in Linear workspace team",
+      "isMutation": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "team_id": { "type": "string", "description": "Linear Team UUID" },
+          "title": { "type": "string", "description": "Issue title" },
+          "description": { "type": "string", "description": "Detailed description" },
+          "priority": { "type": "integer", "description": "Priority 0-4" }
+        },
+        "required": ["team_id", "title"]
+      }
+    },
+    {
+      "name": "update_issue",
+      "description": "Updates issue properties such as state, assignee, or estimate",
+      "isMutation": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "description": "Issue ID or identifier (e.g. ENG-123)" },
+          "state_id": { "type": "string", "description": "Workflow state ID" },
+          "assignee_id": { "type": "string", "description": "User ID" }
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "get_issue",
+      "description": "Retrieves complete Linear issue details by key",
+      "isMutation": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "description": "Issue key (e.g. ENG-123)" }
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "list_issues",
+      "description": "Lists issues across the workspace matching filter",
+      "isMutation": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "team_id": { "type": "string", "description": "Filter by team ID" }
+        }
+      }
+    }
+  ]
+}

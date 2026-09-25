@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": "."
+  },
+  "references": [
+    { "path": "./packages/core" },
+    { "path": "./packages/cli" },
+    { "path": "./packages/shield" },
+    { "path": "./packages/gateway" },
+    { "path": "./benchmarks/overhead" }
+  ],
+  "files": []
+}

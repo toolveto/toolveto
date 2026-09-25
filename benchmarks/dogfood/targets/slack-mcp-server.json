@@ -1,0 +1,58 @@
+{
+  "repo": "slack/mcp-server",
+  "name": "Slack MCP Server",
+  "stars": 4600,
+  "description": "Slack integration MCP server enabling conversational message posting and channel reading",
+  "tools": [
+    {
+      "name": "post_message",
+      "description": "Sends a message into a Slack channel or DM thread",
+      "isMutation": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "channel": { "type": "string", "description": "Channel ID (e.g. C12345678)" },
+          "text": { "type": "string", "description": "Message markdown text" }
+        },
+        "required": ["channel", "text"]
+      }
+    },
+    {
+      "name": "list_channels",
+      "description": "Lists public and private channels in workspace",
+      "isMutation": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "types": { "type": "string", "description": "public_channel,private_channel" }
+        }
+      }
+    },
+    {
+      "name": "get_channel_history",
+      "description": "Fetches recent conversation messages from channel",
+      "isMutation": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "channel": { "type": "string", "description": "Channel ID" }
+        },
+        "required": ["channel"]
+      }
+    },
+    {
+      "name": "add_reaction",
+      "description": "Adds emoji reaction to a message",
+      "isMutation": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "channel": { "type": "string", "description": "Channel ID" },
+          "timestamp": { "type": "string", "description": "Message timestamp" },
+          "name": { "type": "string", "description": "Emoji name without colons" }
+        },
+        "required": ["channel", "timestamp", "name"]
+      }
+    }
+  ]
+}

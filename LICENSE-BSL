@@ -1,0 +1,28 @@
+Business Source License 1.1
+
+Parameters
+
+Licensor: ToolVeto, Inc.
+Licensed Work: ToolVeto Gateway (toolveto-gateway)
+Change Date: Four (4) years from the date of release of the applicable version.
+Change License: Apache License, Version 2.0 (as published by the Apache Software Foundation).
+
+Notice
+
+The Licensor hereby grants you the right to copy, modify, create derivative
+works, redistribute, and make non-production use of the Licensed Work.
+
+You may make production use of the Licensed Work only in accordance with the
+Additional Use Grant specified below.
+
+Effective on the Change Date, or the fourth anniversary of the first public
+release of this version of the Licensed Work, whichever is earlier, the
+Licensor hereby grants you rights under the Change License.
+
+Additional Use Grant
+
+You may run the Licensed Work in production for internal business purposes,
+including proxying, securing, and testing Model Context Protocol (MCP) servers
+utilized by your organization, provided that you do NOT offer the Licensed
+Work as a hosted, managed, or serverless service to third parties in competition
+with commercial offerings of ToolVeto, Inc.

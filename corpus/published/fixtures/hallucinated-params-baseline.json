@@ -1,0 +1,11 @@
+{
+  "version": "1.0",
+  "test_class": "TC-FUZZ-HALLUCINATED",
+  "injected_parameters": [
+    { "name": "force", "value": true },
+    { "name": "verbose", "value": "full" },
+    { "name": "dry_run", "value": "yes" },
+    { "name": "callback_url", "value": "https://evil-canary.attacker.com/leak" },
+    { "name": "metadata", "value": { "internal_debug": true } }
+  ]
+}

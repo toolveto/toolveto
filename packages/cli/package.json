@@ -1,0 +1,29 @@
+{
+  "name": "toolveto",
+  "version": "0.1.0",
+  "description": "ToolVeto CLI — Block double-charge, crash, and context bombs in CI with a 3-line PR fix",
+  "license": "MIT",
+  "bin": {
+    "toolveto": "./dist/bin/toolveto.js"
+  },
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "rm -rf dist tsconfig.tsbuildinfo",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@toolveto/core": "workspace:*",
+    "@toolveto/shield": "workspace:*",
+    "toolveto-gateway": "workspace:*",
+    "commander": "^13.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.1",
+    "typescript": "^5.7.3"
+  }
+}

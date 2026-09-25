@@ -1,0 +1,925 @@
+{
+  "target": "cloudflare/mcp-server-cloudflare",
+  "totalChecks": 48,
+  "passed": 25,
+  "failed": 12,
+  "warned": 11,
+  "fatalVetoTriggered": true,
+  "fatalVetoCode": "VETO_NONE",
+  "phi": 1,
+  "score": 64,
+  "tier": "Bronze",
+  "durationMs": 0,
+  "llmTokensUsed": 0,
+  "dimensionalScores": {
+    "D1": {
+      "score": 25,
+      "weight": 0.3,
+      "metrics": {}
+    },
+    "D2": {
+      "score": 83,
+      "weight": 0.25,
+      "metrics": {}
+    },
+    "D3": {
+      "score": 81,
+      "weight": 0.25,
+      "metrics": {}
+    },
+    "D4": {
+      "score": 100,
+      "weight": 0.1,
+      "metrics": {}
+    },
+    "D5": {
+      "score": 56,
+      "weight": 0.1,
+      "metrics": {}
+    }
+  },
+  "results": [
+    {
+      "checkId": "TC-IDEMP-001",
+      "dimension": "D1",
+      "tool": "deploy_worker",
+      "status": "FAIL",
+      "severity": "CRITICAL",
+      "description": "Sequential replay check failed: Mutation tool 'deploy_worker' accepts no idempotency key",
+      "evidence": {
+        "requestsSent": 5,
+        "mutationsCreated": 5,
+        "expectedMutations": 1,
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add idempotency_key parameter to tool input schema and deduplicate calls by key/payload hash",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ idempotencyKey: z.string().uuid().describe(\"Unique key to prevent duplicate mutations on retry\")"
+          },
+          {
+            "language": "python-fastmcp",
+            "code": "+ idempotency_key: str = Field(..., description=\"Unique key to prevent duplicate mutations on retry\")"
+          },
+          {
+            "language": "go",
+            "code": "+ IdempotencyKey string `json:\"idempotency_key\" jsonschema:\"description=Unique key to prevent duplicate mutations on retry\"`"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-002",
+      "dimension": "D1",
+      "tool": "deploy_worker",
+      "status": "FAIL",
+      "severity": "CRITICAL",
+      "description": "Concurrent burst vulnerability: Tool 'deploy_worker' exposes no concurrency lock or idempotency parameter",
+      "evidence": {
+        "requestsSent": 10,
+        "mutationsCreated": 10,
+        "expectedMutations": 1,
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Enforce atomic idempotency key parameter and backend deduplication",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ idempotencyKey: z.string().uuid().describe(\"Unique key for atomic deduplication\")"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-003",
+      "dimension": "D1",
+      "tool": "deploy_worker",
+      "status": "FAIL",
+      "severity": "HIGH",
+      "description": "Missing explicit idempotency key in schema definition for mutation tool 'deploy_worker'",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'idempotency_key: string' parameter to schema",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ idempotency_key: z.string().uuid().describe(\"Unique token for idempotent request processing\")"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-FUZZ-001",
+      "dimension": "D2",
+      "tool": "deploy_worker",
+      "status": "PASS",
+      "severity": "HIGH",
+      "description": "Fuzz tests on 'deploy_worker' parameters conform to schema contracts",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-FUZZ-002",
+      "dimension": "D2",
+      "tool": "deploy_worker",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "Tool 'deploy_worker' does not specify 'additionalProperties: false', allowing hallucinated LLM arguments through",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'additionalProperties: false' to inputSchema",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "json-schema",
+            "code": "+ \"additionalProperties\": false"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-ERR-001",
+      "dimension": "D2",
+      "tool": "deploy_worker",
+      "status": "PASS",
+      "severity": "HIGH",
+      "description": "Tool 'deploy_worker' has no strict semantic date formats requiring healing evaluation",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-CTX-001",
+      "dimension": "D3",
+      "tool": "deploy_worker",
+      "status": "PASS",
+      "severity": "CRITICAL",
+      "description": "Token budget compliance passed: payload size is well within agent limits",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SCHEMA-001",
+      "dimension": "D3",
+      "tool": "deploy_worker",
+      "status": "PASS",
+      "severity": "MEDIUM",
+      "description": "Pagination parameters properly defined on 'deploy_worker'",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SCHEMA-002",
+      "dimension": "D3",
+      "tool": "deploy_worker",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool description clarity adequate (66 chars)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SCHEMA-003",
+      "dimension": "D3",
+      "tool": "deploy_worker",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "Schema boundary vulnerability: Tool 'deploy_worker' omits 'additionalProperties: false', allowing hallucinated LLM properties to leak into backend logic",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'additionalProperties: false' or .strict() validation",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "json-schema",
+            "code": "+ \"additionalProperties\": false"
+          },
+          {
+            "language": "typescript-zod",
+            "code": "+ z.object({ ... }).strict()"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-PAIR-001",
+      "dimension": "D5",
+      "tool": "deploy_worker",
+      "status": "FAIL",
+      "severity": "HIGH",
+      "description": "State auditability blind-write violation: Mutation tool 'deploy_worker' lacks companion query tool ('get_deploy_worker' or 'read_deploy_worker'). Agents cannot verify pre/post state changes",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY",
+        "details": {
+          "targetEntity": "deploy_worker",
+          "expectedCompanion": "get_deploy_worker"
+        }
+      },
+      "fix": {
+        "summary": "Expose a companion read-only query tool 'get_deploy_worker' accepting primary entity ID",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ // Define companion inspection query tool:\n+ server.tool(\"get_deploy_worker\", { deploy_worker_id: z.string() }, async ({ deploy_worker_id }) => {\n+   return { content: [{ type: \"text\", text: JSON.stringify(await db.get(deploy_worker_id)) }] };\n+ });"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-DRYRUN-001",
+      "dimension": "D5",
+      "tool": "deploy_worker",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "Dry-run transaction simulation missing on mutation tool 'deploy_worker'. Agents cannot preview side-effects before persisting real mutations",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add optional 'dry_run: boolean' parameter to allow safe execution preview",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ dry_run: z.boolean().optional().describe(\"If true, validates transaction without persisting state changes\")"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-001",
+      "dimension": "D1",
+      "tool": "purge_cache",
+      "status": "FAIL",
+      "severity": "CRITICAL",
+      "description": "Sequential replay check failed: Mutation tool 'purge_cache' accepts no idempotency key",
+      "evidence": {
+        "requestsSent": 5,
+        "mutationsCreated": 5,
+        "expectedMutations": 1,
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add idempotency_key parameter to tool input schema and deduplicate calls by key/payload hash",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ idempotencyKey: z.string().uuid().describe(\"Unique key to prevent duplicate mutations on retry\")"
+          },
+          {
+            "language": "python-fastmcp",
+            "code": "+ idempotency_key: str = Field(..., description=\"Unique key to prevent duplicate mutations on retry\")"
+          },
+          {
+            "language": "go",
+            "code": "+ IdempotencyKey string `json:\"idempotency_key\" jsonschema:\"description=Unique key to prevent duplicate mutations on retry\"`"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-002",
+      "dimension": "D1",
+      "tool": "purge_cache",
+      "status": "FAIL",
+      "severity": "CRITICAL",
+      "description": "Concurrent burst vulnerability: Tool 'purge_cache' exposes no concurrency lock or idempotency parameter",
+      "evidence": {
+        "requestsSent": 10,
+        "mutationsCreated": 10,
+        "expectedMutations": 1,
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Enforce atomic idempotency key parameter and backend deduplication",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ idempotencyKey: z.string().uuid().describe(\"Unique key for atomic deduplication\")"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-003",
+      "dimension": "D1",
+      "tool": "purge_cache",
+      "status": "FAIL",
+      "severity": "HIGH",
+      "description": "Missing explicit idempotency key in schema definition for mutation tool 'purge_cache'",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'idempotency_key: string' parameter to schema",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ idempotency_key: z.string().uuid().describe(\"Unique token for idempotent request processing\")"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-FUZZ-001",
+      "dimension": "D2",
+      "tool": "purge_cache",
+      "status": "PASS",
+      "severity": "HIGH",
+      "description": "Fuzz tests on 'purge_cache' parameters conform to schema contracts",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-FUZZ-002",
+      "dimension": "D2",
+      "tool": "purge_cache",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "Tool 'purge_cache' does not specify 'additionalProperties: false', allowing hallucinated LLM arguments through",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'additionalProperties: false' to inputSchema",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "json-schema",
+            "code": "+ \"additionalProperties\": false"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-ERR-001",
+      "dimension": "D2",
+      "tool": "purge_cache",
+      "status": "PASS",
+      "severity": "HIGH",
+      "description": "Tool 'purge_cache' has no strict semantic date formats requiring healing evaluation",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-CTX-001",
+      "dimension": "D3",
+      "tool": "purge_cache",
+      "status": "PASS",
+      "severity": "CRITICAL",
+      "description": "Token budget compliance passed: payload size is well within agent limits",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SCHEMA-001",
+      "dimension": "D3",
+      "tool": "purge_cache",
+      "status": "PASS",
+      "severity": "MEDIUM",
+      "description": "Pagination parameters properly defined on 'purge_cache'",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SCHEMA-002",
+      "dimension": "D3",
+      "tool": "purge_cache",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool description clarity adequate (50 chars)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SCHEMA-003",
+      "dimension": "D3",
+      "tool": "purge_cache",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "Schema boundary vulnerability: Tool 'purge_cache' omits 'additionalProperties: false', allowing hallucinated LLM properties to leak into backend logic",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'additionalProperties: false' or .strict() validation",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "json-schema",
+            "code": "+ \"additionalProperties\": false"
+          },
+          {
+            "language": "typescript-zod",
+            "code": "+ z.object({ ... }).strict()"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-PAIR-001",
+      "dimension": "D5",
+      "tool": "purge_cache",
+      "status": "FAIL",
+      "severity": "HIGH",
+      "description": "State auditability blind-write violation: Mutation tool 'purge_cache' lacks companion query tool ('get_purge_cache' or 'read_purge_cache'). Agents cannot verify pre/post state changes",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY",
+        "details": {
+          "targetEntity": "purge_cache",
+          "expectedCompanion": "get_purge_cache"
+        }
+      },
+      "fix": {
+        "summary": "Expose a companion read-only query tool 'get_purge_cache' accepting primary entity ID",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ // Define companion inspection query tool:\n+ server.tool(\"get_purge_cache\", { purge_cache_id: z.string() }, async ({ purge_cache_id }) => {\n+   return { content: [{ type: \"text\", text: JSON.stringify(await db.get(purge_cache_id)) }] };\n+ });"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-DRYRUN-001",
+      "dimension": "D5",
+      "tool": "purge_cache",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "Dry-run transaction simulation missing on mutation tool 'purge_cache'. Agents cannot preview side-effects before persisting real mutations",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add optional 'dry_run: boolean' parameter to allow safe execution preview",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ dry_run: z.boolean().optional().describe(\"If true, validates transaction without persisting state changes\")"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-001",
+      "dimension": "D1",
+      "tool": "list_dns_records",
+      "status": "PASS",
+      "severity": "CRITICAL",
+      "description": "Idempotency key parameter found on 'list_dns_records'",
+      "evidence": {
+        "requestsSent": 5,
+        "mutationsCreated": 1,
+        "expectedMutations": 1,
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-002",
+      "dimension": "D1",
+      "tool": "list_dns_records",
+      "status": "PASS",
+      "severity": "CRITICAL",
+      "description": "Pure query tool 'list_dns_records' is free from concurrent mutation race conditions",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-003",
+      "dimension": "D1",
+      "tool": "list_dns_records",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Query tool 'list_dns_records' is read-only and does not require explicit idempotency key",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-FUZZ-001",
+      "dimension": "D2",
+      "tool": "list_dns_records",
+      "status": "PASS",
+      "severity": "HIGH",
+      "description": "Fuzz tests on 'list_dns_records' parameters conform to schema contracts",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-FUZZ-002",
+      "dimension": "D2",
+      "tool": "list_dns_records",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "Tool 'list_dns_records' does not specify 'additionalProperties: false', allowing hallucinated LLM arguments through",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'additionalProperties: false' to inputSchema",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "json-schema",
+            "code": "+ \"additionalProperties\": false"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-ERR-001",
+      "dimension": "D2",
+      "tool": "list_dns_records",
+      "status": "PASS",
+      "severity": "HIGH",
+      "description": "Tool 'list_dns_records' has no strict semantic date formats requiring healing evaluation",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-CTX-001",
+      "dimension": "D3",
+      "tool": "list_dns_records",
+      "status": "PASS",
+      "severity": "CRITICAL",
+      "description": "Token budget compliance passed: payload size is well within agent limits",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SCHEMA-001",
+      "dimension": "D3",
+      "tool": "list_dns_records",
+      "status": "FAIL",
+      "severity": "HIGH",
+      "description": "Unbounded list response risk: Query tool 'list_dns_records' has no limit/cursor parameter and risks context bomb under production load",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY",
+        "details": {
+          "recommendation": "Add default limit <= 50 and cursor/has_more pagination fields to schema"
+        }
+      },
+      "fix": {
+        "summary": "Add limit and cursor pagination parameters",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ limit: z.number().int().min(1).max(100).default(20).describe(\"Max items to return (default 20)\"),\n+ cursor: z.string().optional().describe(\"Opaque pagination cursor\")"
+          },
+          {
+            "language": "python-fastmcp",
+            "code": "+ limit: int = Field(20, ge=1, le=100, description=\"Max items to return (default 20)\"),\n+ cursor: Optional[str] = Field(None, description=\"Opaque pagination cursor\")"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SCHEMA-002",
+      "dimension": "D3",
+      "tool": "list_dns_records",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool description clarity adequate (38 chars)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SCHEMA-003",
+      "dimension": "D3",
+      "tool": "list_dns_records",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "Schema boundary vulnerability: Tool 'list_dns_records' omits 'additionalProperties: false', allowing hallucinated LLM properties to leak into backend logic",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'additionalProperties: false' or .strict() validation",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "json-schema",
+            "code": "+ \"additionalProperties\": false"
+          },
+          {
+            "language": "typescript-zod",
+            "code": "+ z.object({ ... }).strict()"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-PAIR-001",
+      "dimension": "D5",
+      "tool": "list_dns_records",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Query tool 'list_dns_records' is an inspection tool",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-DRYRUN-001",
+      "dimension": "D5",
+      "tool": "list_dns_records",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Query tool 'list_dns_records' has no side-effects and does not require dry_run parameter",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-001",
+      "dimension": "D1",
+      "tool": "update_dns_record",
+      "status": "FAIL",
+      "severity": "CRITICAL",
+      "description": "Sequential replay check failed: Mutation tool 'update_dns_record' accepts no idempotency key",
+      "evidence": {
+        "requestsSent": 5,
+        "mutationsCreated": 5,
+        "expectedMutations": 1,
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add idempotency_key parameter to tool input schema and deduplicate calls by key/payload hash",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ idempotencyKey: z.string().uuid().describe(\"Unique key to prevent duplicate mutations on retry\")"
+          },
+          {
+            "language": "python-fastmcp",
+            "code": "+ idempotency_key: str = Field(..., description=\"Unique key to prevent duplicate mutations on retry\")"
+          },
+          {
+            "language": "go",
+            "code": "+ IdempotencyKey string `json:\"idempotency_key\" jsonschema:\"description=Unique key to prevent duplicate mutations on retry\"`"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-002",
+      "dimension": "D1",
+      "tool": "update_dns_record",
+      "status": "FAIL",
+      "severity": "CRITICAL",
+      "description": "Concurrent burst vulnerability: Tool 'update_dns_record' exposes no concurrency lock or idempotency parameter",
+      "evidence": {
+        "requestsSent": 10,
+        "mutationsCreated": 10,
+        "expectedMutations": 1,
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Enforce atomic idempotency key parameter and backend deduplication",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ idempotencyKey: z.string().uuid().describe(\"Unique key for atomic deduplication\")"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-003",
+      "dimension": "D1",
+      "tool": "update_dns_record",
+      "status": "FAIL",
+      "severity": "HIGH",
+      "description": "Missing explicit idempotency key in schema definition for mutation tool 'update_dns_record'",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'idempotency_key: string' parameter to schema",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ idempotency_key: z.string().uuid().describe(\"Unique token for idempotent request processing\")"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-FUZZ-001",
+      "dimension": "D2",
+      "tool": "update_dns_record",
+      "status": "PASS",
+      "severity": "HIGH",
+      "description": "Fuzz tests on 'update_dns_record' parameters conform to schema contracts",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-FUZZ-002",
+      "dimension": "D2",
+      "tool": "update_dns_record",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "Tool 'update_dns_record' does not specify 'additionalProperties: false', allowing hallucinated LLM arguments through",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'additionalProperties: false' to inputSchema",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "json-schema",
+            "code": "+ \"additionalProperties\": false"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-ERR-001",
+      "dimension": "D2",
+      "tool": "update_dns_record",
+      "status": "PASS",
+      "severity": "HIGH",
+      "description": "Tool 'update_dns_record' has no strict semantic date formats requiring healing evaluation",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-CTX-001",
+      "dimension": "D3",
+      "tool": "update_dns_record",
+      "status": "PASS",
+      "severity": "CRITICAL",
+      "description": "Token budget compliance passed: payload size is well within agent limits",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SCHEMA-001",
+      "dimension": "D3",
+      "tool": "update_dns_record",
+      "status": "PASS",
+      "severity": "MEDIUM",
+      "description": "Pagination parameters properly defined on 'update_dns_record'",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SCHEMA-002",
+      "dimension": "D3",
+      "tool": "update_dns_record",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool description clarity adequate (53 chars)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SCHEMA-003",
+      "dimension": "D3",
+      "tool": "update_dns_record",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "Schema boundary vulnerability: Tool 'update_dns_record' omits 'additionalProperties: false', allowing hallucinated LLM properties to leak into backend logic",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'additionalProperties: false' or .strict() validation",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "json-schema",
+            "code": "+ \"additionalProperties\": false"
+          },
+          {
+            "language": "typescript-zod",
+            "code": "+ z.object({ ... }).strict()"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-PAIR-001",
+      "dimension": "D5",
+      "tool": "update_dns_record",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Read-before-write inspection companion verified for 'update_dns_record'",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-DRYRUN-001",
+      "dimension": "D5",
+      "tool": "update_dns_record",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "Dry-run transaction simulation missing on mutation tool 'update_dns_record'. Agents cannot preview side-effects before persisting real mutations",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add optional 'dry_run: boolean' parameter to allow safe execution preview",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ dry_run: z.boolean().optional().describe(\"If true, validates transaction without persisting state changes\")"
+          }
+        ]
+      },
+      "durationMs": 0
+    }
+  ]
+}

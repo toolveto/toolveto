@@ -1,0 +1,939 @@
+{
+  "target": "stripe/agent-toolkit",
+  "totalChecks": 48,
+  "passed": 24,
+  "failed": 13,
+  "warned": 11,
+  "fatalVetoTriggered": true,
+  "fatalVetoCode": "VETO_NONE",
+  "phi": 1,
+  "score": 63,
+  "tier": "Bronze",
+  "durationMs": 0,
+  "llmTokensUsed": 0,
+  "dimensionalScores": {
+    "D1": {
+      "score": 25,
+      "weight": 0.3,
+      "metrics": {}
+    },
+    "D2": {
+      "score": 83,
+      "weight": 0.25,
+      "metrics": {}
+    },
+    "D3": {
+      "score": 81,
+      "weight": 0.25,
+      "metrics": {}
+    },
+    "D4": {
+      "score": 100,
+      "weight": 0.1,
+      "metrics": {}
+    },
+    "D5": {
+      "score": 44,
+      "weight": 0.1,
+      "metrics": {}
+    }
+  },
+  "results": [
+    {
+      "checkId": "TC-IDEMP-001",
+      "dimension": "D1",
+      "tool": "create_payment_intent",
+      "status": "FAIL",
+      "severity": "CRITICAL",
+      "description": "Sequential replay check failed: Mutation tool 'create_payment_intent' accepts no idempotency key",
+      "evidence": {
+        "requestsSent": 5,
+        "mutationsCreated": 5,
+        "expectedMutations": 1,
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add idempotency_key parameter to tool input schema and deduplicate calls by key/payload hash",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ idempotencyKey: z.string().uuid().describe(\"Unique key to prevent duplicate mutations on retry\")"
+          },
+          {
+            "language": "python-fastmcp",
+            "code": "+ idempotency_key: str = Field(..., description=\"Unique key to prevent duplicate mutations on retry\")"
+          },
+          {
+            "language": "go",
+            "code": "+ IdempotencyKey string `json:\"idempotency_key\" jsonschema:\"description=Unique key to prevent duplicate mutations on retry\"`"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-002",
+      "dimension": "D1",
+      "tool": "create_payment_intent",
+      "status": "FAIL",
+      "severity": "CRITICAL",
+      "description": "Concurrent burst vulnerability: Tool 'create_payment_intent' exposes no concurrency lock or idempotency parameter",
+      "evidence": {
+        "requestsSent": 10,
+        "mutationsCreated": 10,
+        "expectedMutations": 1,
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Enforce atomic idempotency key parameter and backend deduplication",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ idempotencyKey: z.string().uuid().describe(\"Unique key for atomic deduplication\")"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-003",
+      "dimension": "D1",
+      "tool": "create_payment_intent",
+      "status": "FAIL",
+      "severity": "HIGH",
+      "description": "Missing explicit idempotency key in schema definition for mutation tool 'create_payment_intent'",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'idempotency_key: string' parameter to schema",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ idempotency_key: z.string().uuid().describe(\"Unique token for idempotent request processing\")"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-FUZZ-001",
+      "dimension": "D2",
+      "tool": "create_payment_intent",
+      "status": "PASS",
+      "severity": "HIGH",
+      "description": "Fuzz tests on 'create_payment_intent' parameters conform to schema contracts",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-FUZZ-002",
+      "dimension": "D2",
+      "tool": "create_payment_intent",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "Tool 'create_payment_intent' does not specify 'additionalProperties: false', allowing hallucinated LLM arguments through",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'additionalProperties: false' to inputSchema",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "json-schema",
+            "code": "+ \"additionalProperties\": false"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-ERR-001",
+      "dimension": "D2",
+      "tool": "create_payment_intent",
+      "status": "PASS",
+      "severity": "HIGH",
+      "description": "Tool 'create_payment_intent' has no strict semantic date formats requiring healing evaluation",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-CTX-001",
+      "dimension": "D3",
+      "tool": "create_payment_intent",
+      "status": "PASS",
+      "severity": "CRITICAL",
+      "description": "Token budget compliance passed: payload size is well within agent limits",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SCHEMA-001",
+      "dimension": "D3",
+      "tool": "create_payment_intent",
+      "status": "PASS",
+      "severity": "MEDIUM",
+      "description": "Pagination parameters properly defined on 'create_payment_intent'",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SCHEMA-002",
+      "dimension": "D3",
+      "tool": "create_payment_intent",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool description clarity adequate (66 chars)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SCHEMA-003",
+      "dimension": "D3",
+      "tool": "create_payment_intent",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "Schema boundary vulnerability: Tool 'create_payment_intent' omits 'additionalProperties: false', allowing hallucinated LLM properties to leak into backend logic",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'additionalProperties: false' or .strict() validation",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "json-schema",
+            "code": "+ \"additionalProperties\": false"
+          },
+          {
+            "language": "typescript-zod",
+            "code": "+ z.object({ ... }).strict()"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-PAIR-001",
+      "dimension": "D5",
+      "tool": "create_payment_intent",
+      "status": "FAIL",
+      "severity": "HIGH",
+      "description": "State auditability blind-write violation: Mutation tool 'create_payment_intent' lacks companion query tool ('get_payment_intent' or 'read_payment_intent'). Agents cannot verify pre/post state changes",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY",
+        "details": {
+          "targetEntity": "payment_intent",
+          "expectedCompanion": "get_payment_intent"
+        }
+      },
+      "fix": {
+        "summary": "Expose a companion read-only query tool 'get_payment_intent' accepting primary entity ID",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ // Define companion inspection query tool:\n+ server.tool(\"get_payment_intent\", { payment_intent_id: z.string() }, async ({ payment_intent_id }) => {\n+   return { content: [{ type: \"text\", text: JSON.stringify(await db.get(payment_intent_id)) }] };\n+ });"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-DRYRUN-001",
+      "dimension": "D5",
+      "tool": "create_payment_intent",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "Dry-run transaction simulation missing on mutation tool 'create_payment_intent'. Agents cannot preview side-effects before persisting real mutations",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add optional 'dry_run: boolean' parameter to allow safe execution preview",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ dry_run: z.boolean().optional().describe(\"If true, validates transaction without persisting state changes\")"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-001",
+      "dimension": "D1",
+      "tool": "create_customer",
+      "status": "FAIL",
+      "severity": "CRITICAL",
+      "description": "Sequential replay check failed: Mutation tool 'create_customer' accepts no idempotency key",
+      "evidence": {
+        "requestsSent": 5,
+        "mutationsCreated": 5,
+        "expectedMutations": 1,
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add idempotency_key parameter to tool input schema and deduplicate calls by key/payload hash",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ idempotencyKey: z.string().uuid().describe(\"Unique key to prevent duplicate mutations on retry\")"
+          },
+          {
+            "language": "python-fastmcp",
+            "code": "+ idempotency_key: str = Field(..., description=\"Unique key to prevent duplicate mutations on retry\")"
+          },
+          {
+            "language": "go",
+            "code": "+ IdempotencyKey string `json:\"idempotency_key\" jsonschema:\"description=Unique key to prevent duplicate mutations on retry\"`"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-002",
+      "dimension": "D1",
+      "tool": "create_customer",
+      "status": "FAIL",
+      "severity": "CRITICAL",
+      "description": "Concurrent burst vulnerability: Tool 'create_customer' exposes no concurrency lock or idempotency parameter",
+      "evidence": {
+        "requestsSent": 10,
+        "mutationsCreated": 10,
+        "expectedMutations": 1,
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Enforce atomic idempotency key parameter and backend deduplication",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ idempotencyKey: z.string().uuid().describe(\"Unique key for atomic deduplication\")"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-003",
+      "dimension": "D1",
+      "tool": "create_customer",
+      "status": "FAIL",
+      "severity": "HIGH",
+      "description": "Missing explicit idempotency key in schema definition for mutation tool 'create_customer'",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'idempotency_key: string' parameter to schema",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ idempotency_key: z.string().uuid().describe(\"Unique token for idempotent request processing\")"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-FUZZ-001",
+      "dimension": "D2",
+      "tool": "create_customer",
+      "status": "PASS",
+      "severity": "HIGH",
+      "description": "Fuzz tests on 'create_customer' parameters conform to schema contracts",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-FUZZ-002",
+      "dimension": "D2",
+      "tool": "create_customer",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "Tool 'create_customer' does not specify 'additionalProperties: false', allowing hallucinated LLM arguments through",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'additionalProperties: false' to inputSchema",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "json-schema",
+            "code": "+ \"additionalProperties\": false"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-ERR-001",
+      "dimension": "D2",
+      "tool": "create_customer",
+      "status": "PASS",
+      "severity": "HIGH",
+      "description": "Tool 'create_customer' has no strict semantic date formats requiring healing evaluation",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-CTX-001",
+      "dimension": "D3",
+      "tool": "create_customer",
+      "status": "PASS",
+      "severity": "CRITICAL",
+      "description": "Token budget compliance passed: payload size is well within agent limits",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SCHEMA-001",
+      "dimension": "D3",
+      "tool": "create_customer",
+      "status": "PASS",
+      "severity": "MEDIUM",
+      "description": "Pagination parameters properly defined on 'create_customer'",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SCHEMA-002",
+      "dimension": "D3",
+      "tool": "create_customer",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool description clarity adequate (39 chars)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SCHEMA-003",
+      "dimension": "D3",
+      "tool": "create_customer",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "Schema boundary vulnerability: Tool 'create_customer' omits 'additionalProperties: false', allowing hallucinated LLM properties to leak into backend logic",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'additionalProperties: false' or .strict() validation",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "json-schema",
+            "code": "+ \"additionalProperties\": false"
+          },
+          {
+            "language": "typescript-zod",
+            "code": "+ z.object({ ... }).strict()"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-PAIR-001",
+      "dimension": "D5",
+      "tool": "create_customer",
+      "status": "FAIL",
+      "severity": "HIGH",
+      "description": "State auditability blind-write violation: Mutation tool 'create_customer' lacks companion query tool ('get_customer' or 'read_customer'). Agents cannot verify pre/post state changes",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY",
+        "details": {
+          "targetEntity": "customer",
+          "expectedCompanion": "get_customer"
+        }
+      },
+      "fix": {
+        "summary": "Expose a companion read-only query tool 'get_customer' accepting primary entity ID",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ // Define companion inspection query tool:\n+ server.tool(\"get_customer\", { customer_id: z.string() }, async ({ customer_id }) => {\n+   return { content: [{ type: \"text\", text: JSON.stringify(await db.get(customer_id)) }] };\n+ });"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-DRYRUN-001",
+      "dimension": "D5",
+      "tool": "create_customer",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "Dry-run transaction simulation missing on mutation tool 'create_customer'. Agents cannot preview side-effects before persisting real mutations",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add optional 'dry_run: boolean' parameter to allow safe execution preview",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ dry_run: z.boolean().optional().describe(\"If true, validates transaction without persisting state changes\")"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-001",
+      "dimension": "D1",
+      "tool": "list_charges",
+      "status": "PASS",
+      "severity": "CRITICAL",
+      "description": "Idempotency key parameter found on 'list_charges'",
+      "evidence": {
+        "requestsSent": 5,
+        "mutationsCreated": 1,
+        "expectedMutations": 1,
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-002",
+      "dimension": "D1",
+      "tool": "list_charges",
+      "status": "PASS",
+      "severity": "CRITICAL",
+      "description": "Pure query tool 'list_charges' is free from concurrent mutation race conditions",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-003",
+      "dimension": "D1",
+      "tool": "list_charges",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Query tool 'list_charges' is read-only and does not require explicit idempotency key",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-FUZZ-001",
+      "dimension": "D2",
+      "tool": "list_charges",
+      "status": "PASS",
+      "severity": "HIGH",
+      "description": "Fuzz tests on 'list_charges' parameters conform to schema contracts",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-FUZZ-002",
+      "dimension": "D2",
+      "tool": "list_charges",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "Tool 'list_charges' does not specify 'additionalProperties: false', allowing hallucinated LLM arguments through",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'additionalProperties: false' to inputSchema",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "json-schema",
+            "code": "+ \"additionalProperties\": false"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-ERR-001",
+      "dimension": "D2",
+      "tool": "list_charges",
+      "status": "PASS",
+      "severity": "HIGH",
+      "description": "Tool 'list_charges' has no strict semantic date formats requiring healing evaluation",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-CTX-001",
+      "dimension": "D3",
+      "tool": "list_charges",
+      "status": "PASS",
+      "severity": "CRITICAL",
+      "description": "Token budget compliance passed: payload size is well within agent limits",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SCHEMA-001",
+      "dimension": "D3",
+      "tool": "list_charges",
+      "status": "FAIL",
+      "severity": "HIGH",
+      "description": "Unbounded list response risk: Query tool 'list_charges' has no limit/cursor parameter and risks context bomb under production load",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY",
+        "details": {
+          "recommendation": "Add default limit <= 50 and cursor/has_more pagination fields to schema"
+        }
+      },
+      "fix": {
+        "summary": "Add limit and cursor pagination parameters",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ limit: z.number().int().min(1).max(100).default(20).describe(\"Max items to return (default 20)\"),\n+ cursor: z.string().optional().describe(\"Opaque pagination cursor\")"
+          },
+          {
+            "language": "python-fastmcp",
+            "code": "+ limit: int = Field(20, ge=1, le=100, description=\"Max items to return (default 20)\"),\n+ cursor: Optional[str] = Field(None, description=\"Opaque pagination cursor\")"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SCHEMA-002",
+      "dimension": "D3",
+      "tool": "list_charges",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool description clarity adequate (47 chars)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SCHEMA-003",
+      "dimension": "D3",
+      "tool": "list_charges",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "Schema boundary vulnerability: Tool 'list_charges' omits 'additionalProperties: false', allowing hallucinated LLM properties to leak into backend logic",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'additionalProperties: false' or .strict() validation",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "json-schema",
+            "code": "+ \"additionalProperties\": false"
+          },
+          {
+            "language": "typescript-zod",
+            "code": "+ z.object({ ... }).strict()"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-PAIR-001",
+      "dimension": "D5",
+      "tool": "list_charges",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Query tool 'list_charges' is an inspection tool",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-DRYRUN-001",
+      "dimension": "D5",
+      "tool": "list_charges",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Query tool 'list_charges' has no side-effects and does not require dry_run parameter",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-001",
+      "dimension": "D1",
+      "tool": "refund_charge",
+      "status": "FAIL",
+      "severity": "CRITICAL",
+      "description": "Sequential replay check failed: Mutation tool 'refund_charge' accepts no idempotency key",
+      "evidence": {
+        "requestsSent": 5,
+        "mutationsCreated": 5,
+        "expectedMutations": 1,
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add idempotency_key parameter to tool input schema and deduplicate calls by key/payload hash",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ idempotencyKey: z.string().uuid().describe(\"Unique key to prevent duplicate mutations on retry\")"
+          },
+          {
+            "language": "python-fastmcp",
+            "code": "+ idempotency_key: str = Field(..., description=\"Unique key to prevent duplicate mutations on retry\")"
+          },
+          {
+            "language": "go",
+            "code": "+ IdempotencyKey string `json:\"idempotency_key\" jsonschema:\"description=Unique key to prevent duplicate mutations on retry\"`"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-002",
+      "dimension": "D1",
+      "tool": "refund_charge",
+      "status": "FAIL",
+      "severity": "CRITICAL",
+      "description": "Concurrent burst vulnerability: Tool 'refund_charge' exposes no concurrency lock or idempotency parameter",
+      "evidence": {
+        "requestsSent": 10,
+        "mutationsCreated": 10,
+        "expectedMutations": 1,
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Enforce atomic idempotency key parameter and backend deduplication",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ idempotencyKey: z.string().uuid().describe(\"Unique key for atomic deduplication\")"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-003",
+      "dimension": "D1",
+      "tool": "refund_charge",
+      "status": "FAIL",
+      "severity": "HIGH",
+      "description": "Missing explicit idempotency key in schema definition for mutation tool 'refund_charge'",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'idempotency_key: string' parameter to schema",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ idempotency_key: z.string().uuid().describe(\"Unique token for idempotent request processing\")"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-FUZZ-001",
+      "dimension": "D2",
+      "tool": "refund_charge",
+      "status": "PASS",
+      "severity": "HIGH",
+      "description": "Fuzz tests on 'refund_charge' parameters conform to schema contracts",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-FUZZ-002",
+      "dimension": "D2",
+      "tool": "refund_charge",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "Tool 'refund_charge' does not specify 'additionalProperties: false', allowing hallucinated LLM arguments through",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'additionalProperties: false' to inputSchema",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "json-schema",
+            "code": "+ \"additionalProperties\": false"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-ERR-001",
+      "dimension": "D2",
+      "tool": "refund_charge",
+      "status": "PASS",
+      "severity": "HIGH",
+      "description": "Tool 'refund_charge' has no strict semantic date formats requiring healing evaluation",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-CTX-001",
+      "dimension": "D3",
+      "tool": "refund_charge",
+      "status": "PASS",
+      "severity": "CRITICAL",
+      "description": "Token budget compliance passed: payload size is well within agent limits",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SCHEMA-001",
+      "dimension": "D3",
+      "tool": "refund_charge",
+      "status": "PASS",
+      "severity": "MEDIUM",
+      "description": "Pagination parameters properly defined on 'refund_charge'",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SCHEMA-002",
+      "dimension": "D3",
+      "tool": "refund_charge",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool description clarity adequate (38 chars)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SCHEMA-003",
+      "dimension": "D3",
+      "tool": "refund_charge",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "Schema boundary vulnerability: Tool 'refund_charge' omits 'additionalProperties: false', allowing hallucinated LLM properties to leak into backend logic",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'additionalProperties: false' or .strict() validation",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "json-schema",
+            "code": "+ \"additionalProperties\": false"
+          },
+          {
+            "language": "typescript-zod",
+            "code": "+ z.object({ ... }).strict()"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-PAIR-001",
+      "dimension": "D5",
+      "tool": "refund_charge",
+      "status": "FAIL",
+      "severity": "HIGH",
+      "description": "State auditability blind-write violation: Mutation tool 'refund_charge' lacks companion query tool ('get_refund_charge' or 'read_refund_charge'). Agents cannot verify pre/post state changes",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY",
+        "details": {
+          "targetEntity": "refund_charge",
+          "expectedCompanion": "get_refund_charge"
+        }
+      },
+      "fix": {
+        "summary": "Expose a companion read-only query tool 'get_refund_charge' accepting primary entity ID",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ // Define companion inspection query tool:\n+ server.tool(\"get_refund_charge\", { refund_charge_id: z.string() }, async ({ refund_charge_id }) => {\n+   return { content: [{ type: \"text\", text: JSON.stringify(await db.get(refund_charge_id)) }] };\n+ });"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-DRYRUN-001",
+      "dimension": "D5",
+      "tool": "refund_charge",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "Dry-run transaction simulation missing on mutation tool 'refund_charge'. Agents cannot preview side-effects before persisting real mutations",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add optional 'dry_run: boolean' parameter to allow safe execution preview",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ dry_run: z.boolean().optional().describe(\"If true, validates transaction without persisting state changes\")"
+          }
+        ]
+      },
+      "durationMs": 0
+    }
+  ]
+}

@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pricing &amp; ROI Calculator — ToolVeto MCP Reliability Platform</title>
+  <meta name="description" content="Merge MCP servers with confidence. Transparent pricing for developer CLI gates, continuous drift alerts, and runtime Shield airbags.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./style.css">
+  <style>
+    .pricing-page-hero {
+      padding: 120px 24px 60px 24px;
+      text-align: center;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    .roi-calculator-card {
+      background: #0d101a;
+      border: 1px solid rgba(255, 122, 0, 0.3);
+      border-radius: 16px;
+      padding: 36px;
+      margin: 40px auto;
+      max-width: 860px;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.5), 0 0 30px rgba(255,122,0,0.1);
+    }
+    .roi-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 36px;
+      margin-top: 24px;
+      text-align: left;
+    }
+    .slider-group {
+      margin-bottom: 24px;
+    }
+    .slider-label {
+      display: flex;
+      justify-content: space-between;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85rem;
+      color: #94a3b8;
+      margin-bottom: 8px;
+    }
+    .slider-val {
+      color: #ff7a00;
+      font-weight: 700;
+    }
+    .custom-range {
+      width: 100%;
+      accent-color: #ff7a00;
+      cursor: pointer;
+    }
+    .roi-output-box {
+      background: #07090f;
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 12px;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 16px;
+    }
+    .roi-stat-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      padding-bottom: 12px;
+    }
+    .roi-stat-label {
+      font-size: 0.85rem;
+      color: #94a3b8;
+    }
+    .roi-stat-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 1.25rem;
+      font-weight: 800;
+      color: #00f5a0;
+    }
+    .comparison-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 40px;
+      text-align: left;
+    }
+    .comparison-table th, .comparison-table td {
+      padding: 16px 20px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      font-size: 0.9rem;
+    }
+    .comparison-table th {
+      background: rgba(0,0,0,0.4);
+      color: #94a3b8;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.8rem;
+    }
+  </style>
+</head>
+<body>
+  <!-- Header / Navigation -->
+  <header class="site-header">
+    <div class="header-container">
+      <a href="./index.html" class="brand-link">
+        <div class="brand-logo">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+        </div>
+        <div class="brand-text">Tool<span>Veto</span></div>
+        <span class="brand-badge">PRICING</span>
+      </a>
+
+      <nav class="main-nav">
+        <a href="./index.html#wrecks" class="nav-link">The 3 Wrecks</a>
+        <a href="./index.html#playground" class="nav-link">Crash Lab Demo</a>
+        <a href="./state-of-mcp.html" class="nav-link">2026 Benchmark</a>
+        <a href="./docs.html" class="nav-link">Documentation</a>
+        <a href="./pricing.html" class="nav-link active" style="color: #ff7a00;">Pricing</a>
+      </nav>
+
+      <div class="header-actions">
+        <a href="https://github.com/toolveto/toolveto" target="_blank" rel="noreferrer" class="btn-github">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+          <span>Star on GitHub</span>
+        </a>
+        <a href="./index.html#playground" class="btn-primary">
+          <span>Run Crash Test</span>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Pricing Hero -->
+  <section class="pricing-page-hero">
+    <div class="hero-pill" style="display: inline-block; margin-bottom: 14px;">
+      <span style="font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: #ff7a00; background: rgba(255,122,0,0.12); padding: 4px 12px; border-radius: 999px; border: 1px solid rgba(255,122,0,0.3);">
+        INSURANCE FOR AGENTIC SYSTEMS
+      </span>
+    </div>
+    <h1 style="font-size: 2.8rem; font-weight: 900; margin: 10px 0; line-height: 1.15;">
+      Merge with Confidence.<br><span class="gradient-text">Zero Double-Charges in Prod.</span>
+    </h1>
+    <p style="color: #94a3b8; font-size: 1.1rem; line-height: 1.6; max-width: 680px; margin: 16px auto 0 auto;">
+      One prevented duplicate transaction at $340 average loss pays for an entire month of ToolVeto Team. Start free with our open-source CLI.
+    </p>
+
+    <!-- Interactive ROI Calculator -->
+    <div class="roi-calculator-card">
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 16px;">
+        <div>
+          <h3 style="margin: 0; font-size: 1.25rem; font-weight: 800;">Interactive Risk &amp; ROI Calculator</h3>
+          <p style="margin: 4px 0 0 0; font-size: 0.8rem; color: #64748b;">Simulate how much unmitigated LLM retries and context bombs cost your team</p>
+        </div>
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: #00f5a0; background: rgba(0,245,160,0.1); padding: 4px 10px; border-radius: 6px;">
+          LIVE MODEL
+        </span>
+      </div>
+
+      <div class="roi-grid">
+        <div>
+          <div class="slider-group">
+            <div class="slider-label">
+              <span>Monthly Mutating Tool Calls</span>
+              <span id="calls-display" class="slider-val">25,000</span>
+            </div>
+            <input type="range" id="calls-slider" min="1000" max="250000" step="1000" value="25000" class="custom-range" oninput="updateRoi()">
+          </div>
+
+          <div class="slider-group">
+            <div class="slider-label">
+              <span>Average Transaction / Mutation Value</span>
+              <span id="val-display" class="slider-val">$340 USD</span>
+            </div>
+            <input type="range" id="val-slider" min="50" max="2000" step="25" value="340" class="custom-range" oninput="updateRoi()">
+          </div>
+
+          <div class="slider-group">
+            <div class="slider-label">
+              <span>Estimated Agent Retry Rate (Network/Timeout)</span>
+              <span id="rate-display" class="slider-val">1.2%</span>
+            </div>
+            <input type="range" id="rate-slider" min="0.1" max="5.0" step="0.1" value="1.2" class="custom-range" oninput="updateRoi()">
+          </div>
+        </div>
+
+        <div class="roi-output-box">
+          <div class="roi-stat-item">
+            <span class="roi-stat-label">Prevented Double-Spends / Mo</span>
+            <span id="stat-prevented" class="roi-stat-value">300</span>
+          </div>
+          <div class="roi-stat-item">
+            <span class="roi-stat-label">Capital Loss Protected / Mo</span>
+            <span id="stat-capital" class="roi-stat-value" style="color: #ff7a00;">$102,000</span>
+          </div>
+          <div class="roi-stat-item">
+            <span class="roi-stat-label">LLM Context Tokens Shielded</span>
+            <span id="stat-tokens" class="roi-stat-value" style="color: #3b82f6;">1.4M tok</span>
+          </div>
+          <div class="roi-stat-item" style="border-bottom: none; padding-bottom: 0;">
+            <span class="roi-stat-label">ToolVeto Team ROI Multiple</span>
+            <span id="stat-roi" class="roi-stat-value" style="color: #00f5a0; font-size: 1.6rem;">409×</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Pricing Cards Grid -->
+  <section class="section" style="padding-top: 0;">
+    <div class="pricing-grid">
+      <!-- Tier 1: Free -->
+      <div class="pricing-card">
+        <div class="pricing-tier-header">
+          <div class="pricing-name">Free CLI Gate</div>
+          <div class="pricing-desc">Deterministic CI blocking gate for every open-source developer.</div>
+        </div>
+        <div class="pricing-price">
+          <span class="price-val">$0</span>
+          <span class="price-period">/ forever</span>
+        </div>
+        <ul class="pricing-features">
+          <li><span>✓</span> <code>npx toolveto check &lt;target&gt;</code></li>
+          <li><span>✓</span> Full 5-dimension deterministic battery</li>
+          <li><span>✓</span> 3-line actionable AST code patches</li>
+          <li><span>✓</span> Zero signup, zero API keys, $0 run cost</li>
+          <li><span>✓</span> Sub-90s execution in GitHub Actions</li>
+          <li><span>✓</span> Standalone README SVG badge generator</li>
+        </ul>
+        <a href="./index.html#playground" class="btn-pricing">Get Started Free</a>
+      </div>
+
+      <!-- Tier 2: Team -->
+      <div class="pricing-card popular">
+        <div class="pricing-popular-tag">MOST POPULAR</div>
+        <div class="pricing-tier-header">
+          <div class="pricing-name">Team</div>
+          <div class="pricing-desc">Continuous audit history, drift sentinel, and automated PR comments.</div>
+        </div>
+        <div class="pricing-price">
+          <span class="price-val">$249</span>
+          <span class="price-period">/ month</span>
+        </div>
+        <ul class="pricing-features">
+          <li><span>✓</span> <strong>Everything in Free</strong></li>
+          <li><span>✓</span> Automated GitHub PR inline diff comments</li>
+          <li><span>✓</span> Hourly continuous schema drift sentinel</li>
+          <li><span>✓</span> Hosted audit history dashboard (toolveto.ai)</li>
+          <li><span>✓</span> Dynamic edge-cached CDN README badges</li>
+          <li><span>✓</span> Stage 4 LLM E_heal self-healing judge</li>
+          <li><span>✓</span> Slack &amp; Discord incident webhooks</li>
+        </ul>
+        <a href="./index.html#playground" class="btn-pricing">Start 14-Day Free Trial</a>
+      </div>
+
+      <!-- Tier 3: Shield -->
+      <div class="pricing-card">
+        <div class="pricing-tier-header">
+          <div class="pricing-name">Runtime Shield</div>
+          <div class="pricing-desc">Active reverse proxy airbag for third-party MCP servers you don't control.</div>
+        </div>
+        <div class="pricing-price">
+          <span class="price-val">$499</span>
+          <span class="price-period">/ month</span>
+        </div>
+        <ul class="pricing-features">
+          <li><span>✓</span> <strong>Everything in Team</strong></li>
+          <li><span>✓</span> <code>@toolveto/shield</code> middleware proxy</li>
+          <li><span>✓</span> Multi-instance Redis sliding-window loop breaker</li>
+          <li><span>✓</span> Atomic idempotency cache with UUID dedup</li>
+          <li><span>✓</span> Response token budget context clipper</li>
+          <li><span>✓</span> Sub-5ms p99 overhead latency guarantee</li>
+          <li><span>✓</span> LangSmith &amp; OTel failure lakehouse export</li>
+        </ul>
+        <a href="./index.html#playground" class="btn-pricing">Deploy Shield Gateway</a>
+      </div>
+
+      <!-- Tier 4: Enterprise -->
+      <div class="pricing-card">
+        <div class="pricing-tier-header">
+          <div class="pricing-name">Enterprise</div>
+          <div class="pricing-desc">AIUC-1 compliance packets, gVisor private clusters &amp; custom SLAs.</div>
+        </div>
+        <div class="pricing-price">
+          <span class="price-val">Custom</span>
+          <span class="price-period">/ annual</span>
+        </div>
+        <ul class="pricing-features">
+          <li><span>✓</span> <strong>Everything in Shield</strong></li>
+          <li><span>✓</span> Cryptographic JWS RFC 7515 evidence packets</li>
+          <li><span>✓</span> AIUC-1 &amp; OWASP Agentic Top 10 compliance audit</li>
+          <li><span>✓</span> Dedicated hermetic gVisor runner fleet</li>
+          <li><span>✓</span> On-prem / VPC private cloud deployment</li>
+          <li><span>✓</span> 99.99% gateway SLA &amp; 24/7 incident hotline</li>
+          <li><span>✓</span> Custom security questionnaire &amp; SOC 2 signoff</li>
+        </ul>
+        <a href="mailto:enterprise@toolveto.ai" class="btn-pricing">Contact Sales</a>
+      </div>
+    </div>
+
+    <!-- Feature Comparison Table -->
+    <div style="max-width: 1040px; margin: 80px auto 0 auto; background: #0d101a; border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 32px; overflow-x: auto;">
+      <h3 style="font-size: 1.4rem; font-weight: 800; margin: 0 0 20px 0; text-align: center;">Detailed Capability Comparison</h3>
+      <table class="comparison-table">
+        <thead>
+          <tr>
+            <th>CAPABILITY</th>
+            <th>FREE CLI</th>
+            <th>TEAM</th>
+            <th>SHIELD</th>
+            <th>ENTERPRISE</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Deterministic Chaos Testing</strong></td>
+            <td style="color: #00f5a0;">Included</td>
+            <td style="color: #00f5a0;">Included</td>
+            <td style="color: #00f5a0;">Included</td>
+            <td style="color: #00f5a0;">Included</td>
+          </tr>
+          <tr>
+            <td><strong>Actionable Code Diffs (Zod/FastMCP/Go)</strong></td>
+            <td style="color: #00f5a0;">Included</td>
+            <td style="color: #00f5a0;">Included</td>
+            <td style="color: #00f5a0;">Included</td>
+            <td style="color: #00f5a0;">Included</td>
+          </tr>
+          <tr>
+            <td><strong>GitHub PR Blocking Comments</strong></td>
+            <td style="color: #64748b;">CLI Only</td>
+            <td style="color: #00f5a0;">Automated</td>
+            <td style="color: #00f5a0;">Automated</td>
+            <td style="color: #00f5a0;">Automated</td>
+          </tr>
+          <tr>
+            <td><strong>Hourly Schema Drift Sentinel</strong></td>
+            <td style="color: #64748b;">—</td>
+            <td style="color: #00f5a0;">Included</td>
+            <td style="color: #00f5a0;">Included</td>
+            <td style="color: #00f5a0;">Included</td>
+          </tr>
+          <tr>
+            <td><strong>Runtime Airbag Middleware</strong></td>
+            <td style="color: #64748b;">—</td>
+            <td style="color: #64748b;">—</td>
+            <td style="color: #00f5a0;">Production Ready</td>
+            <td style="color: #00f5a0;">High-Throughput HA</td>
+          </tr>
+          <tr>
+            <td><strong>AIUC-1 &amp; OWASP JWS Attestations</strong></td>
+            <td style="color: #64748b;">—</td>
+            <td style="color: #64748b;">—</td>
+            <td style="color: #64748b;">—</td>
+            <td style="color: #00f5a0;">Signed PDF &amp; API</td>
+          </tr>
+          <tr>
+            <td><strong>Isolation Architecture</strong></td>
+            <td>Local In-Process</td>
+            <td>Cloud Runners</td>
+            <td>Reverse Proxy</td>
+            <td>gVisor (runsc) VPC</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="site-footer">
+    <div class="footer-container">
+      <div class="footer-brand">
+        <div class="footer-logo">Tool<span>Veto</span></div>
+        <p class="footer-desc">
+          Deterministic chaos testing, CI blocking gates, and runtime airbags for MCP servers.
+        </p>
+      </div>
+
+      <div class="footer-links-grid">
+        <div class="footer-col">
+          <div class="footer-col-title">PRODUCT</div>
+          <ul>
+            <li><a href="./index.html#playground">Crash Lab Demo</a></li>
+            <li><a href="./docs.html">Documentation</a></li>
+            <li><a href="./state-of-mcp.html">2026 Benchmark</a></li>
+            <li><a href="./pricing.html">Pricing &amp; ROI</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <div class="footer-col-title">DEVELOPERS</div>
+          <ul>
+            <li><a href="https://github.com/toolveto/toolveto" target="_blank" rel="noreferrer">GitHub Repository</a></li>
+            <li><a href="./state-of-mcp.html">State of MCP 2026</a></li>
+            <li><a href="https://modelcontextprotocol.io" target="_blank" rel="noreferrer">MCP Protocol Spec</a></li>
+            <li><a href="./index.html#evidence">CISO Compliance Lane</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <div class="footer-col-title">COMMUNITY</div>
+          <ul>
+            <li><a href="https://x.com/toolveto" target="_blank" rel="noreferrer">Twitter / X</a></li>
+            <li><a href="https://discord.gg/toolveto" target="_blank" rel="noreferrer">Discord Community</a></li>
+            <li><a href="https://news.ycombinator.com" target="_blank" rel="noreferrer">Hacker News</a></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <div>&copy; 2026 ToolVeto Technologies Inc. Open-source core under MIT License.</div>
+    </div>
+  </footer>
+
+  <script>
+    function updateRoi() {
+      const calls = parseInt(document.getElementById('calls-slider').value, 10);
+      const val = parseInt(document.getElementById('val-slider').value, 10);
+      const rate = parseFloat(document.getElementById('rate-slider').value);
+
+      document.getElementById('calls-display').innerText = calls.toLocaleString();
+      document.getElementById('val-display').innerText = '$' + val.toLocaleString() + ' USD';
+      document.getElementById('rate-display').innerText = rate.toFixed(1) + '%';
+
+      const prevented = Math.round(calls * (rate / 100));
+      const capital = prevented * val;
+      const tokens = Math.round(calls * 56);
+      const roi = Math.max(1, Math.round(capital / 249));
+
+      document.getElementById('stat-prevented').innerText = prevented.toLocaleString();
+      document.getElementById('stat-capital').innerText = '$' + capital.toLocaleString();
+      document.getElementById('stat-tokens').innerText = (tokens > 1000000 ? (tokens / 1000000).toFixed(1) + 'M' : Math.round(tokens / 1000) + 'k') + ' tok';
+      document.getElementById('stat-roi').innerText = roi.toLocaleString() + '×';
+    }
+  </script>
+</body>
+</html>

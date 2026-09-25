@@ -1,0 +1,46 @@
+name: 'ToolVeto MCP Reliability & Chaos Gate'
+description: 'Deterministic Chaos Testing, CI Blocking Gates & Auto-Remediation for MCP Servers (<90s, $0, zero LLM)'
+author: 'ToolVeto Team'
+branding:
+  icon: 'shield'
+  color: 'red'
+
+inputs:
+  server-path:
+    description: 'Path to local MCP server directory, binary, or schema JSON'
+    required: false
+    default: '.'
+  server-url:
+    description: 'Remote Streamable HTTP MCP server URL (if testing live endpoint)'
+    required: false
+  fail-on-severity:
+    description: 'Minimum failure severity to block PR merge (CRITICAL | HIGH | MEDIUM)'
+    required: false
+    default: 'CRITICAL'
+  toolveto-token:
+    description: 'ToolVeto Cloud token for continuous drift monitoring and audit history'
+    required: false
+  with-llm:
+    description: 'Enable Stage 4 LLM E_heal self-heal judge'
+    required: false
+    default: 'false'
+
+outputs:
+  score:
+    description: 'Evaluated reliability score (0-100)'
+  tier:
+    description: 'Certification tier awarded'
+  passed:
+    description: 'True if no merge-blocking fatal vetoes were encountered'
+  report-url:
+    description: 'Shareable audit result link'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Run ToolVeto CI Gate
+      shell: bash
+      run: |
+        TARGET="${{ inputs.server-url || inputs.server-path }}"
+        echo "🛡️ Running ToolVeto Check on: $TARGET"
+        npx --yes toolveto@latest check "$TARGET"

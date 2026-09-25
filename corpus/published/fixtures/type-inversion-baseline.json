@@ -1,0 +1,16 @@
+{
+  "version": "1.0",
+  "test_class": "TC-FUZZ",
+  "vectors": [
+    {
+      "type": "date_natural_language",
+      "values": ["tomorrow morning", "next Friday at 3pm", "yesterday", "2026-13-45"],
+      "expected_recovery_advice": true
+    },
+    {
+      "type": "numeric_overflow_and_specials",
+      "values": [null, "NaN", 1e308, -1, ""],
+      "expected_recovery_advice": true
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "name": "@toolveto/benchmarks-dogfood",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "run": "node runner.ts"
+  }
+}

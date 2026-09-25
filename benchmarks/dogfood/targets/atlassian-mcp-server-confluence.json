@@ -1,0 +1,60 @@
+{
+  "repo": "atlassian/mcp-server-confluence",
+  "name": "Atlassian Confluence Server",
+  "stars": 2400,
+  "description": "Enterprise documentation and knowledge base MCP server for Atlassian Confluence workspaces",
+  "tools": [
+    {
+      "name": "create_page",
+      "description": "Creates a new wiki page in the specified space",
+      "isMutation": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "space_key": { "type": "string", "description": "Space key" },
+          "title": { "type": "string", "description": "Page title" },
+          "content": { "type": "string", "description": "HTML or storage format markup" }
+        },
+        "required": ["space_key", "title", "content"]
+      }
+    },
+    {
+      "name": "get_page",
+      "description": "Retrieves page content and version metadata",
+      "isMutation": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "page_id": { "type": "string", "description": "Confluence page ID" }
+        },
+        "required": ["page_id"]
+      }
+    },
+    {
+      "name": "update_page",
+      "description": "Updates an existing page with new title or content",
+      "isMutation": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "page_id": { "type": "string", "description": "Page ID to update" },
+          "version": { "type": "integer", "description": "Current version number" },
+          "content": { "type": "string", "description": "Updated body content" }
+        },
+        "required": ["page_id", "version", "content"]
+      }
+    },
+    {
+      "name": "search_content",
+      "description": "Searches Confluence content using CQL syntax",
+      "isMutation": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cql": { "type": "string", "description": "Confluence Query Language expression" }
+        },
+        "required": ["cql"]
+      }
+    }
+  ]
+}

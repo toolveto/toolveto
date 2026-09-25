@@ -1,0 +1,56 @@
+{
+  "repo": "supabase/mcp-server-supabase",
+  "name": "Supabase MCP Server",
+  "stars": 8200,
+  "description": "Supabase open-source backend tool suite for database operations and auth",
+  "tools": [
+    {
+      "name": "execute_sql",
+      "description": "Executes SQL query against Supabase database instance",
+      "isMutation": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "description": "PostgreSQL query string" }
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "insert_row",
+      "description": "Inserts record into specified database table",
+      "isMutation": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "table": { "type": "string", "description": "Table name" },
+          "data": { "type": "object", "description": "JSON object representing row fields" }
+        },
+        "required": ["table", "data"]
+      }
+    },
+    {
+      "name": "update_row",
+      "description": "Updates existing row matching primary key filter",
+      "isMutation": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "table": { "type": "string", "description": "Table name" },
+          "id": { "type": "string", "description": "Row primary key ID" },
+          "data": { "type": "object", "description": "Updated values" }
+        },
+        "required": ["table", "id", "data"]
+      }
+    },
+    {
+      "name": "list_tables",
+      "description": "Lists all tables and schemas available in the public database",
+      "isMutation": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ]
+}
