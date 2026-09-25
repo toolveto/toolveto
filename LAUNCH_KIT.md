@@ -22,7 +22,7 @@ Hey HN,
 Over the past two weeks, we ran 10 of the most popular open-source Model Context Protocol (MCP) servers (including Stripe, GitHub, Neon, Supabase, Cloudflare, Linear, and Slack) through a deterministic chaos testing suite called ToolVeto.
 
 The result: All 10 failed at least one critical production invariant.
-Median score: 58/100 (Bronze).
+Average score: 70.3/100 (Bronze/Silver baseline; 10/10 blocked on CI merge gate).
 
 Why this happens:
 REST APIs were designed assuming well-behaved human-engineered clients. LLM agents (Claude 4.6 Sonnet, GPT-5, Gemini 2.5 Pro) are not well-behaved. They retry failed calls aggressively, hallucinate parameter types, loop 47 times on opaque 500 errors, and dump 50k tokens into context.
@@ -54,7 +54,7 @@ Would love your feedback on our scoring rubric and chaos invariants!
 > We ran 10 of the most popular Model Context Protocol (MCP) servers through a deterministic chaos test.
 > 
 > All 10 failed.
-> Median score: 58/100.
+> Average score: 70.3/100 (10/10 blocked on default merge gate).
 > 
 > Here’s why agents break your APIs—and the 3-line diffs to fix them 🧵👇
 > [Image: STATE_OF_MCP_2026 Scorecard Wall]
@@ -83,18 +83,21 @@ Would love your feedback on our scoring rubric and chaos invariants!
 **Tweet 5 (Finding 3 — Context Bombs):**
 > 💣 Wreck #3: Context Bombs.
 > 
-> 7 out of 10 list tools omitted `limit` and `cursor` pagination parameters.
-> One query dumped 52,000 tokens into the prompt, obliterating reasoning ability and burning $1.50 in API cost on a single turn.
+> 9 out of 10 list tools omitted `limit` and `cursor` pagination parameters.
+> One query dumped 57,000 tokens into the prompt, obliterating reasoning ability and burning API budget on a single turn.
 
 **Tweet 6 (The Dogfood Targets):**
 > We didn't test toys. We audited:
-> • @stripe Agent Toolkit (Score: 48)
-> • @neondatabase MCP (Score: 61)
-> • @supabase MCP (Score: 56)
-> • @github MCP (Score: 78)
-> • @Cloudflare Dev Platform (Score: 64)
-> • @linear MCP (Score: 62)
-> • @SlackHQ MCP (Score: 52)
+> • @modelcontextprotocol servers (Score: 78)
+> • @anthropic quickstarts (Score: 77)
+> • @atlassian Confluence (Score: 75)
+> • @linear MCP (Score: 75)
+> • @getsentry MCP (Score: 73)
+> • @neondatabase MCP (Score: 71)
+> • @stripe Agent Toolkit (Score: 63)
+> • @SlackHQ MCP (Score: 66)
+> • @docker MCP (Score: 63)
+> • @github MCP (Score: 62)
 
 **Tweet 7 (The Potency Rule):**
 > Our rule: A number without a fix is useless.
