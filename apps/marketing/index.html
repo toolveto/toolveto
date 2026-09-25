@@ -5,6 +5,100 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ToolVeto — Stateful Chaos Testing, CI Gate & Runtime Shield for MCP Servers</title>
   <meta name="description" content="Your API passed tests. Then it met an agent. ToolVeto is the stateful chaos testing engine, CI gate, and runtime shield for Model Context Protocol (MCP) servers.">
+  <link rel="canonical" href="https://toolveto.ai/">
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg">
+  <meta name="theme-color" content="#07090e">
+  <meta name="robots" content="index, follow">
+  <meta name="keywords" content="Model Context Protocol, MCP server security, AI agent safety, MCP testing, LLM tool idempotency, context bomb prevention, prompt injection shield, CI merge gate, agent security testing">
+
+  <!-- Open Graph / Facebook -->
+  <meta property="og:site_name" content="ToolVeto">
+  <meta property="og:title" content="ToolVeto — Stateful Chaos Testing, CI Gate &amp; Runtime Shield for MCP Servers">
+  <meta property="og:description" content="Block double-charges, context bombs, and runaway retry loops in CI before autonomous AI agents hit production. Free open-source CLI, RFC 7515 attestation, and runtime proxy shield.">
+  <meta property="og:url" content="https://toolveto.ai/">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="https://toolveto.ai/assets/hero-crash-lab.jpg">
+  <meta property="og:locale" content="en_US">
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:site" content="@toolveto">
+  <meta name="twitter:creator" content="@toolveto">
+  <meta name="twitter:title" content="ToolVeto — Stateful Chaos Testing &amp; CI Gate for MCP Servers">
+  <meta name="twitter:description" content="Block double-charges, context bombs, and runaway retry loops in CI with 3-line PR fixes.">
+  <meta name="twitter:image" content="https://toolveto.ai/assets/hero-crash-lab.jpg">
+
+  <!-- Preload Hero LCP Image -->
+  <link rel="preload" as="image" href="./assets/hero-crash-lab.jpg" fetchpriority="high">
+
+  <!-- Structured Data: JSON-LD -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Organization",
+        "@id": "https://toolveto.ai/#organization",
+        "name": "ToolVeto",
+        "url": "https://toolveto.ai",
+        "logo": "https://toolveto.ai/favicon.svg",
+        "sameAs": [
+          "https://github.com/toolveto/toolveto"
+        ]
+      },
+      {
+        "@type": "WebSite",
+        "@id": "https://toolveto.ai/#website",
+        "url": "https://toolveto.ai",
+        "name": "ToolVeto",
+        "publisher": { "@id": "https://toolveto.ai/#organization" }
+      },
+      {
+        "@type": "SoftwareApplication",
+        "@id": "https://toolveto.ai/#software",
+        "name": "ToolVeto",
+        "applicationCategory": "SecurityApplication",
+        "operatingSystem": "Linux, macOS, Windows",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        },
+        "description": "Stateful chaos testing engine, CI gate, and runtime shield for Model Context Protocol (MCP) servers."
+      },
+      {
+        "@type": "FAQPage",
+        "@id": "https://toolveto.ai/#faq",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "What is ToolVeto?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "ToolVeto is the stateful chaos testing engine, CI merge gate, and runtime shield designed for Model Context Protocol (MCP) servers. It detects and blocks agentic vulnerabilities such as double-charges, context bombs, and runaway retry loops."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "How does ToolVeto prevent duplicate charges in AI agents?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "ToolVeto tests MCP mutation tools against rapid sequential replay and concurrent bursts to ensure they require and enforce idempotency tokens. It also provides the @toolveto/shield runtime middleware to deduplicate requests automatically."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What is an MCP context bomb?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "An MCP context bomb occurs when an unconstrained collection query tool returns unbounded responses (>8,000 tokens), exhausting the LLM's context window, evicting reasoning history, and causing agent collapse."
+            }
+          }
+        ]
+      }
+    ]
+  }
+  </script>
 
   <!-- Google Fonts: Inter, Outfit, JetBrains Mono -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -117,7 +211,7 @@
       <!-- Right Column: Live HUD Telemetry Card -->
       <div class="hero-hud-card">
         <div class="hud-image-wrapper">
-          <img src="./assets/hero-crash-lab.jpg" alt="ToolVeto API Chaos Test Collision Visualizer">
+          <img src="./assets/hero-crash-lab.jpg" alt="ToolVeto API Chaos Test Collision Visualizer" fetchpriority="high" decoding="async" width="1200" height="750">
           <div class="hud-overlay-banner">
             <span class="hud-pill veto">🔴 MERGE BLOCKED: VETO TRIGGERED</span>
             <span class="hud-pill live">CHAOS HARNESS ACTIVE</span>
@@ -441,7 +535,7 @@
       </div>
 
       <div style="margin-top: 48px;" class="arch-visual-container">
-        <img src="./assets/shield-airbag.jpg" alt="ToolVeto Shield Runtime Airbag Deflecting Retry Storms">
+        <img src="./assets/shield-airbag.jpg" alt="ToolVeto Shield Runtime Airbag Deflecting Retry Storms" loading="lazy" decoding="async" width="1200" height="750">
       </div>
     </div>
   </section>

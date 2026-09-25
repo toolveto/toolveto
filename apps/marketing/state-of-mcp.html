@@ -4,14 +4,112 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>State of MCP Server Reliability — 2026 Benchmark Report | ToolVeto</title>
-  <meta name="description" content="An independent reliability and chaos evaluation of 10 popular open-source Model Context Protocol (MCP) servers representing 109,700+ GitHub stars.">
+  <meta name="description" content="Independent chaos and reliability audit of 10 leading open-source Model Context Protocol (MCP) servers (109,700+ GitHub stars). Why 10/10 fail CI merge gates and how to achieve Gold tier.">
+  <meta name="keywords" content="State of MCP 2026, Model Context Protocol benchmark, MCP reliability report, AI agent chaos testing, MCP server evaluation, agent idempotency failure rates, Anthropic MCP server review, Model Context Protocol security">
+  <meta name="author" content="ToolVeto Research &amp; Engineering">
+  <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1">
+  <meta name="theme-color" content="#07090f">
+
+  <!-- Canonical URL & Favicon -->
+  <link rel="canonical" href="https://toolveto.ai/state-of-mcp.html">
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg">
+
+  <!-- Open Graph / Facebook -->
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://toolveto.ai/state-of-mcp.html">
+  <meta property="og:title" content="State of MCP Server Reliability — 2026 Benchmark Report | ToolVeto">
+  <meta property="og:description" content="Independent chaos and reliability audit of 10 leading open-source MCP servers (109,700+ GitHub stars). 100% of tested servers failed production CI merge gates.">
+  <meta property="og:image" content="https://toolveto.ai/assets/hero-crash-lab.jpg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="750">
+  <meta property="og:site_name" content="ToolVeto">
+  <meta property="article:published_time" content="2026-09-24T00:00:00Z">
+  <meta property="article:modified_time" content="2026-09-24T20:30:00Z">
+  <meta property="article:author" content="ToolVeto Research Team">
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:site" content="@toolveto">
+  <meta name="twitter:creator" content="@toolveto">
+  <meta name="twitter:title" content="State of MCP Server Reliability — 2026 Benchmark Report">
+  <meta name="twitter:description" content="Independent chaos testing of 10 popular MCP servers (109,700+ stars). Why 10/10 fail production CI gates and how to fix them.">
+  <meta name="twitter:image" content="https://toolveto.ai/assets/hero-crash-lab.jpg">
 
   <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@600;700;800;900&display=swap" rel="stylesheet">
-
   <link rel="stylesheet" href="./style.css">
+
+  <!-- Schema.org JSON-LD Structured Data: Report, Dataset, BreadcrumbList -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Report",
+        "@id": "https://toolveto.ai/state-of-mcp.html#report",
+        "headline": "The State of Model Context Protocol (MCP) Server Reliability — 2026",
+        "description": "An automated chaos and contract verification audit of 10 leading open-source MCP repositories representing 109,700+ combined GitHub stars.",
+        "url": "https://toolveto.ai/state-of-mcp.html",
+        "datePublished": "2026-09-24T00:00:00Z",
+        "dateModified": "2026-09-24T20:30:00Z",
+        "author": {
+          "@type": "Organization",
+          "name": "ToolVeto Research & Engineering",
+          "url": "https://toolveto.ai"
+        },
+        "publisher": {
+          "@type": "Organization",
+          "name": "ToolVeto Inc.",
+          "logo": {
+            "@type": "ImageObject",
+            "url": "https://toolveto.ai/favicon.svg"
+          }
+        },
+        "image": "https://toolveto.ai/assets/hero-crash-lab.jpg",
+        "inLanguage": "en-US"
+      },
+      {
+        "@type": "Dataset",
+        "@id": "https://toolveto.ai/state-of-mcp.html#dataset",
+        "name": "2026 Open-Source MCP Server Reliability & Chaos Evaluation Benchmark",
+        "description": "Deterministic scoring across 10 top MCP servers (109,700 GitHub stars) evaluated against 12 reliability invariants across Idempotency, Error Ergonomics, Context Hygiene, Steerability, and State Auditability.",
+        "creator": {
+          "@type": "Organization",
+          "name": "ToolVeto Inc.",
+          "url": "https://toolveto.ai"
+        },
+        "license": "https://creativecommons.org/licenses/by/4.0/",
+        "distribution": [
+          {
+            "@type": "DataDownload",
+            "encodingFormat": "application/json",
+            "contentUrl": "https://github.com/toolveto/toolveto/tree/main/benchmarks/dogfood/results"
+          }
+        ]
+      },
+      {
+        "@type": "BreadcrumbList",
+        "@id": "https://toolveto.ai/state-of-mcp.html#breadcrumb",
+        "itemListElement": [
+          {
+            "@type": "ListItem",
+            "position": 1,
+            "name": "Home",
+            "item": "https://toolveto.ai/"
+          },
+          {
+            "@type": "ListItem",
+            "position": 2,
+            "name": "State of MCP 2026 Benchmark",
+            "item": "https://toolveto.ai/state-of-mcp.html"
+          }
+        ]
+      }
+    ]
+  }
+  </script>
   <style>
     .report-hero {
       padding: calc(var(--header-height) + 40px) 0 60px;

@@ -1,0 +1,8 @@
+# ToolVeto Robots.txt
+# https://toolveto.ai
+
+User-agent: *
+Allow: /
+
+# Sitemaps
+Sitemap: https://toolveto.ai/sitemap.xml
