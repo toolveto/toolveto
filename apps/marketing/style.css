@@ -160,6 +160,10 @@ code, pre {
 
 .brand-title {
   font-family: var(--font-heading);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
 }
 
 .brand-title span {
@@ -175,8 +179,8 @@ code, pre {
   border: 1px solid rgba(255, 122, 0, 0.3);
   padding: 2px 6px;
   border-radius: 4px;
-  margin-left: 4px;
   font-family: var(--font-mono);
+  white-space: nowrap;
 }
 
 .nav-links {
@@ -2005,41 +2009,56 @@ code, pre {
   gap: 16px;
 }
 
+.gauge-dial {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 130px;
+  position: relative;
+}
+
 .speedometer-svg {
   filter: drop-shadow(0 0 12px rgba(255, 51, 85, 0.35));
   overflow: visible;
+  display: block;
 }
 
 .gauge-readout {
   display: flex;
   flex-direction: column;
   align-items: center;
-  margin-top: -14px;
+  margin-top: 8px; /* Clean breathing room below needle pivot so digits are never hidden */
+  position: relative;
+  z-index: 2;
 }
 
 .gauge-val {
   font-family: var(--font-mono);
-  font-size: 1.4rem;
+  font-size: 1.65rem;
   font-weight: 800;
   line-height: 1;
-  transition: color 0.4s ease;
+  letter-spacing: -0.02em;
+  transition: color 0.4s ease, text-shadow 0.4s ease;
 }
 
 .gauge-val.danger {
   color: #ff3355;
-  text-shadow: 0 0 10px rgba(255, 51, 85, 0.6);
+  text-shadow: 0 0 12px rgba(255, 51, 85, 0.7);
 }
 
 .gauge-val.safe {
   color: #00f5a0;
-  text-shadow: 0 0 10px rgba(0, 245, 160, 0.6);
+  text-shadow: 0 0 12px rgba(0, 245, 160, 0.7);
 }
 
 .gauge-unit {
   font-family: var(--font-mono);
   font-size: 0.65rem;
+  font-weight: 600;
   color: var(--text-muted);
-  letter-spacing: 0.05em;
+  letter-spacing: 0.08em;
+  margin-top: 3px;
 }
 
 .gauge-meta {
@@ -2065,21 +2084,26 @@ code, pre {
 .waveform-box {
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
-  gap: 4px;
+  gap: 6px;
+  min-width: 200px;
+  flex: 1;
 }
 
 .waveform-label {
   font-family: var(--font-mono);
   font-size: 0.675rem;
+  font-weight: 600;
   color: var(--text-muted);
   letter-spacing: 0.06em;
 }
 
 #hud-waveform-canvas {
+  width: 100%;
+  height: 44px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 6px;
   background: #03050a;
+  display: block;
 }
 
 /* Chaos Trigger Control Bar */

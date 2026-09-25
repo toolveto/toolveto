@@ -862,6 +862,7 @@ function initHeroChaosCanvas() {
 // 8. Interactive Flight Deck & Collision Simulator
 function initHeroFlightDeck() {
   const needle = document.getElementById("hud-gauge-needle");
+  const hub = document.getElementById("hud-gauge-hub");
   const threatScore = document.getElementById("hud-threat-score");
   const gaugeLabel = document.getElementById("hud-gauge-label");
   const gaugeSub = document.getElementById("hud-gauge-sub");
@@ -879,6 +880,11 @@ function initHeroFlightDeck() {
   function setActive(btn) {
     buttons.forEach(b => b && b.classList.remove("active"));
     if (btn) btn.classList.add("active");
+  }
+
+  function setDialColor(color) {
+    if (needle) needle.setAttribute("stroke", color);
+    if (hub) hub.setAttribute("stroke", color);
   }
 
   function appendStreamLines(lines) {
@@ -904,6 +910,8 @@ function initHeroFlightDeck() {
       audioSynth.crash();
       if (chaosCanvasBurst) chaosCanvasBurst();
       if (needle) needle.style.transform = "rotate(50deg)";
+      setDialColor("#ff3355");
+      if (window.setHudWaveformState) window.setHudWaveformState("danger");
       if (threatScore) {
         threatScore.textContent = "94";
         threatScore.className = "gauge-val danger";
@@ -933,6 +941,8 @@ function initHeroFlightDeck() {
       audioSynth.crash();
       if (chaosCanvasBurst) chaosCanvasBurst();
       if (needle) needle.style.transform = "rotate(62deg)";
+      setDialColor("#ff3355");
+      if (window.setHudWaveformState) window.setHudWaveformState("danger");
       if (threatScore) {
         threatScore.textContent = "98";
         threatScore.className = "gauge-val danger";
@@ -962,13 +972,15 @@ function initHeroFlightDeck() {
       audioSynth.crash();
       if (chaosCanvasBurst) chaosCanvasBurst();
       if (needle) needle.style.transform = "rotate(40deg)";
+      setDialColor("#ff7a00");
+      if (window.setHudWaveformState) window.setHudWaveformState("warning");
       if (threatScore) {
         threatScore.textContent = "88";
         threatScore.className = "gauge-val danger";
       }
       if (gaugeLabel) {
         gaugeLabel.textContent = "🔄 VETO_PANIC (47× RETRY SPIRAL)";
-        gaugeLabel.style.color = "#ff4757";
+        gaugeLabel.style.color = "#ff7a00";
       }
       if (gaugeSub) gaugeSub.textContent = "Raw 500 error causes recursive agent retry spiral";
       if (beacon) beacon.className = "beacon-pulse red";
@@ -990,6 +1002,8 @@ function initHeroFlightDeck() {
       setActive(btnAirbag);
       audioSynth.airbag();
       if (needle) needle.style.transform = "rotate(-45deg)";
+      setDialColor("#00f5a0");
+      if (window.setHudWaveformState) window.setHudWaveformState("safe");
       if (threatScore) {
         threatScore.textContent = "04";
         threatScore.className = "gauge-val safe";
@@ -1022,26 +1036,80 @@ function initWaveformOscilloscope() {
   if (!ctx) return;
 
   let step = 0;
-  function drawWaveform() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.beginPath();
-    ctx.moveTo(0, canvas.height / 2);
+  let waveMode = "danger"; // "danger", "warning", "safe"
 
-    for (let x = 0; x < canvas.width; x++) {
-      const y = (canvas.height / 2) + Math.sin((x * 0.08) + step) * 8 * Math.cos((x * 0.03) + (step * 0.5));
+  window.setHudWaveformState = function(mode) {
+    waveMode = mode;
+  };
+
+  function updateResolution() {
+    const w = canvas.offsetWidth || 220;
+    const h = canvas.offsetHeight || 44;
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    }
+  }
+
+  function drawWaveform() {
+    updateResolution();
+    const w = canvas.width;
+    const h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+
+    const midY = h / 2;
+
+    // Subtle center baseline
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.05)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, midY);
+    ctx.lineTo(w, midY);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(0, midY);
+
+    for (let x = 0; x < w; x++) {
+      let y;
+      if (waveMode === "danger") {
+        // High-energy turbulent threat spikes
+        const wave1 = Math.sin((x * 0.1) + step) * 12;
+        const wave2 = Math.cos((x * 0.04) - (step * 1.6)) * 6;
+        const jitter = (Math.sin(x * 1.3 + step * 3) > 0.6) ? ((Math.random() - 0.5) * 8) : 0;
+        y = midY + wave1 + wave2 + jitter;
+      } else if (waveMode === "warning") {
+        // Repeated cyclic loop oscillations
+        const wave1 = Math.sin((x * 0.07) + step) * 10;
+        const wave2 = Math.sin((x * 0.2) + (step * 2)) * 4;
+        y = midY + wave1 + wave2;
+      } else {
+        // Clean harmonic emerald stream
+        y = midY + Math.sin((x * 0.05) + step) * 8;
+      }
       ctx.lineTo(x, y);
     }
 
-    ctx.strokeStyle = "#00f5a0";
-    ctx.lineWidth = 1.5;
+    if (waveMode === "danger") {
+      ctx.strokeStyle = "#ff3355";
+      ctx.shadowColor = "rgba(255, 51, 85, 0.65)";
+    } else if (waveMode === "warning") {
+      ctx.strokeStyle = "#ff7a00";
+      ctx.shadowColor = "rgba(255, 122, 0, 0.65)";
+    } else {
+      ctx.strokeStyle = "#00f5a0";
+      ctx.shadowColor = "rgba(0, 245, 160, 0.65)";
+    }
+
+    ctx.lineWidth = 2;
     ctx.shadowBlur = 8;
-    ctx.shadowColor = "rgba(0, 245, 160, 0.5)";
     ctx.stroke();
     ctx.shadowBlur = 0;
 
-    step += 0.08;
+    step += (waveMode === "danger" ? 0.12 : (waveMode === "warning" ? 0.09 : 0.06));
     requestAnimationFrame(drawWaveform);
   }
+
   requestAnimationFrame(drawWaveform);
 }
 
