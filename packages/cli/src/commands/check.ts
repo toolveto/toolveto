@@ -13,6 +13,7 @@ export interface CheckCommandOptions {
   withLlm?: boolean;
   json?: boolean;
   timeoutMs?: number;
+  allowDestructive?: boolean;
 }
 
 export async function checkCommand(
@@ -146,6 +147,8 @@ export async function checkCommand(
     const summary = await runSuite(targetDisplay, tools, {
       client: client || undefined,
       withLlm: options.withLlm,
+      destructiveAuthorization: options.allowDestructive,
+      targetDir: targetPath && !targetPath.startsWith('http') ? targetPath : '.',
     });
 
     if (options.json) {

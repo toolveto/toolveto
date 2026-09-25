@@ -70,7 +70,7 @@ describe('D1: Idempotency & Concurrency Battery', () => {
       },
     ]);
 
-    const result = await runConcurrentBurstCheck(badTool, client, 10);
+    const result = await runConcurrentBurstCheck(badTool, client, 10, true);
     assert.strictEqual(result.checkId, 'TC-IDEMP-002');
     assert.strictEqual(result.status, 'FAIL');
     assert.strictEqual(result.severity, 'CRITICAL');
@@ -107,7 +107,7 @@ describe('D1: Idempotency & Concurrency Battery', () => {
       },
     ]);
 
-    const result = await runConcurrentBurstCheck(goodTool, client, 10);
+    const result = await runConcurrentBurstCheck(goodTool, client, 10, true);
     assert.strictEqual(result.status, 'PASS');
     assert.strictEqual(result.evidence.mutationsCreated, 1);
   });

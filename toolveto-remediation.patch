@@ -1,0 +1,7 @@
+--- a/src/tools.ts
++++ b/src/tools.ts
+@@ -10,3 +10,6 @@
++ // ToolVeto Auto-Remediation: Idempotency Protection
++ idempotencyKey: z.string().uuid().describe("Unique client idempotency token preventing duplicate mutations on retry"),
++ limit: z.number().int().min(1).max(100).default(25).describe("Max items to protect LLM context window"),
++ cursor: z.string().optional().describe("Forward pagination cursor token"),

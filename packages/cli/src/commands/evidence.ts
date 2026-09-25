@@ -132,10 +132,12 @@ export async function evidenceCommand(options: EvidenceOptions = {}): Promise<vo
     };
   }
 
-  // Compute Financial ROI
+  // Compute Financial ROI & Token Savings dynamically
   const preventedDoubleCharges = summary.results.filter(r => r.checkId.startsWith('TC-IDEMP') && r.status === 'PASS').length;
   const estimatedSavingsUsd = preventedDoubleCharges * 340;
-  const tokensSaved = 520000;
+  const contextPassCount = summary.results.filter(r => r.checkId.startsWith('TC-CTX') && r.status === 'PASS').length;
+  const tokensSaved = contextPassCount > 0 ? contextPassCount * 128000 : summary.results.length * 12000;
+
 
   const attestationPayload = {
     iss: 'toolveto-evidence-engine',

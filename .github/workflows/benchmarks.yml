@@ -34,4 +34,6 @@ jobs:
         uses: grafana/setup-k6-action@v1
 
       - name: Execute Overhead Verification
-        run: pnpm --filter @toolveto/benchmarks-overhead run bench
+        run: |
+          pnpm --filter @toolveto/benchmarks-overhead run bench
+          pnpm --filter @toolveto/benchmarks-overhead run bench:k6

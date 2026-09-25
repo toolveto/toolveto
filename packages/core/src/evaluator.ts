@@ -18,12 +18,16 @@ import { runTokenBudgetCheck } from './checks/d3-lite/token-budget.js';
 import { runPaginationSchemaCheck } from './checks/d3-lite/schema-linter.js';
 import { runDescriptionClarityCheck } from './checks/d3-lite/description-clarity.js';
 import { runAdditionalPropertiesCheck } from './checks/d3-lite/additional-properties.js';
+import { runDescriptionAmbiguityCheck, runParamSteerabilityCheck } from './checks/d4-steerability/ambiguity.js';
 import { runReadBeforeWritePairingCheck } from './checks/d5-auditability/pairing.js';
 import { runDryRunCheck } from './checks/d5-auditability/dry-run.js';
+import { loadToolvetoConfig } from './config.js';
 
 export interface RunSuiteOptions {
   client?: McpClient;
   withLlm?: boolean;
+  destructiveAuthorization?: boolean;
+  targetDir?: string;
 }
 
 export async function runSuite(
@@ -34,12 +38,14 @@ export async function runSuite(
   const startTime = Date.now();
   const results: CheckResult[] = [];
   const { client } = options;
+  const config = loadToolvetoConfig(options.targetDir || (target.startsWith('http') ? '.' : target));
+  const destructiveAuthorization = options.destructiveAuthorization ?? config.destructiveAuthorization ?? false;
 
   // Run all check batteries across tools
   for (const tool of tools) {
-    // D1 Checks
-    results.push(await runSequentialReplayCheck(tool, client));
-    results.push(await runConcurrentBurstCheck(tool, client));
+    // D1 Checks (guarded by destructiveAuthorization to prevent live corruption)
+    results.push(await runSequentialReplayCheck(tool, client, destructiveAuthorization));
+    results.push(await runConcurrentBurstCheck(tool, client, 10, destructiveAuthorization));
     results.push(runIdempotencyKeyCheck(tool));
 
     // D2 Checks
@@ -52,6 +58,10 @@ export async function runSuite(
     results.push(runPaginationSchemaCheck(tool));
     results.push(runDescriptionClarityCheck(tool));
     results.push(runAdditionalPropertiesCheck(tool));
+
+    // D4 Checks (Steerability & Schema Ambiguity)
+    results.push(runDescriptionAmbiguityCheck(tool, tools));
+    results.push(runParamSteerabilityCheck(tool));
 
     // D5 Checks
     results.push(runReadBeforeWritePairingCheck(tool, tools));
@@ -129,7 +139,7 @@ export async function runSuite(
   const d1Score = calcDimensionScore('D1');
   const d2Score = calcDimensionScore('D2');
   const d3Score = calcDimensionScore('D3');
-  const d4Score = 100; // Default CI without active LLM model cohort
+  const d4Score = calcDimensionScore('D4');
   const d5Score = calcDimensionScore('D5');
 
   const dimensionalScores: Record<Dimension, DimensionalScore> = {

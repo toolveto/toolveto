@@ -4,7 +4,8 @@ import { McpClient } from '../../transports/interface.js';
 export async function runConcurrentBurstCheck(
   tool: McpToolDefinition,
   client?: McpClient,
-  concurrency = 10
+  concurrency = 10,
+  destructiveAuthorization = false
 ): Promise<CheckResult> {
   const startTime = Date.now();
   const properties = tool.inputSchema?.properties || {};
@@ -30,8 +31,8 @@ export async function runConcurrentBurstCheck(
     };
   }
 
-  // If live client is available, dispatch N=10 simultaneous requests
-  if (client) {
+  // If live client is available and destructive authorization granted, dispatch N=10 simultaneous requests
+  if (client && destructiveAuthorization) {
     const burstIdempKey = `burst_key_${Date.now()}`;
     const payload: Record<string, any> = {};
     for (const [key, prop] of Object.entries(properties)) {
@@ -134,7 +135,7 @@ export async function runConcurrentBurstCheck(
       tool: tool.name,
       status: 'FAIL',
       severity: 'CRITICAL',
-      description: `Concurrent burst vulnerability: Tool '${tool.name}' exposes no concurrency lock or idempotency parameter`,
+      description: `Concurrent burst vulnerability: Tool '${tool.name}' exposes no concurrency lock or idempotency parameter (double-spend risk)`,
       evidence: {
         requestsSent: concurrency,
         mutationsCreated: concurrency,

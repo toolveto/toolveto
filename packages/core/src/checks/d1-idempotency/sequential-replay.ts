@@ -3,7 +3,8 @@ import { McpClient } from '../../transports/interface.js';
 
 export async function runSequentialReplayCheck(
   tool: McpToolDefinition,
-  client?: McpClient
+  client?: McpClient,
+  destructiveAuthorization = false
 ): Promise<CheckResult> {
   const startTime = Date.now();
   const properties = tool.inputSchema?.properties || {};
@@ -14,8 +15,8 @@ export async function runSequentialReplayCheck(
     properties['request_id']
   );
 
-  // If client provided and tool is a mutation, execute 5 sequential replay calls
-  if (client && tool.isMutation) {
+  // If client provided and tool is a mutation, execute 5 sequential replay calls ONLY if destructive authorization is granted
+  if (client && tool.isMutation && destructiveAuthorization) {
     const testIdempKey = `test_replay_${Date.now()}`;
     const samplePayload: Record<string, any> = {};
     for (const [key, prop] of Object.entries(properties)) {

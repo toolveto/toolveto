@@ -18,11 +18,12 @@ export async function proxyCommand(options: ProxyOptions = {}): Promise<void> {
 
   const server = createGatewayServer({
     port,
-    upstreamUrl,
-    shieldOptions: {
-      idempotency: true,
-      loopLimit: { count: 5, windowMs: 30000 },
-      tokenBudget,
+    upstreams: {
+      default: {
+        name: 'default',
+        url: upstreamUrl,
+        policy: 'standard',
+      },
     },
   });
 

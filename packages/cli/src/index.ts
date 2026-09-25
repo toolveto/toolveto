@@ -5,6 +5,7 @@ import { proxyCommand } from './commands/proxy.js';
 import { badgeCommand } from './commands/badge.js';
 import { evidenceCommand } from './commands/evidence.js';
 import { loginCommand } from './commands/login.js';
+import { verifyCommand } from './commands/verify.js';
 
 export function createProgram(): Command {
   const program = new Command();
@@ -19,6 +20,7 @@ export function createProgram(): Command {
     .description('Run deterministic checks on an MCP server (<90s, $0, zero LLM)')
     .argument('<target>', 'Path to local MCP server directory, binary, or Streamable HTTP URL')
     .option('--with-llm', 'Enable Stage 4 LLM E_heal self-heal judge (requires API key)')
+    .option('--allow-destructive', 'Authorize live stateful replay and concurrent burst mutations (D1)')
     .option('--json', 'Output machine-readable JSON report')
     .action(async (target, options) => {
       await checkCommand(target, options);
@@ -26,9 +28,10 @@ export function createProgram(): Command {
 
   program
     .command('fix')
-    .description('Auto-apply suggested AST code patches for failed checks')
+    .description('Auto-apply schema fixes or generate standard git patch for failed checks')
     .argument('[target]', 'Path to schema file or server directory')
-    .option('--apply', 'Directly modify local source files')
+    .option('--apply', 'Directly modify local JSON schema files or output git patch')
+    .option('--suggest', 'Print multi-language AST diffs and generate toolveto-remediation.patch')
     .action(async (target, options) => {
       await fixCommand(target, options);
     });
@@ -61,6 +64,16 @@ export function createProgram(): Command {
     .option('-o, --output <path>', 'Output file destination')
     .action(async (options) => {
       await evidenceCommand(options);
+    });
+
+  program
+    .command('verify')
+    .description('Verify an RFC 7515 detached JWS compliance token and inspect audit claims')
+    .argument('[token]', 'RFC 7515 JWS token string')
+    .option('-f, --file <path>', 'Read JWS token from certificate file')
+    .option('-s, --secret <secret>', 'Shared HMAC secret for offline verification')
+    .action(async (token, options) => {
+      await verifyCommand(token, options);
     });
 
   program
