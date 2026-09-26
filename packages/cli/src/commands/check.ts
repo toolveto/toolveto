@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import {
   runSuite,
   formatTerminalReport,
+  renderPRComment,
   StdioMcpClient,
   HttpMcpClient,
   McpToolDefinition,
@@ -12,6 +13,7 @@ import {
 export interface CheckCommandOptions {
   withLlm?: boolean;
   json?: boolean;
+  format?: string;
   timeoutMs?: number;
   allowDestructive?: boolean;
 }
@@ -151,10 +153,21 @@ export async function checkCommand(
       targetDir: targetPath && !targetPath.startsWith('http') ? targetPath : '.',
     });
 
-    if (options.json) {
+    if (options.json || options.format === 'json') {
       console.log(JSON.stringify(summary, null, 2));
+    } else if (options.format === 'github-pr') {
+      console.log(renderPRComment(summary));
     } else {
       console.log(formatTerminalReport(summary));
+    }
+
+    // Automatically append rich PR comment to GitHub Step Summary if running in GitHub Actions
+    if (process.env.GITHUB_STEP_SUMMARY) {
+      try {
+        fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, '\n' + renderPRComment(summary) + '\n');
+      } catch (err: any) {
+        // Silently continue if step summary file is not writable
+      }
     }
 
     if (summary.fatalVetoTriggered) {

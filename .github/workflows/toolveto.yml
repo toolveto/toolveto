@@ -30,12 +30,13 @@ jobs:
 
       - name: Run Deterministic ToolVeto Battery
         id: toolveto
+        continue-on-error: true
         run: |
           echo "Executing ToolVeto 12-Check Battery..."
-          npx --yes toolveto@latest check . --format github-pr || echo "GATE_FAILED=true" >> $GITHUB_ENV
+          npx --yes toolveto@latest check . --format github-pr
 
       - name: Generate Actionable AST Patch (If Failed)
-        if: env.GATE_FAILED == 'true'
+        if: steps.toolveto.outcome == 'failure'
         run: |
           echo "Generating 3-line AST drop-in patches for Zod/Pydantic/Go..."
           npx --yes toolveto@latest fix .
@@ -53,7 +54,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Fail CI Job on Invariant Violation
-        if: env.GATE_FAILED == 'true'
+        if: steps.toolveto.outcome == 'failure'
         run: |
           echo "⛔ ToolVeto Gate Blocked: Critical invariant violation detected."
           echo "Review the PR comments and run 'npx toolveto fix --apply' to resolve."

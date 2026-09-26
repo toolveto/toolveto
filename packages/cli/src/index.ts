@@ -22,6 +22,7 @@ export function createProgram(): Command {
     .option('--with-llm', 'Enable Stage 4 LLM E_heal self-heal judge (requires API key)')
     .option('--allow-destructive', 'Authorize live stateful replay and concurrent burst mutations (D1)')
     .option('--json', 'Output machine-readable JSON report')
+    .option('-f, --format <format>', 'Output format: terminal, json, or github-pr', 'terminal')
     .action(async (target, options) => {
       await checkCommand(target, options);
     });
