@@ -23,6 +23,7 @@ export function createProgram(): Command {
     .option('--allow-destructive', 'Authorize live stateful replay and concurrent burst mutations (D1)')
     .option('--json', 'Output machine-readable JSON report')
     .option('-f, --format <format>', 'Output format: terminal, json, or github-pr', 'terminal')
+    .option('--demo', 'Allow synthetic mock tools when target has zero tools (demo mode)')
     .action(async (target, options) => {
       await checkCommand(target, options);
     });
@@ -63,6 +64,7 @@ export function createProgram(): Command {
     .option('-f, --format <format>', 'Output format: aiuc1, owasp, json', 'aiuc1')
     .option('-t, --target <path>', 'Target server path or schema file', '.')
     .option('-o, --output <path>', 'Output file destination')
+    .option('--demo', 'Allow synthetic mock tools when target has zero tools (demo mode)')
     .action(async (options) => {
       await evidenceCommand(options);
     });

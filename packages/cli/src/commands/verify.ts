@@ -30,23 +30,21 @@ export async function verifyCommand(tokenArg?: string, options: VerifyCommandOpt
   }
 
   const [headerB64, payloadB64, signature] = parts;
-  const secretsToTry = options.secret
-    ? [options.secret]
-    : process.env.TOOLVETO_SIGNING_SECRET
-      ? [process.env.TOOLVETO_SIGNING_SECRET]
-      : ['toolveto-oss-evidence-secret', 'toolveto-default-secret-key-2026'];
+  const resolvedSecret = options.secret || process.env.TOOLVETO_SIGNING_SECRET;
+  if (!resolvedSecret || resolvedSecret.length < 32) {
+    console.error('\n❌ Error: TOOLVETO_SIGNING_SECRET environment variable or --secret option (>=32 chars) is required.');
+    process.exitCode = 1;
+    return;
+  }
 
   try {
-    let isValidSignature = false;
-    for (const secret of secretsToTry) {
-      const expectedHmac = crypto.createHmac('sha256', secret);
-      expectedHmac.update(`${headerB64}.${payloadB64}`);
-      const expectedSig = expectedHmac.digest('base64url');
-      if (signature === expectedSig) {
-        isValidSignature = true;
-        break;
-      }
-    }
+    const expectedHmac = crypto.createHmac('sha256', resolvedSecret);
+    expectedHmac.update(`${headerB64}.${payloadB64}`);
+    const expectedSig = expectedHmac.digest('base64url');
+
+    const sigBuf = Buffer.from(signature);
+    const expBuf = Buffer.from(expectedSig);
+    const isValidSignature = sigBuf.length === expBuf.length && crypto.timingSafeEqual(sigBuf, expBuf);
 
     const header = JSON.parse(Buffer.from(headerB64, 'base64url').toString('utf8'));
     const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8'));

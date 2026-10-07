@@ -12,6 +12,7 @@ export interface EvidenceOptions {
   output?: string;
   target?: string;
   keyId?: string;
+  demo?: boolean;
 }
 
 export const AIUC1_CONTROL_MAP: Record<string, { title: string; checks: string[] }> = {
@@ -68,45 +69,52 @@ export async function evidenceCommand(options: EvidenceOptions = {}): Promise<vo
   }
 
   if (tools.length === 0) {
-    tools = [
-      {
-        name: 'execute_settlement',
-        description: 'Settles payment transaction with banking partner',
-        isMutation: true,
-        inputSchema: {
-          type: 'object',
-          properties: {
-            transaction_id: { type: 'string' },
-            idempotency_key: { type: 'string' },
-            amount: { type: 'number' },
-          },
-          required: ['transaction_id', 'idempotency_key', 'amount'],
-        },
-      },
-      {
-        name: 'query_settlement',
-        description: 'Queries status of settlement transaction',
-        isMutation: false,
-        inputSchema: {
-          type: 'object',
-          properties: {
-            transaction_id: { type: 'string' },
+    if (options.demo) {
+      tools = [
+        {
+          name: 'execute_settlement',
+          description: 'Settles payment transaction with banking partner',
+          isMutation: true,
+          inputSchema: {
+            type: 'object',
+            properties: {
+              transaction_id: { type: 'string' },
+              idempotency_key: { type: 'string' },
+              amount: { type: 'number' },
+            },
+            required: ['transaction_id', 'idempotency_key', 'amount'],
           },
         },
-      },
-      {
-        name: 'list_settlements',
-        description: 'Lists all settlement transactions in date range',
-        isMutation: false,
-        inputSchema: {
-          type: 'object',
-          properties: {
-            limit: { type: 'number' },
-            cursor: { type: 'string' },
+        {
+          name: 'query_settlement',
+          description: 'Queries status of settlement transaction',
+          isMutation: false,
+          inputSchema: {
+            type: 'object',
+            properties: {
+              transaction_id: { type: 'string' },
+            },
           },
         },
-      },
-    ];
+        {
+          name: 'list_settlements',
+          description: 'Lists all settlement transactions in date range',
+          isMutation: false,
+          inputSchema: {
+            type: 'object',
+            properties: {
+              limit: { type: 'number' },
+              cursor: { type: 'string' },
+            },
+          },
+        },
+      ];
+    } else {
+      console.error(`\n❌ Error: No tools discovered at '${targetPath}' for AIUC-1 compliance audit.`);
+      console.error(`Please provide a valid MCP server or tool manifest, or pass --demo for demonstration mode.\n`);
+      process.exitCode = 1;
+      return;
+    }
   }
 
   const summary: SuiteSummary = await runSuite(targetPath, tools);
