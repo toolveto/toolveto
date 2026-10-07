@@ -68,20 +68,15 @@ export class PostgresShieldStorage implements ShieldStorage {
   async recordCall(key: string, timestamp: number, windowMs: number): Promise<number> {
     await this.ensureTables();
     const windowStart = timestamp - windowMs;
-    // Insert new call
-    await this.client.query(
-      `INSERT INTO toolveto_shield_calls (key, call_timestamp) VALUES ($1, $2)`,
-      [key, timestamp]
-    );
-    // Prune expired calls outside the window
-    await this.client.query(
-      `DELETE FROM toolveto_shield_calls WHERE key = $1 AND call_timestamp < $2`,
-      [key, windowStart]
-    );
-    // Count remaining calls in current sliding window
     const countRes = await this.client.query(
-      `SELECT COUNT(*)::int as count FROM toolveto_shield_calls WHERE key = $1`,
-      [key]
+      `WITH ins AS (
+         INSERT INTO toolveto_shield_calls (key, call_timestamp) VALUES ($1, $2) RETURNING 1
+       ),
+       del AS (
+         DELETE FROM toolveto_shield_calls WHERE key = $1 AND call_timestamp < $3 RETURNING 1
+       )
+       SELECT COUNT(*)::int as count FROM toolveto_shield_calls WHERE key = $1 AND call_timestamp >= $3`,
+      [key, timestamp, windowStart]
     );
     return countRes.rows?.[0]?.count ? Number(countRes.rows[0].count) : 1;
   }

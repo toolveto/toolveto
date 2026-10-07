@@ -16,6 +16,7 @@ export interface CheckCommandOptions {
   format?: string;
   timeoutMs?: number;
   allowDestructive?: boolean;
+  demo?: boolean;
 }
 
 export async function checkCommand(
@@ -104,46 +105,53 @@ export async function checkCommand(
 
     // Fallback if no tools were discovered
     if (tools.length === 0) {
-      tools = [
-        {
-          name: 'create_payment',
-          description: 'Charges credit card',
-          isMutation: true,
-          inputSchema: {
-            type: 'object',
-            properties: {
-              amount: { type: 'number' },
-              currency: { type: 'string' },
-              customer_id: { type: 'string' },
-            },
-            required: ['amount', 'currency', 'customer_id'],
-          },
-        },
-        {
-          name: 'update_appointment',
-          description: 'Updates customer appointment date',
-          isMutation: true,
-          inputSchema: {
-            type: 'object',
-            properties: {
-              appointment_id: { type: 'string' },
-              date: { type: 'string', format: 'date' },
-            },
-            required: ['appointment_id', 'date'],
-          },
-        },
-        {
-          name: 'list_invoices',
-          description: 'Lists all customer invoices',
-          isMutation: false,
-          inputSchema: {
-            type: 'object',
-            properties: {
-              customer_id: { type: 'string' },
+      if (options.demo) {
+        tools = [
+          {
+            name: 'create_payment',
+            description: 'Charges credit card',
+            isMutation: true,
+            inputSchema: {
+              type: 'object',
+              properties: {
+                amount: { type: 'number' },
+                currency: { type: 'string' },
+                customer_id: { type: 'string' },
+              },
+              required: ['amount', 'currency', 'customer_id'],
             },
           },
-        },
-      ];
+          {
+            name: 'update_appointment',
+            description: 'Updates customer appointment date',
+            isMutation: true,
+            inputSchema: {
+              type: 'object',
+              properties: {
+                appointment_id: { type: 'string' },
+                date: { type: 'string', format: 'date' },
+              },
+              required: ['appointment_id', 'date'],
+            },
+          },
+          {
+            name: 'list_invoices',
+            description: 'Lists all customer invoices',
+            isMutation: false,
+            inputSchema: {
+              type: 'object',
+              properties: {
+                customer_id: { type: 'string' },
+              },
+            },
+          },
+        ];
+      } else {
+        console.error(`\n❌ Error: No tools discovered at ${targetDisplay}.`);
+        console.error(`Please provide a valid MCP server or tool definition, or pass --demo for demonstration mode.\n`);
+        process.exitCode = 1;
+        return;
+      }
     }
 
     const summary = await runSuite(targetDisplay, tools, {

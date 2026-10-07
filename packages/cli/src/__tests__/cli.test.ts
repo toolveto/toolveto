@@ -70,7 +70,7 @@ describe('ToolVeto CLI Commands', () => {
   });
 
   it('should verify cryptographically signed RFC 7515 JWS tokens (toolveto verify)', async () => {
-    const secret = 'test-verification-secret-2026';
+    const secret = 'test-verification-secret-2026-secure-32chars';
     const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT', kid: 'test-key' })).toString('base64url');
     const payload = Buffer.from(
       JSON.stringify({

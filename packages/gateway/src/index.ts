@@ -1,6 +1,24 @@
 import http from 'http';
+import crypto from 'node:crypto';
 import { ShieldMiddleware, ShieldOptions } from '@toolveto/shield';
 import { GatewayYamlConfig, UpstreamRouteConfig, GatewayPolicy, loadGatewayConfig } from './config.js';
+
+const MAX_BODY = 1_048_576; // 1 MB limit
+
+async function readBody(req: http.IncomingMessage, max = MAX_BODY): Promise<string> {
+  let size = 0;
+  const chunks: Buffer[] = [];
+  for await (const c of req) {
+    const buf = Buffer.isBuffer(c) ? c : Buffer.from(c);
+    size += buf.length;
+    if (size > max) {
+      req.destroy();
+      throw new Error('body too large');
+    }
+    chunks.push(buf);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
 
 export function getShieldOptionsForPolicy(policy: GatewayPolicy = 'standard'): ShieldOptions {
   switch (policy) {
@@ -70,8 +88,13 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
 
-    // Universal CORS
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    // CORS Allowlist
+    const ALLOWED_ORIGINS = new Set(['https://toolveto.ai', 'http://localhost:3000', 'http://localhost:8080']);
+    const origin = req.headers.origin as string;
+    if (origin && ALLOWED_ORIGINS.has(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+    }
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-ToolVeto-Token');
 
@@ -170,9 +193,19 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
     }
 
     // 3. Auth Check (Bearer Token verification if configured)
-    if (loadedConfig.auth?.type === 'bearer' && loadedConfig.auth.secret) {
+    if (loadedConfig.auth?.type === 'bearer') {
+      if (!loadedConfig.auth.secret || loadedConfig.auth.secret.length < 16) {
+        throw new Error('Gateway secret missing or <16 chars when bearer auth is configured');
+      }
       const authHeader = req.headers['authorization'];
-      if (!authHeader || !authHeader.startsWith('Bearer ') || authHeader.slice(7).trim() !== loadedConfig.auth.secret) {
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32000, message: 'Unauthorized: Invalid or missing Bearer token' } }));
+        return;
+      }
+      const a = Buffer.from(authHeader.slice(7).trim());
+      const b = Buffer.from(loadedConfig.auth.secret);
+      if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
         res.writeHead(401, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32000, message: 'Unauthorized: Invalid or missing Bearer token' } }));
         return;
@@ -182,9 +215,15 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
     // 4. JSON-RPC MCP Endpoint (handles POST /mcp or POST /:prefix/mcp)
     if (req.method === 'POST') {
       let body = '';
-      req.on('data', (chunk) => { body += chunk; });
-      req.on('end', async () => {
-        try {
+      try {
+        body = await readBody(req);
+      } catch {
+        res.writeHead(413, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32600, message: 'Request body too large' } }));
+        return;
+      }
+
+      try {
           const jsonRpc = JSON.parse(body);
           const toolName = jsonRpc.params?.name;
           const { upstream, middleware } = resolveUpstream(url.pathname, toolName);
@@ -254,16 +293,19 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
           res.writeHead(500, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32603, message: err.message } }));
         }
-      });
-      return;
-    }
+        return;
+      }
 
-    res.writeHead(404, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Endpoint not found' }));
-  });
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Endpoint not found' }));
+    });
 
-  return server;
-}
+    server.keepAliveTimeout = 5000;
+    server.headersTimeout = 6000;
+    server.requestTimeout = 15000;
+
+    return server;
+  }
 
 const defaultLoaded = loadGatewayConfig();
 const server = createGatewayServer(defaultLoaded);

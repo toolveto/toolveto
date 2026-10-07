@@ -5,7 +5,7 @@ defaultPolicy: standard
 
 auth:
   type: bearer
-  secret: "${TOOLVETO_GATEWAY_SECRET:-toolveto-demo-gateway-key}"
+  secret: "${TOOLVETO_GATEWAY_SECRET}"
 
 upstreams:
   stripe:

@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { LRUCache } from 'lru-cache';
 
 export type PromptInjectionAction = 'block' | 'sanitize' | 'flag';
 
@@ -63,24 +64,20 @@ export interface ShieldStorage {
 }
 
 export class MemoryShieldStorage implements ShieldStorage {
-  private cache: Map<string, { value: McpCallResponse; expiresAt?: number }> = new Map();
-  private callHistory: Map<string, number[]> = new Map();
+  private cache: LRUCache<string, McpCallResponse>;
+  private callHistory: LRUCache<string, number[]>;
+
+  constructor(maxItems = 10000) {
+    this.cache = new LRUCache<string, McpCallResponse>({ max: maxItems });
+    this.callHistory = new LRUCache<string, number[]>({ max: maxItems });
+  }
 
   async get(key: string): Promise<McpCallResponse | undefined> {
-    const item = this.cache.get(key);
-    if (!item) return undefined;
-    if (item.expiresAt && Date.now() > item.expiresAt) {
-      this.cache.delete(key);
-      return undefined;
-    }
-    return item.value;
+    return this.cache.get(key);
   }
 
   async set(key: string, value: McpCallResponse, ttlMs?: number): Promise<void> {
-    this.cache.set(key, {
-      value,
-      expiresAt: ttlMs ? Date.now() + ttlMs : undefined,
-    });
+    this.cache.set(key, value, { ttl: ttlMs });
   }
 
   async recordCall(key: string, timestamp: number, windowMs: number): Promise<number> {
@@ -88,7 +85,7 @@ export class MemoryShieldStorage implements ShieldStorage {
     const windowStart = timestamp - windowMs;
     const recent = history.filter((t) => t > windowStart);
     recent.push(timestamp);
-    this.callHistory.set(key, recent);
+    this.callHistory.set(key, recent, { ttl: windowMs * 2 });
     return recent.length;
   }
 

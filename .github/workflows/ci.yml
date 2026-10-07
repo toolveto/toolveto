@@ -26,7 +26,16 @@ jobs:
           version: 11.12.0
 
       - name: Install Dependencies
-        run: pnpm install --frozen-lockfile || pnpm install
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify No Hardcoded Default Secrets
+        run: |
+          echo "Scanning for hardcoded fallback secrets..."
+          if grep -rnE "toolveto-default-|toolveto-demo-secret" packages/ ; then
+            echo "❌ Hardcoded fallback secrets detected!"
+            exit 1
+          fi
+          echo "✔ No hardcoded fallback secrets found."
 
       - name: Build Monorepo Packages
         run: pnpm run build

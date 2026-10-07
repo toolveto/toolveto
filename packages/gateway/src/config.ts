@@ -58,8 +58,8 @@ export function parseGatewayYaml(content: string): GatewayYamlConfig {
       if (match) {
         const key = match[1];
         let val = match[2].trim().replace(/^['"]|['"]$/g, '');
-        // Resolve env vars like ${TOOLVETO_SECRET}
-        val = val.replace(/\$\{([^}]+)\}/g, (_, envKey) => process.env[envKey] || '');
+        // Resolve env vars like ${TOOLVETO_SECRET} or ${TOOLVETO_SECRET:-default}
+        val = val.replace(/\$\{([^}:]+)(?::-?([^}]*))?\}/g, (_, k, def) => process.env[k] || def || '');
         if (config.auth) {
           (config.auth as any)[key] = val;
         }
@@ -86,7 +86,7 @@ export function parseGatewayYaml(content: string): GatewayYamlConfig {
         if (propMatch) {
           const key = propMatch[1];
           let val = propMatch[2].trim().replace(/^['"]|['"]$/g, '');
-          val = val.replace(/\$\{([^}]+)\}/g, (_, envKey) => process.env[envKey] || '');
+          val = val.replace(/\$\{([^}:]+)(?::-?([^}]*))?\}/g, (_, k, def) => process.env[k] || def || '');
 
           const u = config.upstreams[currentUpstream];
           if (key === 'url') u.url = val;
