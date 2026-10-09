@@ -6,7 +6,15 @@ export type EvidenceQuality = 'VERIFIED' | 'PARTIAL' | 'STATIC-ONLY';
 
 export type Dimension = 'D1' | 'D2' | 'D3' | 'D4' | 'D5';
 
-export type VetoClass = 'VETO_NONE' | 'VETO_PANIC' | 'VETO_INJECT' | 'VETO_DATALOSS';
+export type VetoClass =
+  | 'VETO_NONE'
+  | 'VETO_PANIC'
+  | 'VETO_INJECT'
+  | 'VETO_DATALOSS'
+  | 'VETO_EXFIL'
+  | 'VETO_TRAVERSAL'
+  | 'VETO_TENANT_LEAK'
+  | 'VETO_IDEMP';
 
 export type CertificationTier = 'Platinum' | 'Gold' | 'Silver' | 'Bronze' | 'Failed';
 
@@ -54,8 +62,32 @@ export interface McpToolDefinition {
   name: string;
   description?: string;
   inputSchema: ToolParameterSchema;
+  outputSchema?: Record<string, any>;
   isMutation?: boolean;
   idempotentHint?: boolean;
+  readOnlyHint?: boolean;
+  destructiveHint?: boolean;
+  openWorldHint?: boolean;
+}
+
+export interface McpResourceDefinition {
+  uri: string;
+  name: string;
+  description?: string;
+  mimeType?: string;
+}
+
+export interface McpServerCapabilities {
+  tools?: Record<string, unknown>;
+  resources?: {
+    subscribe?: boolean;
+    listChanged?: boolean;
+  };
+  prompts?: {
+    listChanged?: boolean;
+  };
+  sampling?: Record<string, unknown>;
+  elicitation?: Record<string, unknown>;
 }
 
 export interface McpCallRequest {
@@ -77,6 +109,13 @@ export interface DimensionalScore {
   metrics: Record<string, number>;
 }
 
+export interface StatisticalConfidence {
+  n: number;
+  pointEstimate: number;
+  confidenceInterval95: [number, number];
+  certifiedLowerBound: number;
+}
+
 export interface SuiteSummary {
   target: string;
   totalChecks: number;
@@ -92,4 +131,9 @@ export interface SuiteSummary {
   llmTokensUsed: number;
   dimensionalScores: Record<Dimension, DimensionalScore>;
   results: CheckResult[];
+  statisticalConfidence?: StatisticalConfidence;
+  aiuc1Compliance?: Record<string, 'PASS' | 'FAIL' | 'WARN'>;
+  environmentManifest?: Record<string, string>;
+  expiresAt?: string;
+  perToolScorecard?: Record<string, { score: number; checksPassed: number; checksFailed: number }>;
 }

@@ -12,6 +12,7 @@ export interface PromptInjectionScanOptions {
 export interface ShieldOptions {
   idempotency?: boolean;
   idempotencyTtlMs?: number;
+  autoFingerprintFallback?: boolean; // default: true (RFC 8785 SHA256 fallback when explicit key omitted)
   loopLimit?: {
     count: number;
     windowMs: number;
@@ -19,6 +20,17 @@ export interface ShieldOptions {
   tokenBudget?: number;
   promptInjectionScan?: PromptInjectionScanOptions;
   storage?: ShieldStorage;
+  failClosed?: boolean; // default: false (fail-open standard mode, true = strict fail-closed)
+  onSpan?: (span: ShieldSpan) => void; // OpenTelemetry span emission hook
+}
+
+export interface ShieldSpan {
+  traceId: string;
+  spanId: string;
+  name: string;
+  attributes: Record<string, string | number | boolean>;
+  durationMs: number;
+  isError: boolean;
 }
 
 export interface McpCallRequest {
@@ -39,6 +51,9 @@ export interface McpCallResponse {
   isError?: boolean;
   _shield?: {
     cached?: boolean;
+    fingerprintDedup?: boolean;
+    idempotencyKey?: string;
+    nextCursor?: string;
     loopChecked?: boolean;
     truncated?: boolean;
     promptInjectionDetected?: boolean;
@@ -60,6 +75,8 @@ export interface ShieldStorage {
   get(key: string): Promise<McpCallResponse | undefined>;
   set(key: string, value: McpCallResponse, ttlMs?: number): Promise<void>;
   recordCall(key: string, timestamp: number, windowMs: number): Promise<number>;
+  acquireLock?(key: string, ttlMs?: number): Promise<boolean>;
+  releaseLock?(key: string): Promise<void>;
   clear?(): Promise<void>;
 }
 
@@ -176,6 +193,17 @@ function sanitizeObject(
   return obj;
 }
 
+export function canonicalizeJson(value: any): string {
+  if (value === null || typeof value !== 'object') {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return '[' + value.map(canonicalizeJson).join(',') + ']';
+  }
+  const keys = Object.keys(value).sort();
+  return '{' + keys.map((k) => JSON.stringify(k) + ':' + canonicalizeJson(value[k])).join(',') + '}';
+}
+
 export class ShieldMiddleware {
   private storage: ShieldStorage;
   private inFlightRequests: Map<string, Promise<McpCallResponse>> = new Map();
@@ -245,7 +273,8 @@ export class ShieldMiddleware {
 
     // 1. Loop-Breaker check with signature hashing
     if (this.options.loopLimit && toolName) {
-      const argsHash = crypto.createHash('sha256').update(JSON.stringify(args)).digest('hex').slice(0, 12);
+      const canonicalArgs = canonicalizeJson(args);
+      const argsHash = crypto.createHash('sha256').update(canonicalArgs).digest('hex');
       const loopTrackingKey = `loop:${agentId}:${toolName}:${argsHash}`;
 
       const recentCallCount = await this.storage.recordCall(
@@ -273,13 +302,24 @@ export class ShieldMiddleware {
     }
 
     // 2. Idempotency deduplication check
-    const idempKey =
+    const explicitIdempKey =
       args['idempotency_key'] ||
       args['idempotencyKey'] ||
       args['idempotencyToken'] ||
       args['client_request_token'] ||
       args['client_msg_id'] ||
       args['request_id'];
+
+    let idempKey = explicitIdempKey;
+    let isFingerprintFallback = false;
+
+    // RFC 8785 SHA256 fallback when explicit key is omitted (prevents double-charge on un-keyed mutation calls)
+    if (!idempKey && this.options.idempotency && toolName && this.options.autoFingerprintFallback !== false) {
+      const canonicalArgs = canonicalizeJson(args);
+      const hash = crypto.createHash('sha256').update(`${toolName}:${canonicalArgs}`).digest('hex');
+      idempKey = `fp_${hash}`;
+      isFingerprintFallback = true;
+    }
 
     if (this.options.idempotency && idempKey && toolName) {
       const cacheKey = `idemp:${toolName}:${idempKey}`;
@@ -292,6 +332,8 @@ export class ShieldMiddleware {
           _shield: {
             ...cachedResponse._shield,
             cached: true,
+            fingerprintDedup: isFingerprintFallback,
+            idempotencyKey: idempKey,
             timestamp: now,
           },
         };
@@ -305,6 +347,8 @@ export class ShieldMiddleware {
           _shield: {
             ...inFlightRes._shield,
             cached: true,
+            fingerprintDedup: isFingerprintFallback,
+            idempotencyKey: idempKey,
             timestamp: now,
           },
         };
@@ -313,8 +357,11 @@ export class ShieldMiddleware {
       const executionPromise = (async () => {
         try {
           const res = await next(req);
-          const ttl = this.options.idempotencyTtlMs || 24 * 60 * 60 * 1000; // default 24h
-          await this.storage.set(cacheKey, res, ttl);
+          // Never cache error responses for 24h (only cache successful non-error responses)
+          if (!res.isError) {
+            const ttl = this.options.idempotencyTtlMs || 24 * 60 * 60 * 1000; // default 24h
+            await this.storage.set(cacheKey, res, ttl);
+          }
           return res;
         } finally {
           this.inFlightRequests.delete(cacheKey);
@@ -382,6 +429,7 @@ export class ShieldMiddleware {
       const maxChars = this.options.tokenBudget * 4;
       let cumulativeChars = 0;
       let truncatedOccurred = false;
+      let generatedCursor: string | undefined;
       const budgetCappedContent: Array<{ type: string; text?: string; [key: string]: any }> = [];
 
       for (let i = 0; i < response.content.length; i++) {
@@ -395,12 +443,77 @@ export class ShieldMiddleware {
             const allowedForThisItem = Math.max(0, maxChars - cumulativeChars);
             this.metrics.payloadsTruncated++;
             truncatedOccurred = true;
-            budgetCappedContent.push({
-              ...item,
-              text:
-                item.text.slice(0, allowedForThisItem) +
-                `\n\n[ToolVeto Shield: Truncated to prevent context exhaustion. Budget of ${this.options.tokenBudget} tokens (${maxChars} chars) reached. Subsequent items discarded.]`,
-            });
+
+            const cursorHash = crypto.createHash('sha256').update(`${toolName}:${allowedForThisItem}:${now}`).digest('hex').slice(0, 8);
+            generatedCursor = `cur_${cursorHash}`;
+
+            // Inspect if content is structured JSON (records / items array)
+            let structuredHandled = false;
+            try {
+              const parsed = JSON.parse(item.text);
+              if (Array.isArray(parsed)) {
+                const totalRecords = parsed.length;
+                const sampleItemChars = Math.max(1, Math.round(itemLen / totalRecords));
+                const itemsToKeep = Math.max(1, Math.min(totalRecords - 1, Math.floor(allowedForThisItem / sampleItemChars)));
+                const slicedItems = parsed.slice(0, itemsToKeep);
+                const structuredEnvelope = {
+                  truncated: true,
+                  total_records: totalRecords,
+                  items_returned: slicedItems.length,
+                  next_cursor: generatedCursor,
+                  records: slicedItems,
+                  note: `[ToolVeto Shield: Truncated to prevent context exhaustion. Budget of ${this.options.tokenBudget} tokens (${maxChars} chars) reached. Subsequent items discarded.]`,
+                };
+                budgetCappedContent.push({
+                  ...item,
+                  text: JSON.stringify(structuredEnvelope, null, 2),
+                });
+                structuredHandled = true;
+              } else if (parsed && typeof parsed === 'object') {
+                const arrayKey = Object.keys(parsed).find((k) => Array.isArray(parsed[k]));
+                if (arrayKey) {
+                  const arr = parsed[arrayKey];
+                  const totalRecords = arr.length;
+                  const sampleItemChars = Math.max(1, Math.round(itemLen / totalRecords));
+                  const itemsToKeep = Math.max(1, Math.min(totalRecords - 1, Math.floor(allowedForThisItem / sampleItemChars)));
+                  const slicedItems = arr.slice(0, itemsToKeep);
+                  const structuredEnvelope = {
+                    ...parsed,
+                    [arrayKey]: slicedItems,
+                    truncated: true,
+                    total_records: totalRecords,
+                    items_returned: slicedItems.length,
+                    next_cursor: generatedCursor,
+                    note: `[ToolVeto Shield: Truncated to prevent context exhaustion. Budget of ${this.options.tokenBudget} tokens (${maxChars} chars) reached. Subsequent items discarded.]`,
+                  };
+                  budgetCappedContent.push({
+                    ...item,
+                    text: JSON.stringify(structuredEnvelope, null, 2),
+                  });
+                  structuredHandled = true;
+                }
+              }
+            } catch {
+              // Not structured JSON
+            }
+
+            if (!structuredHandled) {
+              const estimatedTotal = Math.max(2, Math.round(itemLen / 40));
+              const estimatedReturned = Math.max(1, Math.round(allowedForThisItem / 40));
+              const envelopeMetadata = {
+                truncated: true,
+                total_records: estimatedTotal,
+                items_returned: estimatedReturned,
+                next_cursor: generatedCursor,
+              };
+              const notice = `\n\n${JSON.stringify(envelopeMetadata)}\n[ToolVeto Shield: Truncated to prevent context exhaustion. Budget of ${this.options.tokenBudget} tokens (${maxChars} chars) reached. Next cursor: ${generatedCursor}. Subsequent items discarded.]`;
+              const textSliceLen = Math.max(0, allowedForThisItem - Math.min(allowedForThisItem, 180));
+              budgetCappedContent.push({
+                ...item,
+                text: item.text.slice(0, textSliceLen) + notice,
+              });
+            }
+
             cumulativeChars = maxChars;
             break;
           }
@@ -414,6 +527,7 @@ export class ShieldMiddleware {
         response._shield = {
           ...response._shield,
           truncated: true,
+          nextCursor: generatedCursor,
         };
       }
     }

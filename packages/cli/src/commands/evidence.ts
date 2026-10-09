@@ -18,28 +18,28 @@ export interface EvidenceOptions {
 
 export const AIUC1_CONTROL_MAP: Record<string, { title: string; checks: string[] }> = {
   'AIUC-1-4.2-tool-integrity': {
-    title: 'Tool Execution Integrity & Idempotency Controls',
-    checks: ['TC-IDEMP-001', 'TC-IDEMP-002', 'TC-IDEMP-003'],
+    title: 'Tool Execution Integrity, Concurrency & Idempotency Controls',
+    checks: ['TC-IDEMP-001', 'TC-IDEMP-002', 'TC-IDEMP-003', 'TC-IDEMP-004', 'TC-CANCEL-001', 'TC-ANNOTATION-001'],
   },
   'AIUC-1-5.1-auth-model': {
-    title: 'Deterministic Authorization & Least Agency Verification',
-    checks: ['TC-DRYRUN-001'],
+    title: 'Authentication, Tenant Isolation & Scoped Authorization Controls',
+    checks: ['TC-AUTH-001', 'TC-AUTH-002', 'TC-AUTH-003', 'TC-DRYRUN-001'],
   },
   'AIUC-1-6.3-loop-protection': {
     title: 'Runaway Agent Retry & Loop Circuit Breakers',
-    checks: ['TC-ERR-001', 'TC-FUZZ-001'],
+    checks: ['TC-ERR-001', 'TC-FUZZ-001', 'TC-FUZZ-WIRE-001'],
   },
   'AIUC-1-7.1-data-minimization': {
-    title: 'Context Hygiene & Memory Budget Boundary Limits',
-    checks: ['TC-CTX-001', 'TC-SCHEMA-001', 'TC-SCHEMA-002', 'TC-SCHEMA-003'],
+    title: 'Context Hygiene, Memory Budget & Pagination Boundary Limits',
+    checks: ['TC-CTX-001', 'TC-SCHEMA-001', 'TC-SCHEMA-002', 'TC-SCHEMA-003', 'TC-RES-001', 'TC-RES-002'],
   },
   'OWASP-AGENTIC-1-prompt-inject': {
-    title: 'Indirect Prompt Injection & Cross-Tool Leakage Prevention',
-    checks: ['TC-VETO-INJECT-001'],
+    title: 'Indirect Prompt Injection, Exfiltration & Traversal Prevention',
+    checks: ['TC-VETO-INJECT-001', 'TC-VETO-EXFIL-001', 'TC-RES-002', 'TC-AUTH-003'],
   },
   'OWASP-AGENTIC-3-excess-agency': {
-    title: 'Blind Write Mitigation & Read-Before-Write Verification',
-    checks: ['TC-PAIR-001'],
+    title: 'Blind Write Mitigation, Capability Sandboxing & Read-Before-Write Verification',
+    checks: ['TC-PAIR-001', 'TC-CAP-001', 'TC-RACE-001'],
   },
 };
 

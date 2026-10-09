@@ -61,4 +61,28 @@ export class RedisShieldStorage implements ShieldStorage {
     await this.redis.set(redisKey, count.toString(), 'PX', windowMs);
     return count;
   }
+
+  async acquireLock(key: string, ttlMs = 5000): Promise<boolean> {
+    const lockKey = `shield:lock:${key}`;
+    try {
+      if (typeof (this.redis as any).set === 'function') {
+        const res = await (this.redis as any).set(lockKey, 'locked', 'PX', ttlMs, 'NX');
+        return res === 'OK' || res === true || res === 1;
+      }
+    } catch {
+      // Safe fallback
+    }
+    return true;
+  }
+
+  async releaseLock(key: string): Promise<void> {
+    const lockKey = `shield:lock:${key}`;
+    try {
+      if (typeof (this.redis as any).del === 'function') {
+        await (this.redis as any).del(lockKey);
+      }
+    } catch {
+      // Safe fallback
+    }
+  }
 }

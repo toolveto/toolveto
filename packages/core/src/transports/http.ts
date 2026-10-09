@@ -105,6 +105,15 @@ export class HttpMcpClient implements McpClient {
         content: result?.content || [{ type: 'text', text: JSON.stringify(result) }],
       };
     } catch (err: any) {
+      if (
+        err.name === 'AbortError' ||
+        err.code === 'ECONNREFUSED' ||
+        err.code === 'ECONNRESET' ||
+        err.message?.includes('fetch failed') ||
+        err.message?.includes('dropped transport')
+      ) {
+        throw new Error(`MCP HTTP server dropped transport: Connection error (${err.message})`);
+      }
       return {
         isError: true,
         content: [{ type: 'text', text: err.message || String(err) }],

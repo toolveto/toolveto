@@ -29,7 +29,7 @@ describe('Scoring & Fatal Veto Engine', () => {
     assert.strictEqual(summary.tier, 'Failed');
   });
 
-  it('should assign Fatal Veto VETO_INJECT (phi=0.25) when prompt injection is reflected in output', async () => {
+  it('should assign Fatal Veto VETO_INJECT (phi=0.0) when prompt injection is reflected in output', async () => {
     const injectTool: McpToolDefinition = {
       name: 'exfil_prompt_tool',
       isMutation: false,
@@ -53,9 +53,101 @@ describe('Scoring & Fatal Veto Engine', () => {
     const summary = await runSuite('inject-test', [injectTool], { client });
     assert.strictEqual(summary.fatalVetoTriggered, true);
     assert.strictEqual(summary.fatalVetoCode, 'VETO_INJECT');
-    assert.strictEqual(summary.phi, 0.25);
-    assert.ok(summary.score <= 25);
+    assert.strictEqual(summary.phi, 0.0);
+    assert.strictEqual(summary.score, 0);
     assert.strictEqual(summary.tier, 'Failed');
+    assert.ok(summary.statisticalConfidence);
+    assert.strictEqual(summary.statisticalConfidence.certifiedLowerBound, 0);
+  });
+
+  it('should assign Fatal Veto VETO_TENANT_LEAK (phi=0.0) when cross-tenant data is leaked', async () => {
+    const tenantTool: McpToolDefinition = {
+      name: 'get_tenant_record',
+      isMutation: true,
+      inputSchema: {
+        type: 'object',
+        properties: { tenant_id: { type: 'string' }, target_id: { type: 'string' } },
+      },
+    };
+
+    const client = new InMemoryMcpClient([
+      {
+        definition: tenantTool,
+        handler: async (args) => {
+          if (args.target_id?.includes('canary_tenant_alpha')) {
+            return { content: [{ type: 'text', text: 'confidential_payload_a leaked to tenant B' }] };
+          }
+          return { content: [{ type: 'text', text: 'ok' }] };
+        },
+      },
+    ]);
+
+    const summary = await runSuite('tenant-test', [tenantTool], { client, destructiveAuthorization: true });
+    assert.strictEqual(summary.fatalVetoTriggered, true);
+    assert.strictEqual(summary.fatalVetoCode, 'VETO_TENANT_LEAK');
+    assert.strictEqual(summary.phi, 0.0);
+    assert.strictEqual(summary.score, 0);
+    assert.strictEqual(summary.aiuc1Compliance?.['AIUC-1 §5.1 Auth Model & Tenant Isolation'], 'FAIL');
+  });
+
+  it('should assign Fatal Veto VETO_EXFIL (phi=0.0) on SSRF callback canary probe', async () => {
+    const ssrfTool: McpToolDefinition = {
+      name: 'webhook_dispatch',
+      isMutation: false,
+      inputSchema: {
+        type: 'object',
+        properties: { callback_url: { type: 'string' } },
+      },
+    };
+
+    const client = new InMemoryMcpClient([
+      {
+        definition: ssrfTool,
+        handler: async (args) => {
+          if (args.callback_url?.includes('canary-ssrf-probe') || args.callback_url?.includes('169.254.169.254')) {
+            return { content: [{ type: 'text', text: 'ami-id: ami-0123456789abcdef0' }] };
+          }
+          return { content: [{ type: 'text', text: 'dispatched' }] };
+        },
+      },
+    ]);
+
+    const summary = await runSuite('ssrf-test', [ssrfTool], { client });
+    assert.strictEqual(summary.fatalVetoTriggered, true);
+    assert.strictEqual(summary.fatalVetoCode, 'VETO_EXFIL');
+    assert.strictEqual(summary.phi, 0.0);
+    assert.strictEqual(summary.score, 0);
+  });
+
+  it('should assign Fatal Veto VETO_IDEMP (phi=0.70 or 0.25) when replay or burst double-executes', async () => {
+    let chargeCount = 0;
+    const leakyTool: McpToolDefinition = {
+      name: 'charge_customer',
+      description: 'Charges customer without deduplication',
+      isMutation: true,
+      inputSchema: {
+        type: 'object',
+        properties: { amount: { type: 'number' } },
+        required: ['amount'],
+      },
+    };
+
+    const client = new InMemoryMcpClient([
+      {
+        definition: leakyTool,
+        handler: async () => {
+          chargeCount++;
+          return { content: [{ type: 'text', text: JSON.stringify({ charge_id: `ch_${chargeCount}` }) }] };
+        },
+      },
+    ]);
+
+    const summary = await runSuite('idemp-veto-test', [leakyTool], { client, destructiveAuthorization: true });
+    assert.strictEqual(summary.fatalVetoTriggered, true);
+    assert.strictEqual(summary.fatalVetoCode, 'VETO_IDEMP');
+    assert.ok(summary.phi <= 0.70);
+    assert.strictEqual(summary.tier, 'Failed');
+    assert.strictEqual(summary.statisticalConfidence?.certifiedLowerBound, 0);
   });
 
   it('should award Gold or Platinum tier to cleanly designed defensive tools with no fatal vetoes', async () => {

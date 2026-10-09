@@ -6,6 +6,8 @@ export * from './transports/http.js';
 export * from './checks/d1-idempotency/sequential-replay.js';
 export * from './checks/d1-idempotency/concurrent-burst.js';
 export * from './checks/d1-idempotency/idempotency-key.js';
+export * from './checks/d1-idempotency/crash-commit.js';
+export * from './checks/d1-idempotency/entity-extractor.js';
 export * from './checks/d2-error-feedback/type-inversion.js';
 export * from './checks/d2-error-feedback/hallucinated-params.js';
 export * from './checks/d2-error-feedback/semantic-error.js';
@@ -16,6 +18,12 @@ export * from './checks/d3-lite/additional-properties.js';
 export * from './checks/d4-steerability/ambiguity.js';
 export * from './checks/d5-auditability/pairing.js';
 export * from './checks/d5-auditability/dry-run.js';
+export * from './checks/tc-auth.js';
+export * from './checks/resources-coverage.js';
+export * from './checks/cancellation-latency.js';
+export * from './checks/annotation-cross-check.js';
+export * from './checks/delayed-replay.js';
+export * from './checks/envelope-fuzz.js';
 export * from './config.js';
 export * from './reporters/terminal.js';
 export * from './reporters/github-pr-comment.js';
@@ -50,10 +58,10 @@ export function runSuiteOnTools(target: string, tools: McpToolDefinition[]): Sui
     durationMs: 1,
     llmTokensUsed: 0,
     dimensionalScores: {
-      D1: { score: 100, weight: 0.30, metrics: {} },
-      D2: { score: 100, weight: 0.25, metrics: {} },
-      D3: { score: 100, weight: 0.25, metrics: {} },
-      D4: { score: 100, weight: 0.10, metrics: {} },
+      D1: { score: 100, weight: 0.35, metrics: {} },
+      D2: { score: 100, weight: 0.20, metrics: {} },
+      D3: { score: 100, weight: 0.20, metrics: {} },
+      D4: { score: 100, weight: 0.15, metrics: {} },
       D5: { score: 100, weight: 0.10, metrics: {} },
     },
     results: [],
