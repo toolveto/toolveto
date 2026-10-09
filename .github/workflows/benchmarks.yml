@@ -5,6 +5,10 @@ on:
     - cron: '0 0 * * 1' # Weekly on Monday
   workflow_dispatch:
 
+concurrency:
+  group: shield-benchmark-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   k6-benchmark:
     name: k6 500 RPS Shield Overhead Benchmark
@@ -22,16 +26,41 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 11.12.0
+          version: 10.5.2
 
       - name: Install Dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
       - name: Build Gateway and Shield
         run: pnpm run build
 
       - name: Setup k6
         uses: grafana/setup-k6-action@v1
+
+      - name: Start Mock Upstream and ToolVeto Gateway
+        run: |
+          # 1. Start lightweight mock upstream MCP server on port 3000
+          node -e '
+            const http = require("http");
+            http.createServer((req, res) => {
+              res.writeHead(200, { "Content-Type": "application/json" });
+              res.end(JSON.stringify({ jsonrpc: "2.0", id: "bench", result: { content: [{ type: "text", text: "upstream ok" }] } }));
+            }).listen(3000);
+          ' &
+          echo "Mock upstream server started on port 3000"
+
+          # 2. Start ToolVeto Gateway in standalone mode on port 8080
+          RUN_STANDALONE=true UPSTREAM_URL="http://localhost:3000" PORT=8080 node packages/gateway/dist/index.js &
+          echo "ToolVeto Gateway started on port 8080"
+
+          # 3. Wait for endpoints to become responsive
+          for i in {1..30}; do
+            if curl -s http://localhost:8080/health | grep -q "healthy"; then
+              echo "Gateway is ready!"
+              break
+            fi
+            sleep 1
+          done
 
       - name: Execute Overhead Verification
         run: |

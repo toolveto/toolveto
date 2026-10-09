@@ -86,7 +86,14 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
   }
 
   const server = http.createServer(async (req, res) => {
-    const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+    let url: URL;
+    try {
+      url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+    } catch {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32600, message: 'Invalid URL or Host header' } }));
+      return;
+    }
 
     // CORS Allowlist
     const ALLOWED_ORIGINS = new Set(['https://toolveto.ai', 'http://localhost:3000', 'http://localhost:8080']);
@@ -195,7 +202,9 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
     // 3. Auth Check (Bearer Token verification if configured)
     if (loadedConfig.auth?.type === 'bearer') {
       if (!loadedConfig.auth.secret || loadedConfig.auth.secret.length < 16) {
-        throw new Error('Gateway secret missing or <16 chars when bearer auth is configured');
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32603, message: 'Server configuration error: Gateway secret missing or <16 chars' } }));
+        return;
       }
       const authHeader = req.headers['authorization'];
       if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -234,16 +243,17 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
               // Forward to actual upstream server via HTTP POST
               if (upstream.url && upstream.url.startsWith('http')) {
                 const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+                // Zero-Trust: ONLY forward explicit upstream authentication credential.
+                // NEVER forward incoming client's master gateway authorization token.
                 if (upstream.authHeader) {
                   headers['Authorization'] = upstream.authHeader;
-                } else if (req.headers['authorization']) {
-                  headers['Authorization'] = req.headers['authorization'];
                 }
 
                 const upstreamRes = await fetch(upstream.url, {
                   method: 'POST',
                   headers,
                   body: JSON.stringify(rpcReq),
+                  signal: AbortSignal.timeout(upstream.timeoutMs || 30000),
                 });
 
                 const data = (await upstreamRes.json()) as any;
@@ -270,16 +280,17 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
           // Forward all other non-mutation methods (e.g. tools/list, initialize) directly to upstream
           if (upstream.url && upstream.url.startsWith('http')) {
             const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+            // Zero-Trust: ONLY forward explicit upstream authentication credential.
+            // NEVER forward incoming client's master gateway authorization token.
             if (upstream.authHeader) {
               headers['Authorization'] = upstream.authHeader;
-            } else if (req.headers['authorization']) {
-              headers['Authorization'] = req.headers['authorization'];
             }
 
             const upstreamRes = await fetch(upstream.url, {
               method: 'POST',
               headers,
               body,
+              signal: AbortSignal.timeout(upstream.timeoutMs || 30000),
             });
             const data = await upstreamRes.text();
             res.writeHead(upstreamRes.status, { 'Content-Type': 'application/json' });

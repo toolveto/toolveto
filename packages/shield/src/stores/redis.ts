@@ -47,7 +47,15 @@ export class RedisShieldStorage implements ShieldStorage {
       return count;
     }
 
-    // Fallback using simple counter if ZSET is not available
+    // Fallback using atomic counter if ZSET is not available
+    if (typeof (this.redis as any).incr === 'function') {
+      const count = Number(await (this.redis as any).incr(redisKey));
+      if (count === 1 && this.redis.expire) {
+        await this.redis.expire(redisKey, Math.ceil(windowMs / 1000));
+      }
+      return count;
+    }
+
     const raw = await this.redis.get(redisKey);
     const count = (raw ? parseInt(raw, 10) : 0) + 1;
     await this.redis.set(redisKey, count.toString(), 'PX', windowMs);

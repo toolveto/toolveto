@@ -7,6 +7,8 @@ import crypto from 'node:crypto';
 import { fixCommand } from '../commands/fix.js';
 import { verifyCommand } from '../commands/verify.js';
 import { badgeCommand } from '../commands/badge.js';
+import { checkCommand } from '../commands/check.js';
+import { evidenceCommand } from '../commands/evidence.js';
 
 describe('ToolVeto CLI Commands', () => {
   it('should auto-apply idempotency fix to JSON schema files (toolveto fix --apply)', async () => {
@@ -119,6 +121,94 @@ describe('ToolVeto CLI Commands', () => {
     assert.ok(svg.includes('<svg'), 'File must contain SVG element');
     assert.ok(svg.includes('PLATINUM 95/100'), 'SVG must render PLATINUM score text');
 
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('should audit compliant tool manifest and pass (toolveto check)', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tv-check-good-'));
+    const manifestPath = path.join(tmpDir, 'tools.json');
+
+    const compliantTools = [
+      {
+        name: 'create_invoice',
+        description: 'Creates a verified customer invoice with idempotency and limit controls',
+        isMutation: true,
+        inputSchema: {
+          type: 'object',
+          properties: {
+            customer_id: { type: 'string' },
+            idempotency_key: { type: 'string' },
+            amount: { type: 'number' },
+          },
+          required: ['customer_id', 'idempotency_key', 'amount'],
+        },
+      },
+    ];
+    fs.writeFileSync(manifestPath, JSON.stringify(compliantTools, null, 2));
+
+    process.exitCode = 0;
+    await checkCommand(manifestPath, { json: true });
+    assert.strictEqual(process.exitCode, 0, 'Compliant manifest must succeed with exit code 0');
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('should trigger fatal veto on destructive mutation without permission (toolveto check)', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tv-check-destr-'));
+    const manifestPath = path.join(tmpDir, 'tools.json');
+
+    const destructiveTools = [
+      {
+        name: 'drop_database',
+        description: 'Deletes all database records permanently without confirmation',
+        isMutation: true,
+        inputSchema: { type: 'object', properties: {} },
+      },
+    ];
+    fs.writeFileSync(manifestPath, JSON.stringify(destructiveTools, null, 2));
+
+    process.exitCode = 0;
+    await checkCommand(manifestPath, { json: true });
+    assert.strictEqual(process.exitCode, 1, 'Destructive mutation must trigger exit code 1');
+    process.exitCode = 0;
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('should enforce high-entropy secret in evidence generation (toolveto evidence)', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tv-evid-test-'));
+    const manifestPath = path.join(tmpDir, 'tools.json');
+    fs.writeFileSync(manifestPath, JSON.stringify([{
+      name: 'get_status',
+      description: 'Reads current system operational status',
+      isMutation: false,
+      inputSchema: { type: 'object', properties: {} },
+    }]));
+
+    // Without secret, evidenceCommand must throw fatal security violation
+    const oldSecret = process.env.TOOLVETO_SIGNING_SECRET;
+    delete process.env.TOOLVETO_SIGNING_SECRET;
+
+    await assert.rejects(
+      async () => {
+        await evidenceCommand({ target: manifestPath, format: 'json' });
+      },
+      /FATAL SECURITY VIOLATION: TOOLVETO_SIGNING_SECRET/
+    );
+
+    // With 32+ char secret, evidenceCommand succeeds
+    const outputPath = path.join(tmpDir, 'evidence.json');
+    await evidenceCommand({
+      target: manifestPath,
+      format: 'json',
+      secret: 'secure-high-entropy-attestation-secret-32chars',
+      output: outputPath,
+    });
+    assert.ok(fs.existsSync(outputPath), 'Evidence output file must be created');
+    const content = JSON.parse(fs.readFileSync(outputPath, 'utf-8'));
+    assert.ok(content.jws, 'Generated evidence packet must include cryptographic JWS signature');
+
+    if (oldSecret) process.env.TOOLVETO_SIGNING_SECRET = oldSecret;
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 });

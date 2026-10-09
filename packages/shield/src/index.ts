@@ -123,36 +123,53 @@ function sanitizeText(text: string, patterns: RegExp[]): string {
 
 function scanObjectForInjection(
   obj: any,
-  patterns: RegExp[]
+  patterns: RegExp[],
+  visited = new WeakSet<object>(),
+  depth = 0
 ): { detected: boolean; match?: string } {
+  if (depth > 32) return { detected: false };
   if (typeof obj === 'string') {
     return detectInjectionInString(obj, patterns);
   }
-  if (Array.isArray(obj)) {
-    for (const item of obj) {
-      const res = scanObjectForInjection(item, patterns);
-      if (res.detected) return res;
-    }
-  } else if (obj && typeof obj === 'object') {
-    for (const val of Object.values(obj)) {
-      const res = scanObjectForInjection(val, patterns);
-      if (res.detected) return res;
+  if (obj && typeof obj === 'object') {
+    if (visited.has(obj)) return { detected: false };
+    visited.add(obj);
+
+    if (Array.isArray(obj)) {
+      for (const item of obj) {
+        const res = scanObjectForInjection(item, patterns, visited, depth + 1);
+        if (res.detected) return res;
+      }
+    } else {
+      for (const val of Object.values(obj)) {
+        const res = scanObjectForInjection(val, patterns, visited, depth + 1);
+        if (res.detected) return res;
+      }
     }
   }
   return { detected: false };
 }
 
-function sanitizeObject(obj: any, patterns: RegExp[]): any {
+function sanitizeObject(
+  obj: any,
+  patterns: RegExp[],
+  visited = new WeakSet<object>(),
+  depth = 0
+): any {
+  if (depth > 32) return obj;
   if (typeof obj === 'string') {
     return sanitizeText(obj, patterns);
   }
-  if (Array.isArray(obj)) {
-    return obj.map((item) => sanitizeObject(item, patterns));
-  }
   if (obj && typeof obj === 'object') {
+    if (visited.has(obj)) return obj;
+    visited.add(obj);
+
+    if (Array.isArray(obj)) {
+      return obj.map((item) => sanitizeObject(item, patterns, visited, depth + 1));
+    }
     const res: Record<string, any> = {};
     for (const [k, v] of Object.entries(obj)) {
-      res[k] = sanitizeObject(v, patterns);
+      res[k] = sanitizeObject(v, patterns, visited, depth + 1);
     }
     return res;
   }
@@ -161,6 +178,7 @@ function sanitizeObject(obj: any, patterns: RegExp[]): any {
 
 export class ShieldMiddleware {
   private storage: ShieldStorage;
+  private inFlightRequests: Map<string, Promise<McpCallResponse>> = new Map();
   private metrics: ShieldMetrics = {
     totalCalls: 0,
     deduplicatedCalls: 0,
@@ -272,16 +290,39 @@ export class ShieldMiddleware {
         return {
           ...cachedResponse,
           _shield: {
+            ...cachedResponse._shield,
             cached: true,
             timestamp: now,
           },
         };
       }
 
-      const response = await next(req);
-      const ttl = this.options.idempotencyTtlMs || 24 * 60 * 60 * 1000; // default 24h
-      await this.storage.set(cacheKey, response, ttl);
-      return response;
+      if (this.inFlightRequests.has(cacheKey)) {
+        this.metrics.deduplicatedCalls++;
+        const inFlightRes = await this.inFlightRequests.get(cacheKey)!;
+        return {
+          ...inFlightRes,
+          _shield: {
+            ...inFlightRes._shield,
+            cached: true,
+            timestamp: now,
+          },
+        };
+      }
+
+      const executionPromise = (async () => {
+        try {
+          const res = await next(req);
+          const ttl = this.options.idempotencyTtlMs || 24 * 60 * 60 * 1000; // default 24h
+          await this.storage.set(cacheKey, res, ttl);
+          return res;
+        } finally {
+          this.inFlightRequests.delete(cacheKey);
+        }
+      })();
+
+      this.inFlightRequests.set(cacheKey, executionPromise);
+      return await executionPromise;
     }
 
     // 3. Fallthrough execution to upstream MCP server
@@ -336,20 +377,44 @@ export class ShieldMiddleware {
       }
     }
 
-    // 5. Token Budget / Context Bomb Truncation
-    if (this.options.tokenBudget && response.content) {
+    // 5. Cumulative Token Budget / Context Bomb Truncation across all content items
+    if (this.options.tokenBudget && response.content && Array.isArray(response.content)) {
       const maxChars = this.options.tokenBudget * 4;
-      for (const item of response.content) {
-        if (item.type === 'text' && item.text && item.text.length > maxChars) {
-          this.metrics.payloadsTruncated++;
-          item.text =
-            item.text.slice(0, maxChars) +
-            `\n\n[ToolVeto Shield: Truncated to prevent context exhaustion. Truncated from ${item.text.length} chars to ${maxChars} chars. Use pagination limit/cursor parameters to retrieve next items.]`;
-          response._shield = {
-            ...response._shield,
-            truncated: true,
-          };
+      let cumulativeChars = 0;
+      let truncatedOccurred = false;
+      const budgetCappedContent: Array<{ type: string; text?: string; [key: string]: any }> = [];
+
+      for (let i = 0; i < response.content.length; i++) {
+        const item = response.content[i];
+        if (item.type === 'text' && typeof item.text === 'string') {
+          const itemLen = item.text.length;
+          if (cumulativeChars + itemLen <= maxChars) {
+            cumulativeChars += itemLen;
+            budgetCappedContent.push(item);
+          } else {
+            const allowedForThisItem = Math.max(0, maxChars - cumulativeChars);
+            this.metrics.payloadsTruncated++;
+            truncatedOccurred = true;
+            budgetCappedContent.push({
+              ...item,
+              text:
+                item.text.slice(0, allowedForThisItem) +
+                `\n\n[ToolVeto Shield: Truncated to prevent context exhaustion. Budget of ${this.options.tokenBudget} tokens (${maxChars} chars) reached. Subsequent items discarded.]`,
+            });
+            cumulativeChars = maxChars;
+            break;
+          }
+        } else {
+          budgetCappedContent.push(item);
         }
+      }
+
+      if (truncatedOccurred) {
+        response.content = budgetCappedContent as Array<{ type: string; text: string }>;
+        response._shield = {
+          ...response._shield,
+          truncated: true,
+        };
       }
     }
 
