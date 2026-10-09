@@ -394,6 +394,94 @@ describe('ToolVeto Shield Runtime Middleware', () => {
     const res2 = await middleware.intercept(req, mockNext);
     assert.strictEqual(res2._shield?.cached, true);
   });
+
+  it('should coalesce in-flight concurrent requests with identical idempotency key (singleflight)', async () => {
+    const middleware = new ShieldMiddleware({ idempotency: true });
+    let backendExecutions = 0;
+
+    const mockNext = async () => {
+      backendExecutions++;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      return {
+        content: [{ type: 'text', text: `Execution ${backendExecutions}` }],
+      };
+    };
+
+    const req = {
+      method: 'tools/call',
+      params: {
+        name: 'burst_charge',
+        arguments: { amount: 100, idempotency_key: 'burst_key_999' },
+      },
+    };
+
+    // Dispatch 3 concurrent requests simultaneously
+    const results = await Promise.all([
+      middleware.intercept(req, mockNext),
+      middleware.intercept(req, mockNext),
+      middleware.intercept(req, mockNext),
+    ]);
+
+    assert.strictEqual(backendExecutions, 1, 'Only 1 upstream mutation must execute under concurrent burst');
+    assert.strictEqual(results[0].content[0].text, 'Execution 1');
+    assert.strictEqual(results[1].content[0].text, 'Execution 1');
+    assert.strictEqual(results[2].content[0].text, 'Execution 1');
+  });
+
+  it('should enforce cumulative token budget across multi-item response arrays', async () => {
+    // 50 tokens = 200 characters max
+    const middleware = new ShieldMiddleware({ tokenBudget: 50 });
+
+    const mockNext = async () => ({
+      content: [
+        { type: 'text', text: 'A'.repeat(80) },
+        { type: 'text', text: 'B'.repeat(80) },
+        { type: 'text', text: 'C'.repeat(80) }, // cumulative: 240 chars > 200!
+        { type: 'text', text: 'D'.repeat(80) },
+      ],
+    });
+
+    const req = {
+      method: 'tools/call',
+      params: { name: 'multi_item_list', arguments: {} },
+    };
+
+    const res = await middleware.intercept(req, mockNext);
+    assert.strictEqual(res._shield?.truncated, true, 'Multi-item array must be truncated on cumulative overflow');
+    // First 2 items fit (160 chars)
+    assert.strictEqual(res.content[0].text.length, 80);
+    assert.strictEqual(res.content[1].text.length, 80);
+    // 3rd item truncated
+    assert.ok(res.content[2].text.includes('Truncated to prevent context exhaustion'));
+    // 4th item discarded
+    assert.strictEqual(res.content.length, 3);
+  });
+
+  it('should safely scan circular and deeply nested objects without stack overflow', async () => {
+    const middleware = new ShieldMiddleware({
+      promptInjectionScan: { action: 'block' },
+    });
+
+    const mockNext = async () => ({
+      content: [{ type: 'text', text: 'ok' }],
+    });
+
+    const circularObj: any = { name: 'nested' };
+    circularObj.self = circularObj;
+
+    const req = {
+      method: 'tools/call',
+      params: {
+        name: 'cyclic_param_tool',
+        arguments: circularObj,
+      },
+    };
+
+    // Must not throw RangeError: Maximum call stack size exceeded
+    const res = await middleware.intercept(req, mockNext);
+    assert.strictEqual(res.isError, undefined);
+    assert.strictEqual(res.content[0].text, 'ok');
+  });
 });
 
 

@@ -10,6 +10,7 @@ export interface UpstreamRouteConfig {
   toolPrefix?: string;
   policy?: GatewayPolicy;
   authHeader?: string;
+  timeoutMs?: number;
 }
 
 export interface GatewayYamlConfig {
@@ -94,6 +95,7 @@ export function parseGatewayYaml(content: string): GatewayYamlConfig {
           else if (key === 'toolPrefix') u.toolPrefix = val;
           else if (key === 'policy') u.policy = val as GatewayPolicy;
           else if (key === 'authHeader') u.authHeader = val;
+          else if (key === 'timeoutMs' || key === 'timeout') u.timeoutMs = Number(val);
         }
         continue;
       }

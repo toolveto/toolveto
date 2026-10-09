@@ -13,6 +13,7 @@ export interface EvidenceOptions {
   target?: string;
   keyId?: string;
   demo?: boolean;
+  secret?: string;
 }
 
 export const AIUC1_CONTROL_MAP: Record<string, { title: string; checks: string[] }> = {
@@ -42,10 +43,16 @@ export const AIUC1_CONTROL_MAP: Record<string, { title: string; checks: string[]
   },
 };
 
-function signAttestationJws(payload: Record<string, unknown>, keyId = 'toolveto-cli-v1'): string {
+function signAttestationJws(payload: Record<string, unknown>, keyId = 'toolveto-cli-v1', signingSecret?: string): string {
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT', kid: keyId })).toString('base64url');
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
-  const secret = process.env.TOOLVETO_SIGNING_SECRET || 'toolveto-oss-evidence-secret';
+  const secret = signingSecret || process.env.TOOLVETO_SIGNING_SECRET;
+  if (!secret || secret.length < 32) {
+    throw new Error(
+      'FATAL SECURITY VIOLATION: TOOLVETO_SIGNING_SECRET environment variable is missing or shorter than 32 characters (256 bits). ' +
+      'Refusing to sign attestation with insecure default key. Generate with: openssl rand -base64 32'
+    );
+  }
   const hmac = crypto.createHmac('sha256', secret);
   hmac.update(`${header}.${body}`);
   const sig = hmac.digest('base64url');
@@ -164,7 +171,7 @@ export async function evidenceCommand(options: EvidenceOptions = {}): Promise<vo
     },
   };
 
-  const jws = signAttestationJws(attestationPayload, options.keyId);
+  const jws = signAttestationJws(attestationPayload, options.keyId, options.secret);
 
   if (format === 'json') {
     const output = JSON.stringify({ ...attestationPayload, jws }, null, 2);

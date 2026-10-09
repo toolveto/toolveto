@@ -7,15 +7,34 @@ export interface BadgeOptions {
   output?: string;
 }
 
-export function generateBadgeSvg(score: number, tier: string): string {
-  let color = '#ff4757'; // Red for Rejected
-  if (tier === 'PLATINUM') color = '#2ed573';
-  else if (tier === 'GOLD') color = '#ffa502';
-  else if (tier === 'SILVER') color = '#70a1ff';
-  else if (tier === 'BRONZE') color = '#eccc68';
+function escapeXml(unsafe: string): string {
+  return String(unsafe).replace(/[<>&'"]/g, (c) => {
+    switch (c) {
+      case '<': return '&lt;';
+      case '>': return '&gt;';
+      case '&': return '&amp;';
+      case '\'': return '&apos;';
+      case '"': return '&quot;';
+      default: return c;
+    }
+  });
+}
 
-  const label = 'ToolVeto';
-  const status = `${tier} ${score}/100`;
+export function generateBadgeSvg(score: number, tier: string, rawLabel = 'ToolVeto'): string {
+  const safeScore = Math.max(0, Math.min(100, Math.round(Number(score) || 0)));
+  const normalizedTier = ['PLATINUM', 'GOLD', 'SILVER', 'BRONZE', 'REJECTED', 'UNVERIFIED'].includes(tier.toUpperCase())
+    ? tier.toUpperCase()
+    : 'REJECTED';
+
+  let color = '#ff4757'; // Red for Rejected
+  if (normalizedTier === 'PLATINUM') color = '#2ed573';
+  else if (normalizedTier === 'GOLD') color = '#ffa502';
+  else if (normalizedTier === 'SILVER') color = '#70a1ff';
+  else if (normalizedTier === 'BRONZE') color = '#eccc68';
+  else if (normalizedTier === 'UNVERIFIED') color = '#747d8c';
+
+  const label = escapeXml(rawLabel);
+  const status = escapeXml(`${normalizedTier} ${safeScore}/100`);
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="20" role="img" aria-label="${label}: ${status}">
   <linearGradient id="s" x2="0" y2="100%">
@@ -40,7 +59,7 @@ export function generateBadgeSvg(score: number, tier: string): string {
 }
 
 export async function badgeCommand(options: BadgeOptions = {}): Promise<void> {
-  const score = Number(options.score) || 100;
+  const score = Math.max(0, Math.min(100, Math.round(Number(options.score) || 100)));
   const tier = (options.tier || (score >= 90 ? 'PLATINUM' : score >= 80 ? 'GOLD' : score >= 70 ? 'SILVER' : 'REJECTED')).toUpperCase();
   const outputPath = options.output ? path.resolve(process.cwd(), options.output) : path.resolve(process.cwd(), 'toolveto-badge.svg');
 

@@ -37,8 +37,11 @@ export async function loginCommand(tokenArg?: string, options: LoginOptions = {}
     const data = await res.json() as any;
     const configDir = path.join(os.homedir(), '.toolveto');
     if (!fs.existsSync(configDir)) {
-      fs.mkdirSync(configDir, { recursive: true });
+      fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
     }
+    try {
+      fs.chmodSync(configDir, 0o700);
+    } catch {}
 
     const configPath = path.join(configDir, 'config.json');
     fs.writeFileSync(configPath, JSON.stringify({
@@ -47,7 +50,10 @@ export async function loginCommand(tokenArg?: string, options: LoginOptions = {}
       customerId: data.customerId,
       expiresAt: data.expiresAt,
       apiUrl,
-    }, null, 2));
+    }, null, 2), { mode: 0o600 });
+    try {
+      fs.chmodSync(configPath, 0o600);
+    } catch {}
 
     console.log(`\n✅ Authenticated Successfully!`);
     console.log(`   Customer:     ${data.customerId}`);

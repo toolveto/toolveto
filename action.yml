@@ -28,19 +28,57 @@ inputs:
 outputs:
   score:
     description: 'Evaluated reliability score (0-100)'
+    value: ${{ steps.run-gate.outputs.score }}
   tier:
     description: 'Certification tier awarded'
+    value: ${{ steps.run-gate.outputs.tier }}
   passed:
     description: 'True if no merge-blocking fatal vetoes were encountered'
+    value: ${{ steps.run-gate.outputs.passed }}
   report-url:
     description: 'Shareable audit result link'
+    value: ${{ steps.run-gate.outputs.report-url }}
 
 runs:
   using: 'composite'
   steps:
     - name: Run ToolVeto CI Gate
+      id: run-gate
       shell: bash
+      env:
+        TOOLVETO_TOKEN: ${{ inputs.toolveto-token }}
       run: |
         TARGET="${{ inputs.server-url || inputs.server-path }}"
         echo "🛡️ Running ToolVeto Check on: $TARGET"
-        npx --yes toolveto@latest check "$TARGET"
+
+        ARGS=("$TARGET" "--format" "json")
+        if [ "${{ inputs.with-llm }}" = "true" ]; then
+          ARGS+=("--with-llm")
+        fi
+
+        # Run action via local repository CLI bundle if present, else fallback to pinned version
+        if [ -f "${{ github.action_path }}/packages/cli/dist/bin/toolveto.js" ]; then
+          CLI_CMD="node ${{ github.action_path }}/packages/cli/dist/bin/toolveto.js"
+        else
+          CLI_CMD="npx --yes toolveto@0.1.0"
+        fi
+
+        REPORT_JSON=$($CLI_CMD check "${ARGS[@]}" 2>&1)
+        EXIT_CODE=$?
+
+        # Parse output fields safely
+        SCORE=$(echo "$REPORT_JSON" | grep -o '"score":[0-9]*' | head -1 | cut -d: -f2 || echo "0")
+        TIER=$(echo "$REPORT_JSON" | grep -o '"tier":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "REJECTED")
+        PASSED=$([ "$EXIT_CODE" -eq 0 ] && echo "true" || echo "false")
+        REPORT_URL="https://toolveto.ai/verify?score=$SCORE&tier=$TIER"
+
+        echo "score=$SCORE" >> "$GITHUB_OUTPUT"
+        echo "tier=$TIER" >> "$GITHUB_OUTPUT"
+        echo "passed=$PASSED" >> "$GITHUB_OUTPUT"
+        echo "report-url=$REPORT_URL" >> "$GITHUB_OUTPUT"
+
+        if [ "$EXIT_CODE" -ne 0 ]; then
+          echo "❌ ToolVeto reliability gate blocked with exit code $EXIT_CODE."
+          exit $EXIT_CODE
+        fi
+        echo "✅ ToolVeto reliability gate passed with score $SCORE/100 [$TIER]."
