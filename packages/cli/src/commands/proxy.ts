@@ -6,8 +6,8 @@ export interface ProxyOptions {
   tokenBudget?: string | number;
 }
 
-export async function proxyCommand(options: ProxyOptions = {}): Promise<void> {
-  const port = Number(options.port) || 8080;
+export async function proxyCommand(options: ProxyOptions = {}): Promise<any> {
+  const port = options.port !== undefined ? Number(options.port) : 8080;
   const upstreamUrl = options.upstream || 'http://localhost:3000/mcp';
   const tokenBudget = Number(options.tokenBudget) || 4000;
 
@@ -27,9 +27,12 @@ export async function proxyCommand(options: ProxyOptions = {}): Promise<void> {
     },
   });
 
-  server.listen(port, () => {
-    console.log(`✅ ToolVeto Shield Gateway is active on http://localhost:${port}`);
-    console.log(`   - MCP Reverse Proxy: POST http://localhost:${port}/mcp`);
-    console.log(`   - Health & Telemetry: GET  http://localhost:${port}/health\n`);
+  return new Promise((resolve) => {
+    server.listen(port, () => {
+      console.log(`✅ ToolVeto Shield Gateway is active on http://localhost:${port}`);
+      console.log(`   - MCP Reverse Proxy: POST http://localhost:${port}/mcp`);
+      console.log(`   - Health & Telemetry: GET  http://localhost:${port}/health\n`);
+      resolve(server);
+    });
   });
 }

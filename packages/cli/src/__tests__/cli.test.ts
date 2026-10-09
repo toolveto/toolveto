@@ -4,11 +4,14 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import crypto from 'node:crypto';
+import http from 'node:http';
 import { fixCommand } from '../commands/fix.js';
 import { verifyCommand } from '../commands/verify.js';
 import { badgeCommand } from '../commands/badge.js';
 import { checkCommand } from '../commands/check.js';
 import { evidenceCommand } from '../commands/evidence.js';
+import { loginCommand } from '../commands/login.js';
+import { proxyCommand } from '../commands/proxy.js';
 
 describe('ToolVeto CLI Commands', () => {
   it('should auto-apply idempotency fix to JSON schema files (toolveto fix --apply)', async () => {
@@ -210,5 +213,79 @@ describe('ToolVeto CLI Commands', () => {
 
     if (oldSecret) process.env.TOOLVETO_SIGNING_SECRET = oldSecret;
     fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('should authenticate and write credentials to ~/.toolveto/config.json with 0o600 permissions (toolveto login)', async () => {
+    const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'tv-home-test-'));
+    const oldHome = process.env.HOME;
+    process.env.HOME = tmpHome;
+
+    // Start mock cloud API
+    const mockApi = http.createServer((req, res) => {
+      if (req.method === 'POST' && req.url === '/api/v1/billing/license/validate') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          valid: true,
+          tier: 'TEAM',
+          customerId: 'cus_cli_login_test',
+          expiresAt: new Date(Date.now() + 86400000).toISOString(),
+        }));
+      } else {
+        res.writeHead(404);
+        res.end();
+      }
+    });
+
+    await new Promise<void>((resolve) => mockApi.listen(0, () => resolve()));
+    const port = (mockApi.address() as any).port;
+
+    try {
+      process.exitCode = 0;
+      await loginCommand('tv_live_mock_token_123', { apiUrl: `http://localhost:${port}` });
+      assert.strictEqual(process.exitCode, 0);
+
+      const configPath = path.join(tmpHome, '.toolveto', 'config.json');
+      assert.ok(fs.existsSync(configPath), 'Config file must be created');
+      const stats = fs.statSync(configPath);
+      if (process.platform !== 'win32') {
+        assert.strictEqual(stats.mode & 0o777, 0o600, 'Config file permissions must be 0o600');
+      }
+
+      const configData = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      assert.strictEqual(configData.token, 'tv_live_mock_token_123');
+      assert.strictEqual(configData.tier, 'TEAM');
+      assert.strictEqual(configData.customerId, 'cus_cli_login_test');
+    } finally {
+      process.env.HOME = oldHome;
+      await new Promise<void>((resolve) => mockApi.close(() => resolve()));
+      fs.rmSync(tmpHome, { recursive: true, force: true });
+    }
+  });
+
+  it('should set exitCode 1 on rejected license token (toolveto login)', async () => {
+    const mockApi = http.createServer((req, res) => {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ valid: false, error: 'Invalid license key' }));
+    });
+
+    await new Promise<void>((resolve) => mockApi.listen(0, () => resolve()));
+    const port = (mockApi.address() as any).port;
+
+    try {
+      process.exitCode = 0;
+      await loginCommand('tv_live_bad_token', { apiUrl: `http://localhost:${port}` });
+      assert.strictEqual(process.exitCode, 1, 'Rejected license must set process.exitCode = 1');
+      process.exitCode = 0;
+    } finally {
+      await new Promise<void>((resolve) => mockApi.close(() => resolve()));
+    }
+  });
+
+  it('should initialize and start Shield runtime proxy gateway (toolveto proxy)', async () => {
+    const server = await proxyCommand({ port: 0, upstream: 'http://localhost:9999/mcp', tokenBudget: 2000 });
+    assert.ok(server, 'Proxy command must return running server');
+    const addr = server.address();
+    assert.ok(addr && typeof addr === 'object' && addr.port > 0, 'Server must bind to valid port');
+    await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 });
