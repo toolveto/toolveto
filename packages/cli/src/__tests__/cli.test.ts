@@ -1,4 +1,4 @@
-import { describe, it } from 'node:test';
+import { describe, it, before, after } from 'node:test';
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -14,6 +14,21 @@ import { loginCommand } from '../commands/login.js';
 import { proxyCommand } from '../commands/proxy.js';
 
 describe('ToolVeto CLI Commands', () => {
+  let origLog: typeof console.log;
+  let origErr: typeof console.error;
+
+  before(() => {
+    origLog = console.log;
+    origErr = console.error;
+    console.log = () => {};
+    console.error = () => {};
+  });
+
+  after(() => {
+    console.log = origLog;
+    console.error = origErr;
+  });
+
   it('should auto-apply idempotency fix to JSON schema files (toolveto fix --apply)', async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tv-fix-test-'));
     const fixturePath = path.join(tmpDir, 'tools.json');
