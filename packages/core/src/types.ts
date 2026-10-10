@@ -48,6 +48,9 @@ export interface CheckResult {
   fix?: CheckFix;
   durationMs: number;
   llmTokensUsed?: number;
+  vetoClass?: VetoClass;
+  errorCode?: number | string;
+  isPanic?: boolean;
 }
 
 export interface ToolParameterSchema {
@@ -101,6 +104,8 @@ export interface McpCallRequest {
 export interface McpCallResponse {
   content: Array<{ type: string; text: string }>;
   isError?: boolean;
+  errorCode?: number | string;
+  isPanic?: boolean;
 }
 
 export interface DimensionalScore {

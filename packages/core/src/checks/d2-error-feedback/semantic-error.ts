@@ -79,12 +79,16 @@ export async function runSemanticErrorCheck(
         };
       }
     } catch (err: any) {
+      const isPanic = Boolean(err.isPanic || err.code === -32603 || err.code === 'PANIC' || err.message?.includes('dropped transport'));
       return {
         checkId: 'TC-ERR-001',
         dimension: 'D2',
         tool: tool.name,
         status: 'FAIL',
-        severity: 'HIGH',
+        severity: isPanic ? 'CRITICAL' : 'HIGH',
+        vetoClass: isPanic ? 'VETO_PANIC' : undefined,
+        isPanic,
+        errorCode: err.code || err.statusCode,
         description: `Error self-healing failure: Transport crashed on invalid semantic date input: ${err.message}`,
         evidence: { evidenceQuality: 'VERIFIED' },
         durationMs: Date.now() - startTime,

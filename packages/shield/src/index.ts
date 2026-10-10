@@ -83,6 +83,7 @@ export interface ShieldStorage {
 export class MemoryShieldStorage implements ShieldStorage {
   private cache: LRUCache<string, McpCallResponse>;
   private callHistory: LRUCache<string, number[]>;
+  private locks = new Set<string>();
 
   constructor(maxItems = 10000) {
     this.cache = new LRUCache<string, McpCallResponse>({ max: maxItems });
@@ -106,9 +107,20 @@ export class MemoryShieldStorage implements ShieldStorage {
     return recent.length;
   }
 
+  async acquireLock(key: string, _ttlMs = 5000): Promise<boolean> {
+    if (this.locks.has(key)) return false;
+    this.locks.add(key);
+    return true;
+  }
+
+  async releaseLock(key: string): Promise<void> {
+    this.locks.delete(key);
+  }
+
   async clear(): Promise<void> {
     this.cache.clear();
     this.callHistory.clear();
+    this.locks.clear();
   }
 }
 
@@ -204,9 +216,38 @@ export function canonicalizeJson(value: any): string {
   return '{' + keys.map((k) => JSON.stringify(k) + ':' + canonicalizeJson(value[k])).join(',') + '}';
 }
 
+export function decodeCursor(cursor: string): { toolName?: string; offset?: number; total?: number; charOffset?: number; totalChars?: number } | null {
+  if (!cursor || typeof cursor !== 'string' || !cursor.startsWith('cur_')) return null;
+  try {
+    const payloadPart = cursor.slice(4);
+    if (payloadPart.startsWith('offset_')) {
+      const offset = parseInt(payloadPart.slice(7), 10);
+      if (!isNaN(offset)) return { offset };
+    }
+    if (payloadPart.startsWith('char_')) {
+      const charOffset = parseInt(payloadPart.slice(5), 10);
+      if (!isNaN(charOffset)) return { charOffset };
+    }
+    const decoded = JSON.parse(Buffer.from(payloadPart, 'base64url').toString('utf8'));
+    if (decoded && typeof decoded === 'object') {
+      return {
+        toolName: decoded.tName,
+        offset: decoded.o,
+        total: decoded.t,
+        charOffset: decoded.c,
+        totalChars: decoded.tc,
+      };
+    }
+  } catch {
+    // Malformed cursor
+  }
+  return null;
+}
+
 export class ShieldMiddleware {
   private storage: ShieldStorage;
   private inFlightRequests: Map<string, Promise<McpCallResponse>> = new Map();
+  private cursorStore: LRUCache<string, { toolName: string; offset?: number; total?: number; charOffset?: number; totalChars?: number; createdAt: number }> = new LRUCache({ max: 5000 });
   private metrics: ShieldMetrics = {
     totalCalls: 0,
     deduplicatedCalls: 0,
@@ -218,6 +259,13 @@ export class ShieldMiddleware {
 
   constructor(private options: ShieldOptions) {
     this.storage = options.storage || new MemoryShieldStorage();
+  }
+
+  public resolveCursor(cursor: string): { toolName?: string; offset?: number; total?: number; charOffset?: number; totalChars?: number } | null {
+    if (!cursor || typeof cursor !== 'string' || !cursor.startsWith('cur_')) return null;
+    const fromStore = this.cursorStore.get(cursor);
+    if (fromStore) return fromStore;
+    return decodeCursor(cursor);
   }
 
   public getMetrics(): ShieldMetrics {
@@ -355,7 +403,47 @@ export class ShieldMiddleware {
       }
 
       const executionPromise = (async () => {
+        let lockAcquired = false;
         try {
+          if (this.storage.acquireLock) {
+            try {
+              lockAcquired = await this.storage.acquireLock(cacheKey, this.options.idempotencyTtlMs || 30000);
+            } catch (err: any) {
+              if (this.options.failClosed) {
+                return {
+                  isError: true,
+                  content: [
+                    {
+                      type: 'text',
+                      text: `[ToolVeto Shield Veto] Storage failure while acquiring idempotency lock for '${idempKey}': ${err?.message || 'Service Unavailable'}. Fail-closed strict policy enforced.`,
+                    },
+                  ],
+                  _shield: {
+                    idempotencyKey: idempKey,
+                    timestamp: now,
+                  },
+                };
+              }
+              // Standard mode: ignore lock error, proceed fail-open
+            }
+
+            if (!lockAcquired && this.options.failClosed) {
+              return {
+                isError: true,
+                content: [
+                  {
+                    type: 'text',
+                    text: `[ToolVeto Shield Veto] Concurrent execution lock could not be acquired for idempotency key '${idempKey}'. Fail-closed strict policy enforced.`,
+                  },
+                ],
+                _shield: {
+                  idempotencyKey: idempKey,
+                  timestamp: now,
+                },
+              };
+            }
+          }
+
           const res = await next(req);
           // Never cache error responses for 24h (only cache successful non-error responses)
           if (!res.isError) {
@@ -364,6 +452,13 @@ export class ShieldMiddleware {
           }
           return res;
         } finally {
+          if (lockAcquired && this.storage.releaseLock) {
+            try {
+              await this.storage.releaseLock(cacheKey);
+            } catch {
+              // Ignore release errors
+            }
+          }
           this.inFlightRequests.delete(cacheKey);
         }
       })();
@@ -444,9 +539,6 @@ export class ShieldMiddleware {
             this.metrics.payloadsTruncated++;
             truncatedOccurred = true;
 
-            const cursorHash = crypto.createHash('sha256').update(`${toolName}:${allowedForThisItem}:${now}`).digest('hex').slice(0, 8);
-            generatedCursor = `cur_${cursorHash}`;
-
             // Inspect if content is structured JSON (records / items array)
             let structuredHandled = false;
             try {
@@ -456,6 +548,17 @@ export class ShieldMiddleware {
                 const sampleItemChars = Math.max(1, Math.round(itemLen / totalRecords));
                 const itemsToKeep = Math.max(1, Math.min(totalRecords - 1, Math.floor(allowedForThisItem / sampleItemChars)));
                 const slicedItems = parsed.slice(0, itemsToKeep);
+
+                const cursorPayload = { tName: toolName, o: itemsToKeep, t: totalRecords };
+                const encodedPayload = Buffer.from(JSON.stringify(cursorPayload)).toString('base64url');
+                generatedCursor = `cur_${encodedPayload}`;
+                this.cursorStore.set(generatedCursor, {
+                  toolName: toolName || 'unknown',
+                  offset: itemsToKeep,
+                  total: totalRecords,
+                  createdAt: now,
+                });
+
                 const structuredEnvelope = {
                   truncated: true,
                   total_records: totalRecords,
@@ -477,6 +580,17 @@ export class ShieldMiddleware {
                   const sampleItemChars = Math.max(1, Math.round(itemLen / totalRecords));
                   const itemsToKeep = Math.max(1, Math.min(totalRecords - 1, Math.floor(allowedForThisItem / sampleItemChars)));
                   const slicedItems = arr.slice(0, itemsToKeep);
+
+                  const cursorPayload = { tName: toolName, o: itemsToKeep, t: totalRecords };
+                  const encodedPayload = Buffer.from(JSON.stringify(cursorPayload)).toString('base64url');
+                  generatedCursor = `cur_${encodedPayload}`;
+                  this.cursorStore.set(generatedCursor, {
+                    toolName: toolName || 'unknown',
+                    offset: itemsToKeep,
+                    total: totalRecords,
+                    createdAt: now,
+                  });
+
                   const structuredEnvelope = {
                     ...parsed,
                     [arrayKey]: slicedItems,
@@ -498,16 +612,27 @@ export class ShieldMiddleware {
             }
 
             if (!structuredHandled) {
-              const estimatedTotal = Math.max(2, Math.round(itemLen / 40));
-              const estimatedReturned = Math.max(1, Math.round(allowedForThisItem / 40));
+              const noticeHeader = `\n\n[ToolVeto Shield: Truncated to prevent context exhaustion. Budget of ${this.options.tokenBudget} tokens (${maxChars} chars) reached.]\n`;
+              const roughNoticeLen = noticeHeader.length + 180;
+              const textSliceLen = Math.max(1, allowedForThisItem > roughNoticeLen ? allowedForThisItem - roughNoticeLen : Math.floor(allowedForThisItem / 2));
+
+              const charPayload = { tName: toolName, c: textSliceLen, tc: itemLen };
+              const encodedCharPayload = Buffer.from(JSON.stringify(charPayload)).toString('base64url');
+              generatedCursor = `cur_${encodedCharPayload}`;
+              this.cursorStore.set(generatedCursor, {
+                toolName: toolName || 'unknown',
+                charOffset: textSliceLen,
+                totalChars: itemLen,
+                createdAt: now,
+              });
+
               const envelopeMetadata = {
                 truncated: true,
-                total_records: estimatedTotal,
-                items_returned: estimatedReturned,
+                total_characters: itemLen,
+                characters_returned: textSliceLen,
                 next_cursor: generatedCursor,
               };
-              const notice = `\n\n${JSON.stringify(envelopeMetadata)}\n[ToolVeto Shield: Truncated to prevent context exhaustion. Budget of ${this.options.tokenBudget} tokens (${maxChars} chars) reached. Next cursor: ${generatedCursor}. Subsequent items discarded.]`;
-              const textSliceLen = Math.max(0, allowedForThisItem - Math.min(allowedForThisItem, 180));
+              const notice = `${noticeHeader}${JSON.stringify(envelopeMetadata)}`;
               budgetCappedContent.push({
                 ...item,
                 text: item.text.slice(0, textSliceLen) + notice,

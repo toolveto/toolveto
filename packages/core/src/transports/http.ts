@@ -105,17 +105,29 @@ export class HttpMcpClient implements McpClient {
         content: result?.content || [{ type: 'text', text: JSON.stringify(result) }],
       };
     } catch (err: any) {
-      if (
+      const isConnectionDrop =
         err.name === 'AbortError' ||
         err.code === 'ECONNREFUSED' ||
         err.code === 'ECONNRESET' ||
         err.message?.includes('fetch failed') ||
-        err.message?.includes('dropped transport')
-      ) {
-        throw new Error(`MCP HTTP server dropped transport: Connection error (${err.message})`);
+        err.message?.includes('dropped transport');
+
+      const isServerCrash =
+        isConnectionDrop ||
+        err.statusCode >= 500 ||
+        err.rpcCode === -32603 ||
+        err.rpcCode === -32000 ||
+        (typeof err.message === 'string' && (err.message.includes('HTTP 5') || err.message.includes('[-32603]')));
+
+      if (isConnectionDrop || isServerCrash) {
+        const panicErr: any = new Error(`MCP HTTP server dropped transport: Process/server panic or crash (${err.message})`);
+        panicErr.isPanic = true;
+        panicErr.code = err.code || err.rpcCode || err.statusCode || -32603;
+        throw panicErr;
       }
       return {
         isError: true,
+        errorCode: err.rpcCode || err.statusCode || err.code,
         content: [{ type: 'text', text: err.message || String(err) }],
       };
     }

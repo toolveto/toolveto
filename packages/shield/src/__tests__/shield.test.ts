@@ -545,6 +545,38 @@ describe('ToolVeto Shield Runtime Middleware', () => {
     assert.strictEqual(parsed.total_records, 50);
     assert.ok(parsed.items_returned > 0 && parsed.items_returned < 50);
     assert.ok(parsed.next_cursor.startsWith('cur_'));
+
+    // Verify cursor is resolvable by middleware and decodeCursor
+    const resolved = middleware.resolveCursor(parsed.next_cursor);
+    assert.ok(resolved !== null);
+    assert.strictEqual(resolved?.offset, parsed.items_returned);
+    assert.strictEqual(resolved?.total, 50);
+  });
+
+  it('should truncate unstructured text honestly without fabricating record counts', async () => {
+    const middleware = new ShieldMiddleware({ tokenBudget: 25 }); // 100 chars
+    const rawText = 'A'.repeat(500);
+
+    const mockNext = async () => ({
+      content: [{ type: 'text', text: rawText }],
+    });
+
+    const req = {
+      method: 'tools/call',
+      params: { name: 'raw_log_stream', arguments: {} },
+    };
+
+    const res = await middleware.intercept(req, mockNext);
+    assert.strictEqual(res._shield?.truncated, true);
+    const contentText = res.content[0].text;
+    assert.ok(!contentText.includes('total_records'), 'Unstructured text must not fabricate total_records');
+    assert.ok(contentText.includes('total_characters'));
+    assert.ok(contentText.includes('characters_returned'));
+
+    const resolved = middleware.resolveCursor(res._shield!.nextCursor!);
+    assert.ok(resolved !== null);
+    assert.strictEqual(resolved?.totalChars, 500);
+    assert.ok(resolved?.charOffset! > 0);
   });
 });
 

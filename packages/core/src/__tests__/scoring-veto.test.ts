@@ -119,6 +119,32 @@ describe('Scoring & Fatal Veto Engine', () => {
     assert.strictEqual(summary.score, 0);
   });
 
+  it('should assign Fatal Veto VETO_PANIC (phi=0.0) when server drops connection or crashes with panic', async () => {
+    const crashingTool: McpToolDefinition = {
+      name: 'crash_on_date_tool',
+      isMutation: false,
+      inputSchema: { type: 'object', properties: { start_date: { type: 'string', format: 'date' } } },
+    };
+
+    const client: any = {
+      connect: async () => {},
+      listTools: async () => [crashingTool],
+      callTool: async () => {
+        const panicErr: any = new Error('MCP server dropped transport: Process aborting with panic (-32603)');
+        panicErr.isPanic = true;
+        panicErr.code = -32603;
+        throw panicErr;
+      },
+      close: async () => {},
+    };
+
+    const summary = await runSuite('panic-test', [crashingTool], { client });
+    assert.strictEqual(summary.fatalVetoTriggered, true);
+    assert.strictEqual(summary.fatalVetoCode, 'VETO_PANIC');
+    assert.strictEqual(summary.phi, 0.0);
+    assert.strictEqual(summary.score, 0);
+  });
+
   it('should assign Fatal Veto VETO_IDEMP (phi=0.70 or 0.25) when replay or burst double-executes', async () => {
     let chargeCount = 0;
     const leakyTool: McpToolDefinition = {

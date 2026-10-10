@@ -11,6 +11,7 @@ export interface UpstreamRouteConfig {
   policy?: GatewayPolicy;
   authHeader?: string;
   timeoutMs?: number;
+  allowLocal?: boolean;
 }
 
 export interface GatewayYamlConfig {

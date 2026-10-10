@@ -148,18 +148,24 @@ export class StdioMcpClient implements McpClient {
         isError: Boolean(result?.isError),
       };
     } catch (err: any) {
-      if (
+      const isProcessExit =
         this.childProcess?.exitCode !== null ||
         this.childProcess?.killed ||
         err.message?.includes('exited unexpectedly') ||
         err.message?.includes('dropped transport') ||
-        err.message?.includes('not connected')
-      ) {
-        throw new Error(`MCP server dropped transport: Process aborting with panic (${err.message})`);
+        err.message?.includes('not connected');
+
+      const isRpcPanic = err.code === -32603 || err.code === -32000;
+
+      if (isProcessExit || isRpcPanic) {
+        const panicErr: any = new Error(`MCP server dropped transport: Process aborting with panic (${err.message || err.code})`);
+        panicErr.isPanic = true;
+        panicErr.code = err.code || -32603;
+        throw panicErr;
       }
-      // Wire protocol error
       return {
         isError: true,
+        errorCode: err.code,
         content: [
           {
             type: 'text',

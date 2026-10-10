@@ -61,12 +61,16 @@ export async function runTypeInversionFuzzCheck(
             };
           }
         } catch (err: any) {
+          const isPanic = Boolean(err.isPanic || err.code === -32603 || err.code === 'PANIC' || err.message?.includes('dropped transport'));
           return {
             checkId: 'TC-FUZZ-001',
             dimension: 'D2',
             tool: tool.name,
             status: 'FAIL',
             severity: 'CRITICAL',
+            vetoClass: isPanic ? 'VETO_PANIC' : undefined,
+            isPanic,
+            errorCode: err.code || err.statusCode,
             description: `Type inversion crash: Tool '${tool.name}' dropped transport on fuzzed input: ${err.message}`,
             evidence: {
               evidenceQuality: 'VERIFIED',

@@ -5,6 +5,77 @@ import { GatewayYamlConfig, UpstreamRouteConfig, GatewayPolicy, loadGatewayConfi
 
 const MAX_BODY = 1_048_576; // 1 MB limit
 
+export const BLOCKED_PRIVATE_HOSTNAMES = new Set([
+  'localhost',
+  '127.0.0.1',
+  '::1',
+  '0.0.0.0',
+  '169.254.169.254', // AWS/GCP/Azure instance metadata
+  'metadata.google.internal',
+  'instance-data',
+]);
+
+export function isPrivateIpOrBlockedHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().trim();
+  if (BLOCKED_PRIVATE_HOSTNAMES.has(host)) return true;
+  if (host.endsWith('.localhost') || host.endsWith('.internal') || host.endsWith('.local')) return true;
+
+  // IPv4 CIDR checks
+  const ipv4Match = host.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+  if (ipv4Match) {
+    const oct1 = parseInt(ipv4Match[1], 10);
+    const oct2 = parseInt(ipv4Match[2], 10);
+    if (oct1 === 0 || oct1 === 10 || oct1 === 127) return true;
+    if (oct1 === 169 && oct2 === 254) return true;
+    if (oct1 === 192 && oct2 === 168) return true;
+    if (oct1 === 172 && oct2 >= 16 && oct2 <= 31) return true;
+    if (oct1 === 100 && oct2 >= 64 && oct2 <= 127) return true;
+  }
+
+  // IPv6 unique local and link-local checks
+  if (host === '::1' || host.startsWith('fc') || host.startsWith('fd') || host.startsWith('fe80')) {
+    return true;
+  }
+
+  return false;
+}
+
+export function validateUpstreamUrl(urlStr: string, allowLocal = false): void {
+  const parsed = new URL(urlStr);
+  const host = parsed.hostname.toLowerCase();
+
+  // Cloud metadata endpoint is strictly forbidden under all circumstances
+  if (host === '169.254.169.254' || host === 'metadata.google.internal' || host === 'instance-data') {
+    throw new Error(`[ToolVeto Gateway Security] SSRF blocked: Access to cloud instance metadata (${host}) is forbidden.`);
+  }
+
+  const isProduction = process.env.NODE_ENV === 'production';
+  const isExplicitlyAllowed = allowLocal || process.env.TOOLVETO_ALLOW_LOCAL_UPSTREAMS === 'true';
+
+  if (isProduction && !isExplicitlyAllowed) {
+    if (isPrivateIpOrBlockedHost(host)) {
+      throw new Error(`[ToolVeto Gateway Security] SSRF blocked: Upstream URL '${urlStr}' targets private subnet or internal host in production environment.`);
+    }
+  } else if (!isExplicitlyAllowed) {
+    const isLoopback = host === 'localhost' || host === '127.0.0.1' || host === '::1';
+    if (!isLoopback && isPrivateIpOrBlockedHost(host)) {
+      throw new Error(`[ToolVeto Gateway Security] SSRF blocked: Upstream URL '${urlStr}' targets private network address.`);
+    }
+  }
+}
+
+async function readResponseWithLimit(res: Response, maxBytes = MAX_BODY): Promise<string> {
+  const cl = res.headers.get('content-length');
+  if (cl && parseInt(cl, 10) > maxBytes) {
+    throw new Error(`Upstream response exceeds ${maxBytes} byte limit`);
+  }
+  const text = await res.text();
+  if (Buffer.byteLength(text, 'utf8') > maxBytes) {
+    throw new Error(`Upstream response exceeds ${maxBytes} byte limit`);
+  }
+  return text;
+}
+
 async function readBody(req: http.IncomingMessage, max = MAX_BODY): Promise<string> {
   let size = 0;
   const chunks: Buffer[] = [];
@@ -242,7 +313,11 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
             const intercepted = await middleware.intercept(jsonRpc, async (rpcReq) => {
               // Forward to actual upstream server via HTTP POST
               if (upstream.url && upstream.url.startsWith('http')) {
-                const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+                validateUpstreamUrl(upstream.url, upstream.allowLocal);
+                const headers: Record<string, string> = {
+                  'Content-Type': 'application/json',
+                  'X-ToolVeto-Egress-Canary': crypto.randomUUID(),
+                };
                 // Zero-Trust: ONLY forward explicit upstream authentication credential.
                 // NEVER forward incoming client's master gateway authorization token.
                 if (upstream.authHeader) {
@@ -254,9 +329,27 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
                   headers,
                   body: JSON.stringify(rpcReq),
                   signal: AbortSignal.timeout(upstream.timeoutMs || 30000),
+                  redirect: 'manual',
                 });
 
-                const data = (await upstreamRes.json()) as any;
+                if (upstreamRes.status >= 300 && upstreamRes.status < 400) {
+                  return {
+                    isError: true,
+                    content: [{ type: 'text', text: `[ToolVeto Gateway Security] Upstream redirect to ${upstreamRes.headers.get('location') || 'unknown'} disallowed (SSRF protection).` }],
+                  };
+                }
+
+                const responseText = await readResponseWithLimit(upstreamRes, MAX_BODY);
+                let data: any;
+                try {
+                  data = JSON.parse(responseText);
+                } catch {
+                  return {
+                    isError: true,
+                    content: [{ type: 'text', text: `Upstream response was not valid JSON: ${responseText.slice(0, 200)}` }],
+                  };
+                }
+
                 if (data.error) {
                   return {
                     isError: true,
@@ -279,7 +372,11 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
 
           // Forward all other non-mutation methods (e.g. tools/list, initialize) directly to upstream
           if (upstream.url && upstream.url.startsWith('http')) {
-            const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+            validateUpstreamUrl(upstream.url, upstream.allowLocal);
+            const headers: Record<string, string> = {
+              'Content-Type': 'application/json',
+              'X-ToolVeto-Egress-Canary': crypto.randomUUID(),
+            };
             // Zero-Trust: ONLY forward explicit upstream authentication credential.
             // NEVER forward incoming client's master gateway authorization token.
             if (upstream.authHeader) {
@@ -291,8 +388,16 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
               headers,
               body,
               signal: AbortSignal.timeout(upstream.timeoutMs || 30000),
+              redirect: 'manual',
             });
-            const data = await upstreamRes.text();
+
+            if (upstreamRes.status >= 300 && upstreamRes.status < 400) {
+              res.writeHead(502, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32603, message: 'Upstream redirect disallowed (SSRF protection)' } }));
+              return;
+            }
+
+            const data = await readResponseWithLimit(upstreamRes, MAX_BODY);
             res.writeHead(upstreamRes.status, { 'Content-Type': 'application/json' });
             res.end(data);
             return;

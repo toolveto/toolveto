@@ -173,8 +173,20 @@ export async function runSuite(
   const hasPanic = results.some(
     (r) =>
       r.status === 'FAIL' &&
-      r.severity === 'CRITICAL' &&
-      (r.description.includes('dropped transport') || r.description.includes('Process aborting') || r.description.includes('panic'))
+      (r.isPanic === true ||
+       r.vetoClass === 'VETO_PANIC' ||
+       r.errorCode === -32603 ||
+       r.errorCode === -32000 ||
+       r.errorCode === 'ECONNRESET' ||
+       r.errorCode === 'ECONNREFUSED' ||
+       r.errorCode === 'PANIC' ||
+       (r.severity === 'CRITICAL' && (
+         r.description.includes('dropped transport') ||
+         r.description.includes('Process aborting') ||
+         r.description.includes('panic') ||
+         r.description.includes('crashed connection') ||
+         r.description.includes('crash')
+       )))
   );
 
   const hasInject = results.some(
