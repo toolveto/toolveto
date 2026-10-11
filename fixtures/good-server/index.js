@@ -99,11 +99,24 @@ rl.on('line', (line) => {
     const req = JSON.parse(trimmed);
     const { id, method, params } = req;
 
-    if (method === 'initialize') {
+    if (method === 'server/discover' || method === 'initialize') {
       sendResponse(id, {
-        protocolVersion: '2024-11-05',
-        capabilities: { tools: {} },
-        serverInfo: { name: 'good-mcp-server', version: '1.0.0' },
+        protocolVersion: '2026-07-28',
+        capabilities: {
+          tools: {},
+          tasks: { supported: true, inputRequired: true },
+        },
+        serverInfo: { name: 'good-mcp-server', version: '2.0.0' },
+      });
+      return;
+    }
+
+    if (method === 'tasks/get') {
+      const taskId = params?.id || params?.taskId;
+      sendResponse(id, {
+        id: taskId || 'task_tf_001',
+        status: 'pending',
+        resultType: 'input_required',
       });
       return;
     }
@@ -222,6 +235,7 @@ rl.on('line', (line) => {
         }));
 
         sendResponse(id, {
+          resultType: 'complete',
           content: [
             {
               type: 'text',

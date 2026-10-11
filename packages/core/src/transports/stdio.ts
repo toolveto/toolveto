@@ -1,7 +1,13 @@
 import { spawn, ChildProcess } from 'node:child_process';
 import * as readline from 'node:readline';
 import { McpClient } from './interface.js';
-import { McpToolDefinition, McpCallResponse } from '../types.js';
+import {
+  McpToolDefinition,
+  McpCallResponse,
+  McpServerCapabilities,
+  McpTask,
+  LATEST_MCP_PROTOCOL_VERSION,
+} from '../types.js';
 
 export interface StdioOptions {
   command: string;
@@ -18,6 +24,8 @@ export class StdioMcpClient implements McpClient {
   private isInitialized = false;
   private stdoutReader: readline.Interface | null = null;
   private serverErrorLog: string[] = [];
+  private serverCapabilities: McpServerCapabilities = {};
+  private protocolVersion: string = LATEST_MCP_PROTOCOL_VERSION;
 
   constructor(private options: StdioOptions) {}
 
@@ -93,28 +101,50 @@ export class StdioMcpClient implements McpClient {
         }
       });
 
-      // Send initialize request
-      this.sendRequest('initialize', {
-        protocolVersion: '2024-11-05',
+      // Handshake parameters advertising native 2026-07-28 stateless capabilities
+      const handshakeParams = {
+        protocolVersion: LATEST_MCP_PROTOCOL_VERSION,
         capabilities: {
           tools: {},
+          tasks: { supported: true, inputRequired: true },
         },
         clientInfo: {
           name: 'toolveto-harness',
           version: '0.1.0',
         },
-      }, timeoutMs)
-        .then(() => {
+        _meta: {
+          protocolVersion: LATEST_MCP_PROTOCOL_VERSION,
+          client: 'toolveto-harness',
+        },
+      };
+
+      // Native 2026-07-28 negotiation: Try server/discover first (stateless protocol)
+      this.sendRequest('server/discover', handshakeParams, Math.min(timeoutMs, 2000))
+        .then((res) => {
+          this.protocolVersion = res?.protocolVersion || LATEST_MCP_PROTOCOL_VERSION;
+          this.serverCapabilities = res?.capabilities || {};
           this.isInitialized = true;
           resolved = true;
           resolve();
         })
-        .catch((err) => {
-          if (!resolved) {
-            resolved = true;
-            this.close();
-            reject(err);
-          }
+        .catch(() => {
+          // Graceful fallback to initialize for 2024-11-05 / 2025-03-26 or hybrid servers
+          this.sendRequest('initialize', handshakeParams, timeoutMs)
+            .then((res) => {
+              this.protocolVersion = res?.protocolVersion || LATEST_MCP_PROTOCOL_VERSION;
+              this.serverCapabilities = res?.capabilities || {};
+              this.isInitialized = true;
+              this.sendNotification('notifications/initialized').catch(() => {});
+              resolved = true;
+              resolve();
+            })
+            .catch((err) => {
+              if (!resolved) {
+                resolved = true;
+                this.close();
+                reject(err);
+              }
+            });
         });
     });
   }
@@ -123,14 +153,25 @@ export class StdioMcpClient implements McpClient {
     if (!this.childProcess) {
       await this.connect();
     }
-    const result = await this.sendRequest('tools/list', {});
+    const result = await this.sendRequest('tools/list', {
+      _meta: {
+        protocolVersion: this.protocolVersion,
+        client: 'toolveto-harness',
+      },
+    });
     const tools = result?.tools || [];
     return tools.map((t: any) => ({
       name: t.name,
       description: t.description || '',
       inputSchema: t.inputSchema || { type: 'object', properties: {} },
+      outputSchema: t.outputSchema,
       isMutation: t.isMutation ?? (!t.name.startsWith('get_') && !t.name.startsWith('list_') && !t.name.startsWith('search_') && !t.name.startsWith('read_')),
       idempotentHint: t.idempotentHint,
+      readOnlyHint: t.readOnlyHint,
+      destructiveHint: t.destructiveHint,
+      openWorldHint: t.openWorldHint,
+      requiresApproval: Boolean(t.requiresApproval),
+      tasksSupported: Boolean(t.tasksSupported),
     }));
   }
 
@@ -142,10 +183,18 @@ export class StdioMcpClient implements McpClient {
       const result = await this.sendRequest('tools/call', {
         name,
         arguments: args,
+        _meta: {
+          protocolVersion: this.protocolVersion,
+          client: 'toolveto-harness',
+        },
       });
       return {
         content: result?.content || [],
         isError: Boolean(result?.isError),
+        errorCode: result?.errorCode,
+        resultType: result?.resultType || 'complete',
+        taskId: result?.taskId,
+        _meta: result?._meta,
       };
     } catch (err: any) {
       const isProcessExit =
@@ -216,6 +265,92 @@ export class StdioMcpClient implements McpClient {
         }
       });
     });
+  }
+
+  public async sendNotification(method: string, params?: Record<string, unknown>): Promise<void> {
+    if (!this.childProcess || !this.childProcess.stdin) return;
+    const payload = JSON.stringify({
+      jsonrpc: '2.0',
+      method,
+      params,
+    }) + '\n';
+    return new Promise((res) => {
+      this.childProcess?.stdin?.write(payload, 'utf-8', () => res());
+    });
+  }
+
+  public async getCapabilities(): Promise<McpServerCapabilities> {
+    return this.serverCapabilities;
+  }
+
+  public getProtocolVersion(): string {
+    return this.protocolVersion;
+  }
+
+  public async getTask(taskId: string): Promise<McpTask | undefined> {
+    if (!this.childProcess) {
+      await this.connect();
+    }
+    try {
+      const result = await this.sendRequest('tasks/get', {
+        id: taskId,
+        _meta: {
+          protocolVersion: this.protocolVersion,
+          client: 'toolveto-harness',
+        },
+      });
+      return result as McpTask;
+    } catch {
+      return undefined;
+    }
+  }
+
+  public async updateTask(taskId: string, input: Record<string, any>): Promise<McpCallResponse> {
+    if (!this.childProcess) {
+      await this.connect();
+    }
+    try {
+      const result = await this.sendRequest('tasks/update', {
+        id: taskId,
+        input,
+        _meta: {
+          protocolVersion: this.protocolVersion,
+          client: 'toolveto-harness',
+        },
+      });
+      return {
+        content: result?.content || [],
+        isError: Boolean(result?.isError),
+        errorCode: result?.errorCode,
+        resultType: result?.resultType || 'complete',
+        taskId: result?.taskId || taskId,
+        _meta: result?._meta,
+      };
+    } catch (err: any) {
+      return {
+        isError: true,
+        errorCode: err.code,
+        content: [{ type: 'text', text: err.message || JSON.stringify(err) }],
+      };
+    }
+  }
+
+  public async cancelTask(taskId: string): Promise<boolean> {
+    if (!this.childProcess) {
+      await this.connect();
+    }
+    try {
+      const result = await this.sendRequest('tasks/cancel', {
+        id: taskId,
+        _meta: {
+          protocolVersion: this.protocolVersion,
+          client: 'toolveto-harness',
+        },
+      });
+      return Boolean(result?.success ?? true);
+    } catch {
+      return false;
+    }
   }
 
   public async close(): Promise<void> {

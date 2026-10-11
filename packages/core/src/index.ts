@@ -24,6 +24,7 @@ export * from './checks/cancellation-latency.js';
 export * from './checks/annotation-cross-check.js';
 export * from './checks/delayed-replay.js';
 export * from './checks/envelope-fuzz.js';
+export * from './checks/tasks-extension.js';
 export * from './config.js';
 export * from './reporters/terminal.js';
 export * from './reporters/github-pr-comment.js';

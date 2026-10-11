@@ -29,6 +29,7 @@ import { runCancellationCheck, runLatencyProfilingCheck } from './checks/cancell
 import { runAnnotationCrossCheck } from './checks/annotation-cross-check.js';
 import { runDelayedReplayCheck, runHeterogeneousInterleavingCheck } from './checks/delayed-replay.js';
 import { runEnvelopeFuzzCheck } from './checks/envelope-fuzz.js';
+import { runTasksExtensionCheck } from './checks/tasks-extension.js';
 import { loadToolvetoConfig } from './config.js';
 
 export interface RunSuiteOptions {
@@ -84,6 +85,7 @@ export async function runSuite(
     results.push(await runTenantIsolationCheck(tool, client, destructiveAuthorization));
     results.push(runOAuthScopeCheck(tool));
     results.push(await runRootsPathTraversalCheck(tool, client));
+    results.push(await runTasksExtensionCheck(tool, client, destructiveAuthorization));
   }
 
   // Multi-tool heterogeneous interleaving check

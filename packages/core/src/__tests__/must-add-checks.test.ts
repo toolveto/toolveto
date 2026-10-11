@@ -5,6 +5,7 @@ import { runResourceListCheck, runResourceReadCheck, runServerCapabilityCheck } 
 import { runCancellationCheck, runLatencyProfilingCheck } from '../checks/cancellation-latency.js';
 import { runAnnotationCrossCheck } from '../checks/annotation-cross-check.js';
 import { runEnvelopeFuzzCheck } from '../checks/envelope-fuzz.js';
+import { runTasksExtensionCheck } from '../checks/tasks-extension.js';
 import { McpToolDefinition, McpResourceDefinition } from '../types.js';
 import { InMemoryMcpClient } from '../transports/in-memory.js';
 
@@ -308,4 +309,68 @@ describe('7 Must-Add Enterprise Verification Checks', () => {
     assert.strictEqual(result.status, 'PASS');
     assert.ok(result.evidence.details?.p95Ms !== undefined);
   });
+
+  it('TC-TASK-001: should verify MCP 2026-07-28 Tasks workflow with input_required and idempotent polling', async () => {
+    const taskTool: McpToolDefinition = {
+      name: 'approve_wire_transfer',
+      isMutation: true,
+      requiresApproval: true,
+      tasksSupported: true,
+      inputSchema: {
+        type: 'object',
+        properties: { amount: { type: 'number' }, account_id: { type: 'string' } },
+      },
+    };
+
+    const client = new InMemoryMcpClient([
+      {
+        definition: taskTool,
+        handler: async () => ({
+          resultType: 'input_required',
+          taskId: 'task_wire_123',
+          content: [{ type: 'text', text: 'Approval required for transfer exceeding threshold' }],
+        }),
+      },
+    ]);
+
+    client.registerTask({
+      id: 'task_wire_123',
+      status: 'pending',
+      resultType: 'input_required',
+    });
+
+    const result = await runTasksExtensionCheck(taskTool, client, true);
+    assert.strictEqual(result.checkId, 'TC-TASK-001');
+    assert.strictEqual(result.status, 'PASS');
+    assert.strictEqual(result.evidence.evidenceQuality, 'VERIFIED');
+    assert.strictEqual(result.evidence.details?.taskId, 'task_wire_123');
+  });
+
+  it('TC-TASK-001: should fail when tool returns input_required but omits mandatory taskId', async () => {
+    const brokenTaskTool: McpToolDefinition = {
+      name: 'approve_wire_transfer_broken',
+      isMutation: true,
+      requiresApproval: true,
+      inputSchema: { type: 'object', properties: {} },
+    };
+
+    const client = new InMemoryMcpClient([
+      {
+        definition: brokenTaskTool,
+        handler: async () => ({
+          resultType: 'input_required',
+          // taskId deliberately omitted
+          content: [{ type: 'text', text: 'Approval required' }],
+        }),
+      },
+    ]);
+
+    const result = await runTasksExtensionCheck(brokenTaskTool, client, true);
+    assert.strictEqual(result.checkId, 'TC-TASK-001');
+    assert.strictEqual(result.status, 'FAIL');
+    assert.strictEqual(result.severity, 'HIGH');
+    assert.ok(result.description.includes('omitted mandatory \'taskId\''));
+    assert.ok(result.fix?.summary.includes('Include unique durable taskId'));
+  });
 });
+

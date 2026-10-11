@@ -578,6 +578,115 @@ describe('ToolVeto Shield Runtime Middleware', () => {
     assert.strictEqual(resolved?.totalChars, 500);
     assert.ok(resolved?.charOffset! > 0);
   });
+
+  it('should deduplicate calls via RFC 8785 canonical hash ignoring ephemeral _meta, nonces, and timestamps (MCP 2026-07-28)', async () => {
+    const middleware = new ShieldMiddleware({ idempotency: true, autoFingerprintFallback: true });
+    let executionCount = 0;
+    const mockNext = async () => {
+      executionCount++;
+      return {
+        content: [{ type: 'text', text: JSON.stringify({ status: 'charged', count: executionCount }) }],
+      };
+    };
+
+    // First call with _meta envelope and request nonce
+    const req1 = {
+      method: 'tools/call',
+      params: {
+        name: 'stripe_charge',
+        arguments: {
+          amount: 5000,
+          currency: 'usd',
+          customer_id: 'cust_abc',
+          _meta: { protocolVersion: '2026-07-28', client: 'agent-1' },
+          timestamp: 1770000000000,
+          requestId: 'req-nonce-1',
+        },
+      },
+    };
+
+    // Second call with different ephemeral _meta and different nonce, but identical semantic arguments
+    const req2 = {
+      method: 'tools/call',
+      params: {
+        name: 'stripe_charge',
+        arguments: {
+          currency: 'usd', // order flipped to verify RFC 8785 sorting
+          amount: 5000,
+          customer_id: 'cust_abc',
+          _meta: { protocolVersion: '2026-07-28', client: 'agent-2' },
+          timestamp: 1770000099999,
+          requestId: 'req-nonce-2',
+        },
+      },
+    };
+
+    const res1 = await middleware.intercept(req1, mockNext);
+    const res2 = await middleware.intercept(req2, mockNext);
+
+    assert.strictEqual(executionCount, 1, 'Upstream must only be invoked once for semantically identical calls');
+    assert.strictEqual(res2._shield?.cached, true, 'Second call must be served from cache');
+    assert.strictEqual(res2._shield?.fingerprintDedup, true);
+  });
+
+  it('should not cache intermediate input_required responses in 24h idempotency store (MCP 2026-07-28 Tasks)', async () => {
+    const middleware = new ShieldMiddleware({ idempotency: true, autoFingerprintFallback: true });
+    let executionCount = 0;
+
+    const mockNext = async (req: any) => {
+      executionCount++;
+      if (executionCount === 1) {
+        return {
+          resultType: 'input_required' as const,
+          taskId: 'task_awaiting_approval_1',
+          content: [{ type: 'text', text: 'Approval required for transfer exceeding $1,000' }],
+        };
+      }
+      return {
+        resultType: 'complete' as const,
+        taskId: 'task_awaiting_approval_1',
+        content: [{ type: 'text', text: 'Transfer approved and executed' }],
+      };
+    };
+
+    const req = {
+      method: 'tools/call',
+      params: {
+        name: 'transfer_funds',
+        arguments: { amount: 5000, destination: 'acc_123' },
+      },
+    };
+
+    // 1. Initial call returns input_required
+    const res1 = await middleware.intercept(req, mockNext);
+    assert.strictEqual(res1.resultType, 'input_required');
+    assert.strictEqual(res1.taskId, 'task_awaiting_approval_1');
+    assert.strictEqual(res1._shield?.cached, undefined);
+
+    // 2. Second call should NOT be served from cache since input_required must never freeze the task
+    const res2 = await middleware.intercept(req, mockNext);
+    assert.strictEqual(executionCount, 2, 'Must not cache intermediate input_required responses');
+    assert.strictEqual(res2.resultType, 'complete');
+  });
+
+  it('should preserve resultType, taskId, and _meta envelopes in Shield response', async () => {
+    const middleware = new ShieldMiddleware({ idempotency: false });
+    const mockNext = async () => ({
+      resultType: 'input_required' as const,
+      taskId: 'task_hitl_42',
+      _meta: { protocolVersion: '2026-07-28', continuationStep: 2 },
+      content: [{ type: 'text', text: 'Requires user confirmation' }],
+    });
+
+    const res = await middleware.intercept(
+      { method: 'tools/call', params: { name: 'deploy_prod', arguments: {} } },
+      mockNext
+    );
+
+    assert.strictEqual(res.resultType, 'input_required');
+    assert.strictEqual(res.taskId, 'task_hitl_42');
+    assert.strictEqual(res._meta?.protocolVersion, '2026-07-28');
+  });
 });
 
 

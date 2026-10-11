@@ -234,4 +234,55 @@ describe('ToolVeto Gateway Reverse Proxy', () => {
     assert.ok(typeof jsonData.totalCalls === 'number');
     assert.ok(jsonData.totalCalls > 0);
   });
+
+  it('should support MCP 2026-07-28 server/discover returning stateless protocol capabilities', async () => {
+    const res = await fetch(`http://localhost:${gatewayPort}/mcp`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer test-gateway-secret-token',
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 99,
+        method: 'server/discover',
+        params: {
+          clientInfo: { name: 'test-client', version: '1.0' },
+          _meta: { protocolVersion: '2026-07-28' },
+        },
+      }),
+    });
+
+    assert.strictEqual(res.status, 200);
+    const data = await res.json() as any;
+    assert.strictEqual(data.id, 99);
+    assert.ok(data.result);
+    // Either upstream or gateway capabilities advertise protocol version and tasks
+    assert.ok(data.result.protocolVersion || data.result.capabilities);
+  });
+
+  it('should handle tasks/get request under MCP 2026-07-28 Tasks specification', async () => {
+    const res = await fetch(`http://localhost:${gatewayPort}/mcp`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer test-gateway-secret-token',
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 101,
+        method: 'tasks/get',
+        params: {
+          id: 'task_req_123',
+          _meta: { protocolVersion: '2026-07-28' },
+        },
+      }),
+    });
+
+    assert.strictEqual(res.status, 200);
+    const data = await res.json() as any;
+    assert.strictEqual(data.id, 101);
+    assert.ok(data.result);
+  });
 });
+
