@@ -482,6 +482,103 @@ describe('ToolVeto Shield Runtime Middleware', () => {
     assert.strictEqual(res.isError, undefined);
     assert.strictEqual(res.content[0].text, 'ok');
   });
+
+  it('should deduplicate mutations via SHA-256 fallback when explicit idempotency key is missing', async () => {
+    const middleware = new ShieldMiddleware({ idempotency: true });
+    let backendMutations = 0;
+
+    const mockNext = async () => {
+      backendMutations++;
+      return {
+        content: [{ type: 'text', text: `Charged order #${backendMutations}` }],
+      };
+    };
+
+    // First call without explicit idempotency key
+    const req1 = {
+      method: 'tools/call',
+      params: {
+        name: 'charge_customer',
+        arguments: { amount: 250, currency: 'USD', customer_id: 'cust_abc' },
+      },
+    };
+
+    const res1 = await middleware.intercept(req1, mockNext);
+    assert.strictEqual(res1.content[0].text, 'Charged order #1');
+    assert.strictEqual(backendMutations, 1);
+
+    // Second call with same parameters in different key order - must be deduplicated via canonical SHA-256!
+    const req2 = {
+      method: 'tools/call',
+      params: {
+        name: 'charge_customer',
+        arguments: { customer_id: 'cust_abc', currency: 'USD', amount: 250 },
+      },
+    };
+
+    const res2 = await middleware.intercept(req2, mockNext);
+    assert.strictEqual(res2.content[0].text, 'Charged order #1');
+    assert.strictEqual(backendMutations, 1, 'Duplicate double-charge without key must be deduplicated by fallback');
+    assert.strictEqual(res2._shield?.cached, true);
+    assert.strictEqual(res2._shield?.fingerprintDedup, true);
+  });
+
+  it('should inject structured pagination envelope with next_cursor on truncated JSON records', async () => {
+    const middleware = new ShieldMiddleware({ tokenBudget: 50 }); // 200 chars max
+    const records = Array.from({ length: 50 }, (_, i) => ({ id: `rec_${i}`, value: `data_${i}` }));
+
+    const mockNext = async () => ({
+      content: [{ type: 'text', text: JSON.stringify(records) }],
+    });
+
+    const req = {
+      method: 'tools/call',
+      params: { name: 'list_large_records', arguments: {} },
+    };
+
+    const res = await middleware.intercept(req, mockNext);
+    assert.strictEqual(res._shield?.truncated, true);
+    assert.ok(res._shield?.nextCursor?.startsWith('cur_'));
+
+    const parsed = JSON.parse(res.content[0].text);
+    assert.strictEqual(parsed.truncated, true);
+    assert.strictEqual(parsed.total_records, 50);
+    assert.ok(parsed.items_returned > 0 && parsed.items_returned < 50);
+    assert.ok(parsed.next_cursor.startsWith('cur_'));
+
+    // Verify cursor is resolvable by middleware and decodeCursor
+    const resolved = middleware.resolveCursor(parsed.next_cursor);
+    assert.ok(resolved !== null);
+    assert.strictEqual(resolved?.offset, parsed.items_returned);
+    assert.strictEqual(resolved?.total, 50);
+  });
+
+  it('should truncate unstructured text honestly without fabricating record counts', async () => {
+    const middleware = new ShieldMiddleware({ tokenBudget: 25 }); // 100 chars
+    const rawText = 'A'.repeat(500);
+
+    const mockNext = async () => ({
+      content: [{ type: 'text', text: rawText }],
+    });
+
+    const req = {
+      method: 'tools/call',
+      params: { name: 'raw_log_stream', arguments: {} },
+    };
+
+    const res = await middleware.intercept(req, mockNext);
+    assert.strictEqual(res._shield?.truncated, true);
+    const contentText = res.content[0].text;
+    assert.ok(!contentText.includes('total_records'), 'Unstructured text must not fabricate total_records');
+    assert.ok(contentText.includes('total_characters'));
+    assert.ok(contentText.includes('characters_returned'));
+
+    const resolved = middleware.resolveCursor(res._shield!.nextCursor!);
+    assert.ok(resolved !== null);
+    assert.strictEqual(resolved?.totalChars, 500);
+    assert.ok(resolved?.charOffset! > 0);
+  });
 });
+
 
 

@@ -15,3 +15,7 @@ export default shield(myMcpServer, {
   tokenBudget: 4000,                           // Truncates and injects pagination cursors
 });
 ```
+
+## Licensing & Patent Notice
+
+Distributed under the Apache-2.0 License with an [Explicit Patent Reservation](./LICENSE). For production multi-tenant edge proxying, distributed Redis deduplication mesh, and runtime protocol firewalling, see [ToolVeto Gateway](file:///Users/samirsavla/git/ToolVeto/toolveto/packages/gateway) (BSL-1.1) and ToolVeto Cloud.

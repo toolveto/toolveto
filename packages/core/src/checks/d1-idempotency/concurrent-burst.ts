@@ -1,5 +1,6 @@
 import { CheckResult, McpToolDefinition } from '../../types.js';
 import { McpClient } from '../../transports/interface.js';
+import { extractEntityId, hashPayloadState } from './entity-extractor.js';
 
 export async function runConcurrentBurstCheck(
   tool: McpToolDefinition,
@@ -54,41 +55,34 @@ export async function runConcurrentBurstCheck(
 
     const responses = await Promise.all(promises);
     const createdEntityIds = new Set<string>();
-    const nonJsonDistinctTexts = new Set<string>();
+    const stateHashes = new Set<string>();
 
     for (const r of responses) {
       if (r.isError) continue;
       const text = r.content?.map((c) => c.text).join('') || '';
       try {
         const parsed = JSON.parse(text);
-        const entityId =
-          parsed.charge_id ||
-          parsed.payment_id ||
-          parsed.order_id ||
-          parsed.id ||
-          parsed.charge?.charge_id ||
-          parsed.payment?.payment_id ||
-          (parsed.charge?.total_mutations_on_server != null ? `mutation_${parsed.charge.total_mutations_on_server}` : null);
-
+        const entityId = extractEntityId(parsed);
         if (entityId) {
           createdEntityIds.add(String(entityId));
         } else {
-          nonJsonDistinctTexts.add(text);
+          stateHashes.add(hashPayloadState(text));
         }
       } catch {
-        nonJsonDistinctTexts.add(text);
+        stateHashes.add(hashPayloadState(text));
       }
     }
 
     const distinctMutations =
       createdEntityIds.size > 0
         ? createdEntityIds.size
-        : Math.max(1, nonJsonDistinctTexts.size);
+        : Math.max(1, stateHashes.size);
 
     // Score according to rubric: I_burst = 100 * (1 - max(0, M - 1) / (N - 1))
     const burstScore = Math.max(0, Math.round(100 * (1 - Math.max(0, distinctMutations - 1) / (concurrency - 1))));
 
-    if (distinctMutations > 1 || !hasIdempotencyKey) {
+    // Behavioral failure: multiple mutations created under concurrent burst
+    if (distinctMutations > 1) {
       return {
         checkId: 'TC-IDEMP-002',
         dimension: 'D1',
@@ -125,6 +119,43 @@ export async function runConcurrentBurstCheck(
         durationMs: Date.now() - startTime,
       };
     }
+
+    // Behavioral pass: exactly 1 mutation executed
+    if (!hasIdempotencyKey) {
+      return {
+        checkId: 'TC-IDEMP-002',
+        dimension: 'D1',
+        tool: tool.name,
+        status: 'WARN',
+        severity: 'MEDIUM',
+        description: `Mutation tool '${tool.name}' atomized ${concurrency} concurrent requests into 1 mutation, but lacks explicit idempotency_key parameter in schema`,
+        evidence: {
+          requestsSent: concurrency,
+          mutationsCreated: 1,
+          expectedMutations: 1,
+          evidenceQuality: 'VERIFIED',
+          details: { concurrency, burstScore: 100, hasIdempotencyKey: false },
+        },
+        durationMs: Date.now() - startTime,
+      };
+    }
+
+    return {
+      checkId: 'TC-IDEMP-002',
+      dimension: 'D1',
+      tool: tool.name,
+      status: 'PASS',
+      severity: 'LOW',
+      description: `Concurrent burst check passed: '${tool.name}' safely deduplicated all ${concurrency} simultaneous calls`,
+      evidence: {
+        requestsSent: concurrency,
+        mutationsCreated: 1,
+        expectedMutations: 1,
+        evidenceQuality: 'VERIFIED',
+        details: { concurrency, burstScore: 100, hasIdempotencyKey: true },
+      },
+      durationMs: Date.now() - startTime,
+    };
   }
 
   // Static fallback

@@ -174,3 +174,29 @@
       of your accepting any such warranty or additional liability.
 
    END OF TERMS AND CONDITIONS
+
+
+================================================================================
+EXPLICIT PATENT RESERVATION AND COMMERCIAL LICENSE NOTICE
+================================================================================
+
+Notwithstanding Section 3 of the Apache License, Version 2.0, or any other
+provision herein, no patent license, covenant not to sue, or patent immunity
+is granted by Licensor (ToolVeto, Inc. / Samir Savla), whether expressly, by
+implication, estoppel, exhaustion, or otherwise, under any patent claims owned,
+controlled, or licensable by Licensor covering:
+  (1) Runtime Model Context Protocol (MCP) firewalling, distributed cryptographic
+      deduplication, sliding-window loop breaking, and synthetic error guidance;
+  (2) Tool-definition hash-bound runtime interface integrity verification,
+      stream resumption binding, and semantic exploit classification
+      (including claims embodied in U.S. Patent Docket TOOLVETO-PAT-04); or
+  (3) Multi-upstream gateway sidecars, ephemeral credential generation, and
+      capability-virtualized sandboxing (including claims embodied in
+      U.S. Patent Docket TOOLVETO-PROV-02).
+
+Permission to use this package (@toolveto/shield) is granted solely as local
+in-process middleware for non-commercial or internal single-process development.
+Production deployment, proxying across multi-tenant infrastructures, or
+commercial edge gateway distribution of the patented methods requires a valid
+commercial license or execution via ToolVeto Gateway (licensed under Business
+Source License 1.1) or ToolVeto Cloud.

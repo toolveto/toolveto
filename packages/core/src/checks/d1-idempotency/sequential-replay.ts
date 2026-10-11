@@ -1,5 +1,6 @@
 import { CheckResult, McpToolDefinition } from '../../types.js';
 import { McpClient } from '../../transports/interface.js';
+import { extractEntityId, hashPayloadState } from './entity-extractor.js';
 
 export async function runSequentialReplayCheck(
   tool: McpToolDefinition,
@@ -32,7 +33,7 @@ export async function runSequentialReplayCheck(
     }
 
     const createdEntityIds = new Set<string>();
-    const nonJsonDistinctTexts = new Set<string>();
+    const stateHashes = new Set<string>();
     let errorsEncountered = 0;
 
     for (let i = 0; i < 5; i++) {
@@ -41,22 +42,14 @@ export async function runSequentialReplayCheck(
         const text = resp.content?.map((c) => c.text).join('') || '';
         try {
           const parsed = JSON.parse(text);
-          const entityId =
-            parsed.charge_id ||
-            parsed.payment_id ||
-            parsed.order_id ||
-            parsed.id ||
-            parsed.charge?.charge_id ||
-            parsed.payment?.payment_id ||
-            (parsed.charge?.total_mutations_on_server != null ? `mutation_${parsed.charge.total_mutations_on_server}` : null);
-
+          const entityId = extractEntityId(parsed);
           if (entityId) {
             createdEntityIds.add(String(entityId));
           } else {
-            nonJsonDistinctTexts.add(text);
+            stateHashes.add(hashPayloadState(text));
           }
         } catch {
-          nonJsonDistinctTexts.add(text);
+          stateHashes.add(hashPayloadState(text));
         }
       } catch {
         errorsEncountered++;
@@ -66,17 +59,17 @@ export async function runSequentialReplayCheck(
     const distinctMutations =
       createdEntityIds.size > 0
         ? createdEntityIds.size
-        : Math.max(1, nonJsonDistinctTexts.size);
+        : Math.max(1, stateHashes.size);
 
-    const createdDuplicates = distinctMutations > 1 && !hasIdempotencyKey;
-    if (createdDuplicates || !hasIdempotencyKey) {
+    // Behavioral failure: creating multiple distinct records on identical replay is ALWAYS fatal
+    if (distinctMutations > 1) {
       return {
         checkId: 'TC-IDEMP-001',
         dimension: 'D1',
         tool: tool.name,
         status: 'FAIL',
         severity: 'CRITICAL',
-        description: `Sequential replay failure: Mutation tool '${tool.name}' accepts no idempotency key and executed ${distinctMutations} distinct mutations on replay`,
+        description: `Sequential replay failure: Mutation tool '${tool.name}' executed ${distinctMutations} distinct mutations on replaying identical requests (double-charge / double-effect)`,
         evidence: {
           requestsSent: 5,
           mutationsCreated: distinctMutations,
@@ -84,7 +77,7 @@ export async function runSequentialReplayCheck(
           evidenceQuality: 'VERIFIED',
           details: {
             distinctMutations,
-            hasIdempotencyKey: false,
+            hasIdempotencyKey,
           },
         },
         fix: {
@@ -108,6 +101,44 @@ export async function runSequentialReplayCheck(
         durationMs: Date.now() - startTime,
       };
     }
+
+    // Behavioral pass: exactly 1 mutation executed
+    if (!hasIdempotencyKey) {
+      // 30% declaration penalty / advisory: behaviorally idempotent but missing explicit schema contract
+      return {
+        checkId: 'TC-IDEMP-001',
+        dimension: 'D1',
+        tool: tool.name,
+        status: 'WARN',
+        severity: 'MEDIUM',
+        description: `Mutation tool '${tool.name}' behaviorally deduplicated 5 replays to 1 mutation, but lacks explicit idempotency_key parameter in schema`,
+        evidence: {
+          requestsSent: 5,
+          mutationsCreated: 1,
+          expectedMutations: 1,
+          evidenceQuality: 'VERIFIED',
+          details: { hasIdempotencyKey: false },
+        },
+        durationMs: Date.now() - startTime,
+      };
+    }
+
+    return {
+      checkId: 'TC-IDEMP-001',
+      dimension: 'D1',
+      tool: tool.name,
+      status: 'PASS',
+      severity: 'LOW',
+      description: `Sequential replay check passed: '${tool.name}' cleanly deduplicated 5 replay calls to 1 mutation`,
+      evidence: {
+        requestsSent: 5,
+        mutationsCreated: 1,
+        expectedMutations: 1,
+        evidenceQuality: 'VERIFIED',
+        details: { hasIdempotencyKey: true },
+      },
+      durationMs: Date.now() - startTime,
+    };
   }
 
   // Static schema evaluation fallback

@@ -41,12 +41,16 @@ export async function runHallucinatedParamsCheck(
         };
       }
     } catch (err: any) {
+      const isPanic = Boolean(err.isPanic || err.code === -32603 || err.code === 'PANIC' || err.message?.includes('dropped transport'));
       return {
         checkId: 'TC-FUZZ-002',
         dimension: 'D2',
         tool: tool.name,
         status: 'FAIL',
-        severity: 'HIGH',
+        severity: isPanic ? 'CRITICAL' : 'HIGH',
+        vetoClass: isPanic ? 'VETO_PANIC' : undefined,
+        isPanic,
+        errorCode: err.code || err.statusCode,
         description: `Hallucinated parameters crashed connection on '${tool.name}': ${err.message}`,
         evidence: { evidenceQuality: 'VERIFIED' },
         durationMs: Date.now() - startTime,

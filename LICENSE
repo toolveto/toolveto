@@ -1,4 +1,14 @@
-MIT License
+ToolVeto Monorepo Component Licensing Matrix (ARCHITECTURE §7.1):
+- @toolveto/core (Check Engine): MIT License (below)
+- toolveto (CLI Binary): MIT License (below)
+- @toolveto/benchmarks-overhead: MIT License (below)
+- @toolveto/shield: Apache License 2.0 with Explicit Patent Reservation (see packages/shield/LICENSE)
+- toolveto-gateway: Business Source License 1.1 (BSL 1.1) (see packages/gateway/LICENSE)
+- Published Corpus: Creative Commons Attribution 4.0 International (CC-BY 4.0)
+
+================================================================================
+MIT License (for @toolveto/core, toolveto CLI, and benchmarks)
+================================================================================
 
 Copyright (c) 2026 ToolVeto Contributors
 

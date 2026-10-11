@@ -31,9 +31,21 @@ export class StdioMcpClient implements McpClient {
     return new Promise((resolve, reject) => {
       let resolved = false;
 
+      // Sanitize environment variables passed to untrusted MCP server to prevent secret exfiltration
+      const safeEnvKeys = [
+        'PATH', 'HOME', 'TMPDIR', 'USER', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TERM',
+        'SHELL', 'SYSTEMROOT', 'WINDIR', 'NODE_ENV', 'LOCALAPPDATA', 'APPDATA'
+      ];
+      const sanitizedEnv: Record<string, string> = {};
+      for (const k of safeEnvKeys) {
+        if (process.env[k] !== undefined) {
+          sanitizedEnv[k] = process.env[k]!;
+        }
+      }
+
       this.childProcess = spawn(command, args, {
         cwd,
-        env: { ...process.env, ...env },
+        env: { ...sanitizedEnv, ...env },
         stdio: ['pipe', 'pipe', 'pipe'],
       });
 
@@ -136,9 +148,24 @@ export class StdioMcpClient implements McpClient {
         isError: Boolean(result?.isError),
       };
     } catch (err: any) {
-      // Wire protocol error / internal crash
+      const isProcessExit =
+        this.childProcess?.exitCode !== null ||
+        this.childProcess?.killed ||
+        err.message?.includes('exited unexpectedly') ||
+        err.message?.includes('dropped transport') ||
+        err.message?.includes('not connected');
+
+      const isRpcPanic = err.code === -32603 || err.code === -32000;
+
+      if (isProcessExit || isRpcPanic) {
+        const panicErr: any = new Error(`MCP server dropped transport: Process aborting with panic (${err.message || err.code})`);
+        panicErr.isPanic = true;
+        panicErr.code = err.code || -32603;
+        throw panicErr;
+      }
       return {
         isError: true,
+        errorCode: err.code,
         content: [
           {
             type: 'text',
