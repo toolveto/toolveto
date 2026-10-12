@@ -61,6 +61,9 @@ export interface ToolParameterSchema {
   additionalProperties?: boolean;
 }
 
+export const LATEST_MCP_PROTOCOL_VERSION = '2026-07-28';
+export const SUPPORTED_MCP_PROTOCOL_VERSIONS = ['2026-07-28', '2025-03-26', '2024-11-05'] as const;
+
 export interface McpToolDefinition {
   name: string;
   description?: string;
@@ -71,6 +74,8 @@ export interface McpToolDefinition {
   readOnlyHint?: boolean;
   destructiveHint?: boolean;
   openWorldHint?: boolean;
+  requiresApproval?: boolean;
+  tasksSupported?: boolean;
 }
 
 export interface McpResourceDefinition {
@@ -91,6 +96,11 @@ export interface McpServerCapabilities {
   };
   sampling?: Record<string, unknown>;
   elicitation?: Record<string, unknown>;
+  tasks?: {
+    supported?: boolean;
+    inputRequired?: boolean;
+    listChanged?: boolean;
+  };
 }
 
 export interface McpCallRequest {
@@ -98,6 +108,13 @@ export interface McpCallRequest {
   params: {
     name: string;
     arguments?: Record<string, any>;
+    _meta?: {
+      protocolVersion?: string;
+      client?: string;
+      agentId?: string;
+      sessionId?: string;
+      [key: string]: any;
+    };
   };
 }
 
@@ -106,6 +123,21 @@ export interface McpCallResponse {
   isError?: boolean;
   errorCode?: number | string;
   isPanic?: boolean;
+  resultType?: 'complete' | 'input_required';
+  taskId?: string;
+  _meta?: Record<string, any>;
+}
+
+export interface McpTask {
+  id: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'cancelled' | 'failed';
+  tool?: string;
+  resultType?: 'complete' | 'input_required';
+  inputSchema?: Record<string, any>;
+  output?: Record<string, any>;
+  error?: string;
+  createdAt?: number;
+  updatedAt?: number;
 }
 
 export interface DimensionalScore {

@@ -96,9 +96,9 @@ rl.on('line', (line) => {
     const req = JSON.parse(trimmed);
     const { id, method, params } = req;
 
-    if (method === 'initialize') {
+    if (method === 'server/discover' || method === 'initialize') {
       sendResponse(id, {
-        protocolVersion: '2024-11-05',
+        protocolVersion: '2026-07-28',
         capabilities: { tools: {} },
         serverInfo: { name: 'bad-mcp-server', version: '0.0.1-broken' },
       });

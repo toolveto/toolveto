@@ -1,4 +1,4 @@
-import { McpToolDefinition, McpCallResponse, McpResourceDefinition, McpServerCapabilities } from '../types.js';
+import { McpToolDefinition, McpCallResponse, McpResourceDefinition, McpServerCapabilities, McpTask } from '../types.js';
 
 export interface McpClient {
   connect(): Promise<void>;
@@ -10,5 +10,9 @@ export interface McpClient {
   sendRawRequest?(rawJson: string | Record<string, unknown>): Promise<any>;
   sendNotification?(method: string, params?: Record<string, unknown>): Promise<void>;
   getCapabilities?(): Promise<McpServerCapabilities>;
+  getProtocolVersion?(): string;
+  getTask?(taskId: string): Promise<McpTask | undefined>;
+  updateTask?(taskId: string, input: Record<string, any>): Promise<McpCallResponse>;
+  cancelTask?(taskId: string): Promise<boolean>;
 }
 

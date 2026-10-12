@@ -1,5 +1,11 @@
 import { McpClient } from './interface.js';
-import { McpToolDefinition, McpCallResponse } from '../types.js';
+import {
+  McpToolDefinition,
+  McpCallResponse,
+  McpServerCapabilities,
+  McpTask,
+  LATEST_MCP_PROTOCOL_VERSION,
+} from '../types.js';
 
 export interface HttpMcpClientOptions {
   baseUrl: string;
@@ -12,6 +18,8 @@ export class HttpMcpClient implements McpClient {
   private headers: Record<string, string>;
   private timeoutMs: number;
   private requestId = 1;
+  private protocolVersion: string = LATEST_MCP_PROTOCOL_VERSION;
+  private capabilities: McpServerCapabilities = {};
 
   constructor(options: HttpMcpClientOptions | string) {
     if (typeof options === 'string') {
@@ -26,22 +34,37 @@ export class HttpMcpClient implements McpClient {
   }
 
   public async connect(): Promise<void> {
-    // Ping base URL or /health to ensure remote server is reachable
     try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), this.timeoutMs);
-      const res = await fetch(this.baseUrl, {
-        method: 'GET',
-        headers: this.headers,
-        signal: controller.signal,
+      const res = await this.jsonRpcRequest('server/discover', {
+        protocolVersion: this.protocolVersion,
+        capabilities: { tools: {}, tasks: { supported: true, inputRequired: true } },
+        clientInfo: { name: 'toolveto-harness', version: '0.1.0' },
+        _meta: { protocolVersion: this.protocolVersion, client: 'toolveto-harness' },
       });
-      clearTimeout(timer);
-      // Even if 404 or 405 on GET (since MCP is JSON-RPC POST), network connectivity is confirmed
-      if (res.status >= 500) {
-        throw new Error(`Remote MCP server returned HTTP ${res.status}`);
+      if (res?.protocolVersion) {
+        this.protocolVersion = res.protocolVersion;
       }
-    } catch (err: any) {
-      // If GET failed, try posting an empty initialize or ignore if it's purely JSON-RPC POST
+      if (res?.capabilities) {
+        this.capabilities = res.capabilities;
+      }
+    } catch {
+      // Ping base URL or /health to ensure remote server is reachable
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+        const res = await fetch(this.baseUrl, {
+          method: 'GET',
+          headers: this.headers,
+          signal: controller.signal,
+        });
+        clearTimeout(timer);
+        // Even if 404 or 405 on GET (since MCP is JSON-RPC POST), network connectivity is confirmed
+        if (res.status >= 500) {
+          throw new Error(`Remote MCP server returned HTTP ${res.status}`);
+        }
+      } catch (err: any) {
+        // If GET failed, ignore if it's purely JSON-RPC POST
+      }
     }
   }
 
@@ -86,7 +109,12 @@ export class HttpMcpClient implements McpClient {
   }
 
   public async listTools(): Promise<McpToolDefinition[]> {
-    const result = await this.jsonRpcRequest('tools/list', {});
+    const result = await this.jsonRpcRequest('tools/list', {
+      _meta: {
+        protocolVersion: this.protocolVersion,
+        client: 'toolveto-harness',
+      },
+    });
     if (result && Array.isArray(result.tools)) {
       return result.tools;
     }
@@ -98,11 +126,19 @@ export class HttpMcpClient implements McpClient {
       const result = await this.jsonRpcRequest('tools/call', {
         name,
         arguments: args,
+        _meta: {
+          protocolVersion: this.protocolVersion,
+          client: 'toolveto-harness',
+        },
       });
 
       return {
-        isError: Boolean(result?.isError),
         content: result?.content || [{ type: 'text', text: JSON.stringify(result) }],
+        isError: Boolean(result?.isError),
+        errorCode: result?.errorCode,
+        resultType: result?.resultType || 'complete',
+        taskId: result?.taskId,
+        _meta: result?._meta,
       };
     } catch (err: any) {
       const isConnectionDrop =
@@ -130,6 +166,71 @@ export class HttpMcpClient implements McpClient {
         errorCode: err.rpcCode || err.statusCode || err.code,
         content: [{ type: 'text', text: err.message || String(err) }],
       };
+    }
+  }
+
+  public getProtocolVersion(): string {
+    return this.protocolVersion;
+  }
+
+  public async getCapabilities(): Promise<McpServerCapabilities> {
+    return this.capabilities;
+  }
+
+  public async getTask(taskId: string): Promise<McpTask | undefined> {
+    try {
+      const result = await this.jsonRpcRequest('tasks/get', {
+        id: taskId,
+        _meta: {
+          protocolVersion: this.protocolVersion,
+          client: 'toolveto-harness',
+        },
+      });
+      return result as McpTask;
+    } catch {
+      return undefined;
+    }
+  }
+
+  public async updateTask(taskId: string, input: Record<string, any>): Promise<McpCallResponse> {
+    try {
+      const result = await this.jsonRpcRequest('tasks/update', {
+        id: taskId,
+        input,
+        _meta: {
+          protocolVersion: this.protocolVersion,
+          client: 'toolveto-harness',
+        },
+      });
+      return {
+        content: result?.content || [],
+        isError: Boolean(result?.isError),
+        errorCode: result?.errorCode,
+        resultType: result?.resultType || 'complete',
+        taskId: result?.taskId || taskId,
+        _meta: result?._meta,
+      };
+    } catch (err: any) {
+      return {
+        isError: true,
+        errorCode: err.rpcCode || err.statusCode || err.code,
+        content: [{ type: 'text', text: err.message || String(err) }],
+      };
+    }
+  }
+
+  public async cancelTask(taskId: string): Promise<boolean> {
+    try {
+      const result = await this.jsonRpcRequest('tasks/cancel', {
+        id: taskId,
+        _meta: {
+          protocolVersion: this.protocolVersion,
+          client: 'toolveto-harness',
+        },
+      });
+      return Boolean(result?.success ?? true);
+    } catch {
+      return false;
     }
   }
 

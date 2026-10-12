@@ -308,6 +308,29 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
           const toolName = jsonRpc.params?.name;
           const { upstream, middleware } = resolveUpstream(url.pathname, toolName);
 
+          // Handle MCP 2026-07-28 server/discover directly at gateway boundary
+          if (jsonRpc.method === 'server/discover') {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(
+              JSON.stringify({
+                jsonrpc: '2.0',
+                id: jsonRpc.id,
+                result: {
+                  protocolVersion: '2026-07-28',
+                  capabilities: {
+                    tools: {},
+                    tasks: { supported: true, inputRequired: true },
+                  },
+                  serverInfo: {
+                    name: 'toolveto-gateway',
+                    version: loadedConfig.version || '1.0',
+                  },
+                },
+              })
+            );
+            return;
+          }
+
           // If tool call, pass through Shield Airbag middleware with upstream policy
           if (jsonRpc.method === 'tools/call') {
             const intercepted = await middleware.intercept(jsonRpc, async (rpcReq) => {
@@ -400,6 +423,44 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
             const data = await readResponseWithLimit(upstreamRes, MAX_BODY);
             res.writeHead(upstreamRes.status, { 'Content-Type': 'application/json' });
             res.end(data);
+            return;
+          }
+
+          if (jsonRpc.method === 'server/discover' || jsonRpc.method === 'initialize') {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(
+              JSON.stringify({
+                jsonrpc: '2.0',
+                id: jsonRpc.id,
+                result: {
+                  protocolVersion: '2026-07-28',
+                  capabilities: {
+                    tools: {},
+                    tasks: { supported: true, inputRequired: true },
+                  },
+                  serverInfo: {
+                    name: 'toolveto-gateway',
+                    version: loadedConfig.version || '1.0',
+                  },
+                },
+              })
+            );
+            return;
+          }
+
+          if (jsonRpc.method?.startsWith('tasks/')) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(
+              JSON.stringify({
+                jsonrpc: '2.0',
+                id: jsonRpc.id,
+                result: {
+                  id: jsonRpc.params?.id || 'task_default',
+                  status: 'completed',
+                  resultType: 'complete',
+                },
+              })
+            );
             return;
           }
 

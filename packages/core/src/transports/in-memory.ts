@@ -5,6 +5,7 @@ export type ToolHandler = (args: Record<string, any>) => Promise<McpCallResponse
 
 export class InMemoryMcpClient implements McpClient {
   private tools: Map<string, { definition: McpToolDefinition; handler: ToolHandler }> = new Map();
+  private tasks: Map<string, any> = new Map();
 
   constructor(initialTools: Array<{ definition: McpToolDefinition; handler: ToolHandler }> = []) {
     for (const t of initialTools) {
@@ -14,6 +15,24 @@ export class InMemoryMcpClient implements McpClient {
 
   public registerTool(definition: McpToolDefinition, handler: ToolHandler): void {
     this.tools.set(definition.name, { definition, handler });
+  }
+
+  public registerTask(task: any): void {
+    this.tasks.set(task.id, task);
+  }
+
+  public async getTask(taskId: string): Promise<any> {
+    return this.tasks.get(taskId);
+  }
+
+  public async updateTask(taskId: string, input: Record<string, any>): Promise<McpCallResponse> {
+    const t = this.tasks.get(taskId);
+    if (!t) {
+      return { isError: true, content: [{ type: 'text', text: `Task '${taskId}' not found` }] };
+    }
+    t.status = 'completed';
+    t.input = input;
+    return { resultType: 'complete', taskId, content: [{ type: 'text', text: 'Task completed' }] };
   }
 
   public async connect(): Promise<void> {

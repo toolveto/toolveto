@@ -49,6 +49,9 @@ export interface McpCallRequest {
 export interface McpCallResponse {
   content: Array<{ type: string; text: string }>;
   isError?: boolean;
+  resultType?: 'complete' | 'input_required';
+  taskId?: string;
+  _meta?: Record<string, any>;
   _shield?: {
     cached?: boolean;
     fingerprintDedup?: boolean;
@@ -216,6 +219,34 @@ export function canonicalizeJson(value: any): string {
   return '{' + keys.map((k) => JSON.stringify(k) + ':' + canonicalizeJson(value[k])).join(',') + '}';
 }
 
+/**
+ * Sanitizes tool arguments prior to computing RFC 8785 SHA256 canonical hash.
+ * Strips ephemeral protocol metadata (_meta, timestamps, request nonces) so identical
+ * tool executions across sessions/requests compute identical deduplication keys.
+ */
+export function sanitizeArgsForHash(args: Record<string, any>): Record<string, any> {
+  if (!args || typeof args !== 'object') return args;
+  const clean: Record<string, any> = {};
+  const ephemeralKeys = new Set([
+    '_meta',
+    'timestamp',
+    'requestId',
+    'request_id',
+    'client_request_token',
+    'client_msg_id',
+    'nonce',
+    'idempotency_key',
+    'idempotencyKey',
+    'idempotencyToken',
+  ]);
+  for (const [k, v] of Object.entries(args)) {
+    if (!ephemeralKeys.has(k)) {
+      clean[k] = v;
+    }
+  }
+  return clean;
+}
+
 export function decodeCursor(cursor: string): { toolName?: string; offset?: number; total?: number; charOffset?: number; totalChars?: number } | null {
   if (!cursor || typeof cursor !== 'string' || !cursor.startsWith('cur_')) return null;
   try {
@@ -321,7 +352,8 @@ export class ShieldMiddleware {
 
     // 1. Loop-Breaker check with signature hashing
     if (this.options.loopLimit && toolName) {
-      const canonicalArgs = canonicalizeJson(args);
+      const cleanArgs = sanitizeArgsForHash(args);
+      const canonicalArgs = canonicalizeJson(cleanArgs);
       const argsHash = crypto.createHash('sha256').update(canonicalArgs).digest('hex');
       const loopTrackingKey = `loop:${agentId}:${toolName}:${argsHash}`;
 
@@ -363,7 +395,8 @@ export class ShieldMiddleware {
 
     // RFC 8785 SHA256 fallback when explicit key is omitted (prevents double-charge on un-keyed mutation calls)
     if (!idempKey && this.options.idempotency && toolName && this.options.autoFingerprintFallback !== false) {
-      const canonicalArgs = canonicalizeJson(args);
+      const cleanArgs = sanitizeArgsForHash(args);
+      const canonicalArgs = canonicalizeJson(cleanArgs);
       const hash = crypto.createHash('sha256').update(`${toolName}:${canonicalArgs}`).digest('hex');
       idempKey = `fp_${hash}`;
       isFingerprintFallback = true;
@@ -445,8 +478,9 @@ export class ShieldMiddleware {
           }
 
           const res = await next(req);
-          // Never cache error responses for 24h (only cache successful non-error responses)
-          if (!res.isError) {
+          // Never cache error responses or intermediate 'input_required' task responses for 24h
+          const isInputRequired = res.resultType === 'input_required';
+          if (!res.isError && !isInputRequired) {
             const ttl = this.options.idempotencyTtlMs || 24 * 60 * 60 * 1000; // default 24h
             await this.storage.set(cacheKey, res, ttl);
           }
