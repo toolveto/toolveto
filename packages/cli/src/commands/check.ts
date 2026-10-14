@@ -2,12 +2,15 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
   runSuite,
+  evaluateServer,
   formatTerminalReport,
   renderPRComment,
   StdioMcpClient,
   HttpMcpClient,
+  InMemoryMcpClient,
   McpToolDefinition,
   McpClient,
+  SuiteSummary,
 } from '@toolveto/core';
 
 export interface CheckCommandOptions {
@@ -17,8 +20,199 @@ export interface CheckCommandOptions {
   timeoutMs?: number;
   allowDestructive?: boolean;
   demo?: boolean;
+  ephemeralMock?: boolean;
   threshold?: string | number;
   failOnSeverity?: string;
+}
+
+export function createEphemeralMockClient(tools: McpToolDefinition[]): InMemoryMcpClient {
+  const toolMap = new Map<string, McpToolDefinition>();
+  const idempotencyStore = new Map<string, string>();
+  let entitySeq = 0;
+
+  for (const tool of tools) {
+    if (tool.isMutation === undefined) {
+      tool.isMutation = Boolean(
+        tool.destructiveHint ||
+          /^(create|update|delete|drop|remove|transfer|charge|pay|send|insert|upsert|mutate|write|post|put|patch)/i.test(
+            tool.name
+          )
+      );
+    }
+    toolMap.set(tool.name, tool);
+  }
+
+  return new InMemoryMcpClient(tools, async (toolName: string, rawArgs: Record<string, any> = {}) => {
+    const tool = toolMap.get(toolName);
+    if (!tool) {
+      return {
+        isError: true,
+        content: [{ type: 'text', text: `Tool '${toolName}' not found` }],
+      };
+    }
+
+    const args = rawArgs && typeof rawArgs === 'object' ? rawArgs : {};
+    const props: Record<string, any> = tool.inputSchema?.properties || {};
+
+    // 1. Reject unknown parameters when additionalProperties === false
+    if (tool.inputSchema?.additionalProperties === false) {
+      for (const key of Object.keys(args)) {
+        if (key === '_meta') continue;
+        if (!(key in props)) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text',
+                text: `Validation error on '${toolName}': Unexpected parameter '${key}' is not allowed (additionalProperties: false). Allowed parameters: ${Object.keys(props).join(', ') || 'none'}.`,
+              },
+            ],
+          };
+        }
+      }
+    }
+
+    // 2. Validate argument types and semantic date formats against inputSchema.properties
+    for (const [paramName, schema] of Object.entries<any>(props)) {
+      const val = args[paramName];
+      if (val === undefined) continue;
+
+      if (schema?.type === 'number' || schema?.type === 'integer') {
+        if (typeof val !== 'number' || Number.isNaN(val) || !Number.isFinite(val)) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text',
+                text: `Invalid type for parameter '${paramName}'. Expected ${schema.type} (e.g. 100), received ${typeof val} (${JSON.stringify(val)}).`,
+              },
+            ],
+          };
+        }
+      } else if (schema?.type === 'boolean') {
+        if (typeof val !== 'boolean') {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text',
+                text: `Invalid type for parameter '${paramName}'. Expected boolean (true or false), received ${typeof val}.`,
+              },
+            ],
+          };
+        }
+      } else if (schema?.type === 'string') {
+        if (typeof val !== 'string') {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text',
+                text: `Invalid type for parameter '${paramName}'. Expected string, received ${typeof val}.`,
+              },
+            ],
+          };
+        }
+        const isDateField =
+          schema.format === 'date' ||
+          schema.format === 'date-time' ||
+          paramName.toLowerCase().includes('date');
+        const replayPlaceholders = new Set([
+          'test_val',
+          'burst_cust_001',
+          'crash_commit_val',
+          'delayed_test',
+          'probe_ref_001',
+          'updated',
+        ]);
+        if (isDateField && !replayPlaceholders.has(val) && !/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])/.test(val)) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text',
+                text: `Invalid format for '${paramName}'. Expected ISO format YYYY-MM-DD (e.g. '2026-10-15'). Received: '${val}'.`,
+              },
+            ],
+          };
+        }
+      }
+    }
+
+    // 3. Simulate stateful entity mutations with or without idempotency key deduplication
+    if (tool.isMutation) {
+      const idempKeyParam = Object.keys(props).find((k) =>
+        ['idempotency_key', 'idempotencykey', 'client_token', 'request_id', 'client_request_id'].includes(
+          k.toLowerCase()
+        )
+      );
+
+      if (idempKeyParam && args[idempKeyParam] !== undefined && args[idempKeyParam] !== null && args[idempKeyParam] !== '') {
+        const cacheKey = `${toolName}:${String(args[idempKeyParam])}`;
+        const existingId = idempotencyStore.get(cacheKey);
+        if (existingId) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({
+                  status: 'ok',
+                  tool: toolName,
+                  id: existingId,
+                  deduplicated: true,
+                }),
+              },
+            ],
+          };
+        }
+        const newId = `ent_${toolName}_${++entitySeq}`;
+        idempotencyStore.set(cacheKey, newId);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                status: 'ok',
+                tool: toolName,
+                id: newId,
+                deduplicated: false,
+              }),
+            },
+          ],
+        };
+      }
+
+      // Schema lacks idempotency key: every invocation creates a new duplicate entity ID!
+      const duplicateId = `ent_${toolName}_${++entitySeq}`;
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              status: 'ok',
+              tool: toolName,
+              id: duplicateId,
+              deduplicated: false,
+            }),
+          },
+        ],
+      };
+    }
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            status: 'ok',
+            tool: toolName,
+            items: [],
+            total: 0,
+          }),
+        },
+      ],
+    };
+  });
 }
 
 function extractToolsFromJson(parsed: any, baseDir: string): McpToolDefinition[] {
@@ -57,7 +251,7 @@ function extractToolsFromJson(parsed: any, baseDir: string): McpToolDefinition[]
 export async function checkCommand(
   targetPath: string,
   options: CheckCommandOptions = {}
-): Promise<void> {
+): Promise<SuiteSummary | undefined> {
   let tools: McpToolDefinition[] = [];
   let client: McpClient | null = null;
   const targetDisplay = targetPath || '.';
@@ -227,16 +421,29 @@ export async function checkCommand(
         console.error(`\n❌ Error: No tools discovered at ${targetDisplay}.`);
         console.error(`Please provide a valid MCP server or tool definition, or pass --demo for demonstration mode.\n`);
         process.exitCode = 1;
-        return;
+        return undefined;
       }
     }
 
-    const summary = await runSuite(targetDisplay, tools, {
-      client: client || undefined,
-      withLlm: options.withLlm,
-      destructiveAuthorization: options.allowDestructive,
-      targetDir: targetPath && !targetPath.startsWith('http') ? targetPath : '.',
-    });
+    if (options.ephemeralMock && !client) {
+      client = createEphemeralMockClient(tools);
+    }
+
+    const summary =
+      options.ephemeralMock && client
+        ? await evaluateServer(client, {
+            mode: 'full',
+            target: targetDisplay,
+            withLlm: options.withLlm,
+            destructiveAuthorization: true,
+            targetDir: targetPath && !targetPath.startsWith('http') ? targetPath : '.',
+          })
+        : await runSuite(targetDisplay, tools, {
+            client: client || undefined,
+            withLlm: options.withLlm,
+            destructiveAuthorization: options.allowDestructive,
+            targetDir: targetPath && !targetPath.startsWith('http') ? targetPath : '.',
+          });
 
     // Optional Cloud Telemetry Upload when TOOLVETO_TOKEN is configured
     if (process.env.TOOLVETO_TOKEN) {
@@ -306,9 +513,12 @@ export async function checkCommand(
         }
       }
     }
+
+    return summary;
   } catch (err: any) {
     console.error(`\n❌ ToolVeto Check Error: ${err.message}\n`);
     process.exitCode = 1;
+    return undefined;
   } finally {
     if (client) {
       await client.close();

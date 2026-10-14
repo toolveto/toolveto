@@ -2,14 +2,29 @@ import { McpClient } from './interface.js';
 import { McpToolDefinition, McpCallResponse } from '../types.js';
 
 export type ToolHandler = (args: Record<string, any>) => Promise<McpCallResponse>;
+export type MultiToolHandler = (nameOrArgs: any, maybeArgs?: any) => Promise<McpCallResponse>;
 
 export class InMemoryMcpClient implements McpClient {
   private tools: Map<string, { definition: McpToolDefinition; handler: ToolHandler }> = new Map();
   private tasks: Map<string, any> = new Map();
 
-  constructor(initialTools: Array<{ definition: McpToolDefinition; handler: ToolHandler }> = []) {
-    for (const t of initialTools) {
-      this.tools.set(t.definition.name, t);
+  constructor(
+    initialTools: Array<{ definition: McpToolDefinition; handler: ToolHandler } | McpToolDefinition> = [],
+    defaultHandler?: MultiToolHandler
+  ) {
+    for (const item of initialTools) {
+      if (item && 'definition' in item && typeof item.handler === 'function') {
+        this.tools.set(item.definition.name, item);
+      } else if (item && 'name' in item) {
+        const def = item as McpToolDefinition;
+        const handler: ToolHandler = async (args) => {
+          if (defaultHandler) {
+            return defaultHandler(def.name, args);
+          }
+          return { content: [{ type: 'text', text: JSON.stringify({ status: 'ok', tool: def.name }) }] };
+        };
+        this.tools.set(def.name, { definition: def, handler });
+      }
     }
   }
 

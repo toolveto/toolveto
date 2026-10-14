@@ -8,6 +8,7 @@ import { loginCommand } from './commands/login.js';
 import { verifyCommand } from './commands/verify.js';
 import { lockCommand } from './commands/lock.js';
 import { exportPolicyCommand } from './commands/export-policy.js';
+import { wrapCommand } from './commands/wrap.js';
 
 export function createProgram(): Command {
   const program = new Command();
@@ -23,6 +24,7 @@ export function createProgram(): Command {
     .argument('<target>', 'Path to local MCP server directory, binary, or Streamable HTTP URL')
     .option('--with-llm', 'Enable Stage 4 LLM E_heal self-heal judge (requires API key)')
     .option('--allow-destructive', 'Authorize live stateful replay and concurrent burst mutations (D1)')
+    .option('--ephemeral-mock', 'Zero-setup ephemeral mock evaluation on static manifests with live VERIFIED runtime evidence')
     .option('--json', 'Output machine-readable JSON report')
     .option('-f, --format <format>', 'Output format: terminal, json, or github-pr', 'terminal')
     .option('-t, --threshold <score>', 'Minimum certification score threshold (0-100)')
@@ -30,6 +32,19 @@ export function createProgram(): Command {
     .option('--demo', 'Allow synthetic mock tools when target has zero tools (demo mode)')
     .action(async (target, options) => {
       await checkCommand(target, options);
+    });
+
+  program
+    .command('wrap')
+    .description('Wrap MCP servers in Cursor, Claude Desktop, or Windsurf config with @toolveto/shield runtime protection')
+    .argument('[target]', 'Path to MCP client config file (.cursor/mcp.json, claude_desktop_config.json) or directory')
+    .option('-c, --client <client>', 'Target MCP client: cursor | claude | windsurf | auto', 'auto')
+    .option('--token-budget <tokens>', 'Max response tokens per tool call', '4000')
+    .option('--strict', 'Enable fail-closed strict mode on Shield proxy')
+    .option('--unwrap', 'Restore original unwrapped server commands from _toolvetoOriginal metadata')
+    .option('--dry-run', 'Print the wrapped configuration JSON without writing to disk')
+    .action(async (target, options) => {
+      await wrapCommand(target, options);
     });
 
   program
