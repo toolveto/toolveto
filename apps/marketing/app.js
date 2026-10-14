@@ -1145,8 +1145,8 @@ function initRoiSlider() {
     const doubleCharges = Math.max(1, Math.round((invocations * 0.000064) * (tools / 8)));
     const tokenWaste = ((invocations * 16.8) / 1000000).toFixed(1); // M tokens
     const dollarsSaved = doubleCharges * 340;
-    const teamCost = 249;
-    const roiMultiplier = ((dollarsSaved - teamCost) / teamCost).toFixed(1);
+    const shieldCost = 499;
+    const roiMultiplier = ((dollarsSaved - shieldCost) / shieldCost).toFixed(1);
 
     if (chargesEl) chargesEl.textContent = doubleCharges;
     if (tokensEl) tokensEl.textContent = `${tokenWaste}M`;
