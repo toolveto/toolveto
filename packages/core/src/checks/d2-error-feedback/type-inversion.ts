@@ -1,5 +1,46 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { CheckResult, McpToolDefinition } from '../../types.js';
 import { McpClient } from '../../transports/interface.js';
+
+interface TypeInversionVector {
+  type: string;
+  values: any[];
+  expected_recovery_advice?: boolean;
+}
+
+const DEFAULT_DATE_VECTORS = ['tomorrow morning', 'next Friday at 3pm', 'yesterday', '2026-13-45'];
+const DEFAULT_NUMERIC_VECTORS: any[] = ['invalid_string_fuzz', null, 'NaN', 1e308, -1, ''];
+
+export function loadTypeInversionCorpus(): { dateValues: any[]; numericValues: any[] } {
+  const startDirs = [
+    typeof __dirname !== 'undefined' ? __dirname : '',
+    process.cwd(),
+  ].filter(Boolean);
+
+  for (const start of startDirs) {
+    let cur = start;
+    while (cur && cur !== path.dirname(cur)) {
+      const candidate = path.join(cur, 'corpus/published/fixtures/type-inversion-baseline.json');
+      if (fs.existsSync(candidate)) {
+        try {
+          const parsed = JSON.parse(fs.readFileSync(candidate, 'utf-8'));
+          const vectors: TypeInversionVector[] = Array.isArray(parsed?.vectors) ? parsed.vectors : [];
+          const dateVec = vectors.find((v) => v.type === 'date_natural_language')?.values || DEFAULT_DATE_VECTORS;
+          const numVec = vectors.find((v) => v.type === 'numeric_overflow_and_specials')?.values || [];
+          return {
+            dateValues: dateVec.length > 0 ? dateVec : DEFAULT_DATE_VECTORS,
+            numericValues: ['invalid_string_fuzz', ...numVec],
+          };
+        } catch {
+          break;
+        }
+      }
+      cur = path.dirname(cur);
+    }
+  }
+  return { dateValues: DEFAULT_DATE_VECTORS, numericValues: DEFAULT_NUMERIC_VECTORS };
+}
 
 export async function runTypeInversionFuzzCheck(
   tool: McpToolDefinition,
@@ -7,15 +48,16 @@ export async function runTypeInversionFuzzCheck(
 ): Promise<CheckResult> {
   const startTime = Date.now();
   const properties = tool.inputSchema?.properties || {};
+  const corpus = loadTypeInversionCorpus();
 
   // If live client is available, run active type fuzzing
   if (client) {
     for (const [paramName, schema] of Object.entries(properties)) {
       let fuzzValue: any = null;
       if (schema.type === 'integer' || schema.type === 'number') {
-        fuzzValue = 'invalid_string_fuzz';
+        fuzzValue = corpus.numericValues[0] ?? 'invalid_string_fuzz';
       } else if (schema.type === 'string' && (schema.format === 'date' || schema.format === 'date-time' || paramName.includes('date'))) {
-        fuzzValue = 'tomorrow morning';
+        fuzzValue = corpus.dateValues[0] ?? 'tomorrow morning';
       } else if (schema.type === 'boolean') {
         fuzzValue = 'not_a_bool';
       }

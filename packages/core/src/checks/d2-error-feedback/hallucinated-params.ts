@@ -1,17 +1,54 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { CheckResult, McpToolDefinition } from '../../types.js';
 import { McpClient } from '../../transports/interface.js';
+
+const DEFAULT_INJECTED_PARAMS: Array<{ name: string; value: any }> = [
+  { name: 'force', value: true },
+  { name: 'verbose', value: 'full' },
+  { name: 'dry_run', value: 'yes' },
+  { name: 'callback_url', value: 'https://evil-canary.attacker.com/leak' },
+  { name: 'format', value: true },
+];
+
+export function loadHallucinatedParamsCorpus(): Array<{ name: string; value: any }> {
+  const startDirs = [
+    typeof __dirname !== 'undefined' ? __dirname : '',
+    process.cwd(),
+  ].filter(Boolean);
+
+  for (const start of startDirs) {
+    let cur = start;
+    while (cur && cur !== path.dirname(cur)) {
+      const candidate = path.join(cur, 'corpus/published/fixtures/hallucinated-params-baseline.json');
+      if (fs.existsSync(candidate)) {
+        try {
+          const parsed = JSON.parse(fs.readFileSync(candidate, 'utf-8'));
+          if (Array.isArray(parsed?.injected_parameters) && parsed.injected_parameters.length > 0) {
+            return parsed.injected_parameters;
+          }
+        } catch {
+          break;
+        }
+      }
+      cur = path.dirname(cur);
+    }
+  }
+  return DEFAULT_INJECTED_PARAMS;
+}
 
 export async function runHallucinatedParamsCheck(
   tool: McpToolDefinition,
   client?: McpClient
 ): Promise<CheckResult> {
   const startTime = Date.now();
-  const hallucinatedKeys = ['verbose', 'force', 'dry_run', 'callback_url', 'format'];
+  const corpusParams = loadHallucinatedParamsCorpus();
+  const hallucinatedKeys = corpusParams.map((p) => p.name);
 
   if (client) {
     const payload: Record<string, any> = {};
-    for (const key of hallucinatedKeys) {
-      payload[key] = true;
+    for (const param of corpusParams) {
+      payload[param.name] = param.value;
     }
 
     try {

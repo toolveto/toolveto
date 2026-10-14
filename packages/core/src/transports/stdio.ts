@@ -4,6 +4,7 @@ import { McpClient } from './interface.js';
 import {
   McpToolDefinition,
   McpCallResponse,
+  McpResourceDefinition,
   McpServerCapabilities,
   McpTask,
   LATEST_MCP_PROTOCOL_VERSION,
@@ -20,6 +21,7 @@ export interface StdioOptions {
 export class StdioMcpClient implements McpClient {
   private childProcess: ChildProcess | null = null;
   private pendingRequests: Map<number, { resolve: (val: any) => void; reject: (err: any) => void }> = new Map();
+  private rawResponseResolvers: Array<(msg: any) => void> = [];
   private nextId = 1;
   private isInitialized = false;
   private stdoutReader: readline.Interface | null = null;
@@ -95,6 +97,9 @@ export class StdioMcpClient implements McpClient {
             } else {
               reqResolve(msg.result);
             }
+          } else if (this.rawResponseResolvers.length > 0) {
+            const rawResolve = this.rawResponseResolvers.shift()!;
+            rawResolve(msg);
           }
         } catch {
           // Ignore non-json lines
@@ -261,6 +266,73 @@ export class StdioMcpClient implements McpClient {
         if (err) {
           clearTimeout(timer);
           this.pendingRequests.delete(id);
+          reject(err);
+        }
+      });
+    });
+  }
+
+  public async listResources(): Promise<McpResourceDefinition[]> {
+    if (!this.childProcess) {
+      await this.connect();
+    }
+    try {
+      const result = await this.sendRequest('resources/list', {
+        _meta: {
+          protocolVersion: this.protocolVersion,
+          client: 'toolveto-harness',
+        },
+      });
+      return Array.isArray(result?.resources) ? result.resources : [];
+    } catch {
+      return [];
+    }
+  }
+
+  public async readResource(uri: string): Promise<{ contents: Array<{ uri: string; text?: string; blob?: string }> }> {
+    if (!this.childProcess) {
+      await this.connect();
+    }
+    const result = await this.sendRequest('resources/read', {
+      uri,
+      _meta: {
+        protocolVersion: this.protocolVersion,
+        client: 'toolveto-harness',
+      },
+    });
+    return {
+      contents: Array.isArray(result?.contents) ? result.contents : [],
+    };
+  }
+
+  public async sendRawRequest(rawJson: string | Record<string, unknown>, timeoutMs = 150): Promise<any> {
+    if (!this.childProcess) {
+      await this.connect();
+    }
+    if (!this.childProcess || !this.childProcess.stdin) {
+      throw new Error('MCP server process is not connected');
+    }
+
+    return new Promise((resolve, reject) => {
+      const resolver = (msg: any) => {
+        clearTimeout(timer);
+        resolve(msg);
+      };
+
+      const timer = setTimeout(() => {
+        const idx = this.rawResponseResolvers.indexOf(resolver);
+        if (idx >= 0) this.rawResponseResolvers.splice(idx, 1);
+        resolve(undefined);
+      }, timeoutMs);
+
+      this.rawResponseResolvers.push(resolver);
+
+      const line = (typeof rawJson === 'string' ? rawJson : JSON.stringify(rawJson)) + '\n';
+      this.childProcess!.stdin!.write(line, 'utf-8', (err) => {
+        if (err) {
+          clearTimeout(timer);
+          const idx = this.rawResponseResolvers.indexOf(resolver);
+          if (idx >= 0) this.rawResponseResolvers.splice(idx, 1);
           reject(err);
         }
       });

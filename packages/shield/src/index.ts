@@ -10,24 +10,34 @@ export interface PromptInjectionScanOptions {
 }
 
 export interface ShieldOptions {
-  idempotency?: boolean;
+  idempotency?: boolean | { enabled?: boolean; ttlSeconds?: number; ttlMs?: number };
   idempotencyTtlMs?: number;
   autoFingerprintFallback?: boolean; // default: true (RFC 8785 SHA256 fallback when explicit key omitted)
   loopLimit?: {
     count: number;
     windowMs: number;
   };
-  tokenBudget?: number;
+  loopBreaker?: {
+    enabled?: boolean;
+    sameToolSameArgsTimes?: number;
+    count?: number;
+    windowMs?: number;
+  };
+  tokenBudget?: number | { maxResponseTokens?: number };
   promptInjectionScan?: PromptInjectionScanOptions;
   storage?: ShieldStorage;
   failClosed?: boolean; // default: false (fail-open standard mode, true = strict fail-closed)
   onSpan?: (span: ShieldSpan) => void; // OpenTelemetry span emission hook
+  lockfileHashes?: Record<string, string>; // Rug-pull protection: toolName -> sha256 digest
+  onListChanged?: 'block' | 'revalidate' | 'allow';
 }
 
 export interface ShieldSpan {
   traceId: string;
   spanId: string;
   name: string;
+  toolName: string;
+  action: string;
   attributes: Record<string, string | number | boolean>;
   durationMs: number;
   isError: boolean;
@@ -61,6 +71,7 @@ export interface McpCallResponse {
     truncated?: boolean;
     promptInjectionDetected?: boolean;
     promptInjectionAction?: PromptInjectionAction;
+    rugPullBlocked?: boolean;
     timestamp?: number;
   };
 }
@@ -275,10 +286,99 @@ export function decodeCursor(cursor: string): { toolName?: string; offset?: numb
   return null;
 }
 
+export function computeToolDefinitionHash(tool: Record<string, any>): string {
+  const canonical = canonicalizeJson({
+    name: tool.name || '',
+    description: tool.description || '',
+    inputSchema: tool.inputSchema || {},
+    annotations: {
+      isMutation: Boolean(tool.isMutation),
+      idempotentHint: tool.idempotentHint ?? null,
+      readOnlyHint: tool.readOnlyHint ?? null,
+      destructiveHint: tool.destructiveHint ?? null,
+      openWorldHint: tool.openWorldHint ?? null,
+    },
+  });
+  return crypto.createHash('sha256').update(canonical).digest('hex');
+}
+
+interface NormalizedShieldOptions {
+  idempotency: boolean;
+  idempotencyTtlMs?: number;
+  autoFingerprintFallback?: boolean;
+  loopLimit?: { count: number; windowMs: number };
+  tokenBudget?: number;
+  promptInjectionScan?: PromptInjectionScanOptions;
+  storage?: ShieldStorage;
+  failClosed?: boolean;
+  onSpan?: (span: ShieldSpan) => void;
+  lockfileHashes?: Record<string, string>;
+  onListChanged?: 'block' | 'revalidate' | 'allow';
+}
+
+function normalizeShieldOptions(opts: ShieldOptions = {}): NormalizedShieldOptions {
+  let idempEnabled = false;
+  let idempTtlMs = opts.idempotencyTtlMs;
+  if (typeof opts.idempotency === 'boolean') {
+    idempEnabled = opts.idempotency;
+  } else if (opts.idempotency && typeof opts.idempotency === 'object') {
+    idempEnabled = opts.idempotency.enabled !== false;
+    if (opts.idempotency.ttlMs !== undefined) idempTtlMs = opts.idempotency.ttlMs;
+    else if (opts.idempotency.ttlSeconds !== undefined) idempTtlMs = opts.idempotency.ttlSeconds * 1000;
+  }
+
+  let loopLimit = opts.loopLimit;
+  if (!loopLimit && opts.loopBreaker && opts.loopBreaker.enabled !== false) {
+    loopLimit = {
+      count: opts.loopBreaker.sameToolSameArgsTimes ?? opts.loopBreaker.count ?? 5,
+      windowMs: opts.loopBreaker.windowMs ?? 60000,
+    };
+  }
+
+  let tokenBudget: number | undefined;
+  if (typeof opts.tokenBudget === 'number') {
+    tokenBudget = opts.tokenBudget;
+  } else if (opts.tokenBudget && typeof opts.tokenBudget === 'object') {
+    tokenBudget = opts.tokenBudget.maxResponseTokens;
+  }
+
+  return {
+    idempotency: idempEnabled,
+    idempotencyTtlMs: idempTtlMs,
+    autoFingerprintFallback: opts.autoFingerprintFallback,
+    loopLimit,
+    tokenBudget,
+    promptInjectionScan: opts.promptInjectionScan,
+    storage: opts.storage,
+    failClosed: opts.failClosed,
+    onSpan: opts.onSpan,
+    lockfileHashes: opts.lockfileHashes,
+    onListChanged: opts.onListChanged,
+  };
+}
+
+interface CursorStoreEntry {
+  toolName: string;
+  offset?: number;
+  total?: number;
+  pageSize?: number;
+  records?: any[];
+  arrayKey?: string;
+  envelopeBase?: Record<string, any>;
+  charOffset?: number;
+  totalChars?: number;
+  charPageSize?: number;
+  fullText?: string;
+  createdAt: number;
+}
+
 export class ShieldMiddleware {
   private storage: ShieldStorage;
+  private options: NormalizedShieldOptions;
   private inFlightRequests: Map<string, Promise<McpCallResponse>> = new Map();
-  private cursorStore: LRUCache<string, { toolName: string; offset?: number; total?: number; charOffset?: number; totalChars?: number; createdAt: number }> = new LRUCache({ max: 5000 });
+  private cursorStore: LRUCache<string, CursorStoreEntry> = new LRUCache({ max: 5000 });
+  private rugPulledTools: Set<string> = new Set();
+  private listChangedUnverified = false;
   private metrics: ShieldMetrics = {
     totalCalls: 0,
     deduplicatedCalls: 0,
@@ -288,14 +388,85 @@ export class ShieldMiddleware {
     promptInjectionsBlocked: 0,
   };
 
-  constructor(private options: ShieldOptions) {
-    this.storage = options.storage || new MemoryShieldStorage();
+  constructor(rawOptions: ShieldOptions = {}) {
+    this.options = normalizeShieldOptions(rawOptions);
+    this.storage = this.options.storage || new MemoryShieldStorage();
+  }
+
+  private emitSpan(
+    toolName: string | undefined,
+    action: string,
+    startTime: number,
+    isError: boolean,
+    extraAttrs: Record<string, string | number | boolean> = {}
+  ): void {
+    if (!this.options.onSpan) return;
+    try {
+      this.options.onSpan({
+        traceId: crypto.randomBytes(16).toString('hex'),
+        spanId: crypto.randomBytes(8).toString('hex'),
+        name: 'toolveto.shield.intercept',
+        toolName: toolName || 'unknown',
+        action,
+        attributes: {
+          'mcp.tool.name': toolName || 'unknown',
+          'toolveto.shield.action': action,
+          ...extraAttrs,
+        },
+        durationMs: Math.max(0, Date.now() - startTime),
+        isError,
+      });
+    } catch {
+      // Never let telemetry callback break tool execution
+    }
+  }
+
+  public verifyToolDefinitions(tools: Array<Record<string, any>>): { valid: boolean; driftedTools: string[]; mismatchedTools: string[] } {
+    const hashes = this.options.lockfileHashes;
+    if (!hashes) return { valid: true, driftedTools: [], mismatchedTools: [] };
+
+    const drifted: string[] = [];
+    for (const tool of tools) {
+      const name = tool.name;
+      if (!name) continue;
+      const expected = hashes[name];
+      const actual = computeToolDefinitionHash(tool);
+      if (!expected || expected !== actual) {
+        drifted.push(name);
+        this.rugPulledTools.add(name);
+      } else {
+        this.rugPulledTools.delete(name);
+      }
+    }
+    this.listChangedUnverified = drifted.length > 0;
+    return { valid: drifted.length === 0, driftedTools: drifted, mismatchedTools: drifted };
+  }
+
+  public handleNotification(notification: { method: string; params?: any }): { allowed: boolean; reason?: string } {
+    if (notification?.method === 'notifications/tools/list_changed' && this.options.lockfileHashes) {
+      if (this.options.onListChanged !== 'allow') {
+        this.listChangedUnverified = true;
+        return {
+          allowed: false,
+          reason: '[ToolVeto Shield Veto] Unapproved runtime notifications/tools/list_changed intercepted while lockfileHashes is active.',
+        };
+      }
+    }
+    return { allowed: true };
   }
 
   public resolveCursor(cursor: string): { toolName?: string; offset?: number; total?: number; charOffset?: number; totalChars?: number } | null {
     if (!cursor || typeof cursor !== 'string' || !cursor.startsWith('cur_')) return null;
     const fromStore = this.cursorStore.get(cursor);
-    if (fromStore) return fromStore;
+    if (fromStore) {
+      return {
+        toolName: fromStore.toolName,
+        offset: fromStore.offset,
+        total: fromStore.total,
+        charOffset: fromStore.charOffset,
+        totalChars: fromStore.totalChars,
+      };
+    }
     return decodeCursor(cursor);
   }
 
@@ -313,6 +484,110 @@ export class ShieldMiddleware {
     let args = req.params?.arguments || {};
     const agentId = req.params?._meta?.agentId || 'default-agent';
 
+    // -1. Rug-Pull Lockfile & notifications/tools/list_changed protection
+    if (this.options.lockfileHashes && toolName) {
+      if (this.rugPulledTools.has(toolName) || this.listChangedUnverified || !this.options.lockfileHashes[toolName]) {
+        const res: McpCallResponse = {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: `[ToolVeto Shield Veto] Rug-pull / schema drift detected for tool '${toolName}'. Tool definition does not match pinned toolveto.lock SHA-256 digest or unverified 'notifications/tools/list_changed' occurred.`,
+            },
+          ],
+          _shield: {
+            rugPullBlocked: true,
+            timestamp: now,
+          },
+        };
+        this.emitSpan(toolName, 'RUG_PULL_BLOCKED', now, true);
+        return res;
+      }
+    }
+
+    // -0.5. Serve subsequent page directly from cursorStore when cursor is provided
+    if (typeof args?.cursor === 'string' && args.cursor.startsWith('cur_')) {
+      const cursorEntry = this.cursorStore.get(args.cursor);
+      if (cursorEntry && (cursorEntry.records || cursorEntry.fullText !== undefined)) {
+        if (cursorEntry.records) {
+          const startIdx = cursorEntry.offset || 0;
+          const pageSize = Math.max(1, cursorEntry.pageSize || 10);
+          const slicedItems = cursorEntry.records.slice(startIdx, startIdx + pageSize);
+          const nextOffset = startIdx + slicedItems.length;
+          const totalRecords = cursorEntry.total || cursorEntry.records.length;
+          let nextCursor: string | undefined;
+
+          if (nextOffset < totalRecords) {
+            const cursorPayload = { tName: toolName || cursorEntry.toolName, o: nextOffset, t: totalRecords };
+            const encodedPayload = Buffer.from(JSON.stringify(cursorPayload)).toString('base64url');
+            nextCursor = `cur_${encodedPayload}`;
+            this.cursorStore.set(nextCursor, {
+              ...cursorEntry,
+              offset: nextOffset,
+              createdAt: now,
+            });
+          }
+
+          const structuredEnvelope = cursorEntry.arrayKey
+            ? {
+                ...(cursorEntry.envelopeBase || {}),
+                [cursorEntry.arrayKey]: slicedItems,
+                truncated: Boolean(nextCursor),
+                total_records: totalRecords,
+                items_returned: slicedItems.length,
+                next_cursor: nextCursor,
+              }
+            : {
+                truncated: Boolean(nextCursor),
+                total_records: totalRecords,
+                items_returned: slicedItems.length,
+                next_cursor: nextCursor,
+                records: slicedItems,
+              };
+
+          const pageRes: McpCallResponse = {
+            content: [{ type: 'text', text: JSON.stringify(structuredEnvelope, null, 2) }],
+            _shield: {
+              truncated: Boolean(nextCursor),
+              nextCursor,
+              timestamp: now,
+            },
+          };
+          this.emitSpan(toolName, 'PASS', now, false, { 'toolveto.shield.cursor_page': true });
+          return pageRes;
+        } else if (cursorEntry.fullText !== undefined) {
+          const startChar = cursorEntry.charOffset || 0;
+          const charPageSize = Math.max(1, cursorEntry.charPageSize || 200);
+          const textSlice = cursorEntry.fullText.slice(startChar, startChar + charPageSize);
+          const nextCharOffset = startChar + textSlice.length;
+          const totalChars = cursorEntry.totalChars || cursorEntry.fullText.length;
+          let nextCursor: string | undefined;
+
+          if (nextCharOffset < totalChars) {
+            const charPayload = { tName: toolName || cursorEntry.toolName, c: nextCharOffset, tc: totalChars };
+            const encodedCharPayload = Buffer.from(JSON.stringify(charPayload)).toString('base64url');
+            nextCursor = `cur_${encodedCharPayload}`;
+            this.cursorStore.set(nextCursor, {
+              ...cursorEntry,
+              charOffset: nextCharOffset,
+              createdAt: now,
+            });
+          }
+
+          const pageRes: McpCallResponse = {
+            content: [{ type: 'text', text: textSlice }],
+            _shield: {
+              truncated: Boolean(nextCursor),
+              nextCursor,
+              timestamp: now,
+            },
+          };
+          this.emitSpan(toolName, 'PASS', now, false, { 'toolveto.shield.cursor_page': true });
+          return pageRes;
+        }
+      }
+    }
+
     // 0. Prompt Injection Scan on incoming tool arguments
     if (this.options.promptInjectionScan) {
       const action = this.options.promptInjectionScan.action || 'block';
@@ -327,6 +602,7 @@ export class ShieldMiddleware {
 
         if (action === 'block') {
           this.metrics.promptInjectionsBlocked++;
+          this.emitSpan(toolName, 'INJECTION_BLOCKED', now, true, { direction: 'input' });
           return {
             isError: true,
             content: [
@@ -365,6 +641,7 @@ export class ShieldMiddleware {
 
       if (recentCallCount > this.options.loopLimit.count) {
         this.metrics.loopsBroken++;
+        this.emitSpan(toolName, 'LOOP_BROKEN', now, true, { recentCallCount });
         return {
           isError: true,
           content: [
@@ -408,6 +685,7 @@ export class ShieldMiddleware {
 
       if (cachedResponse) {
         this.metrics.deduplicatedCalls++;
+        this.emitSpan(toolName, 'DEDUPLICATED', now, false, { cached: true, idempotencyKey: String(idempKey) });
         return {
           ...cachedResponse,
           _shield: {
@@ -423,6 +701,7 @@ export class ShieldMiddleware {
       if (this.inFlightRequests.has(cacheKey)) {
         this.metrics.deduplicatedCalls++;
         const inFlightRes = await this.inFlightRequests.get(cacheKey)!;
+        this.emitSpan(toolName, 'DEDUPLICATED', now, false, { singleflight: true, idempotencyKey: String(idempKey) });
         return {
           ...inFlightRes,
           _shield: {
@@ -498,7 +777,9 @@ export class ShieldMiddleware {
       })();
 
       this.inFlightRequests.set(cacheKey, executionPromise);
-      return await executionPromise;
+      const completedRes = await executionPromise;
+      this.emitSpan(toolName, 'PASS', now, Boolean(completedRes.isError), { idempotencyKey: String(idempKey) });
+      return completedRes;
     }
 
     // 3. Fallthrough execution to upstream MCP server
@@ -520,6 +801,7 @@ export class ShieldMiddleware {
 
             if (action === 'block') {
               this.metrics.promptInjectionsBlocked++;
+              this.emitSpan(toolName, 'INJECTION_BLOCKED', now, true, { direction: 'output' });
               return {
                 isError: true,
                 content: [
@@ -590,6 +872,8 @@ export class ShieldMiddleware {
                   toolName: toolName || 'unknown',
                   offset: itemsToKeep,
                   total: totalRecords,
+                  pageSize: itemsToKeep,
+                  records: parsed,
                   createdAt: now,
                 });
 
@@ -618,10 +902,16 @@ export class ShieldMiddleware {
                   const cursorPayload = { tName: toolName, o: itemsToKeep, t: totalRecords };
                   const encodedPayload = Buffer.from(JSON.stringify(cursorPayload)).toString('base64url');
                   generatedCursor = `cur_${encodedPayload}`;
+                  const envelopeBase = { ...parsed };
+                  delete envelopeBase[arrayKey];
                   this.cursorStore.set(generatedCursor, {
                     toolName: toolName || 'unknown',
                     offset: itemsToKeep,
                     total: totalRecords,
+                    pageSize: itemsToKeep,
+                    records: arr,
+                    arrayKey,
+                    envelopeBase,
                     createdAt: now,
                   });
 
@@ -657,6 +947,8 @@ export class ShieldMiddleware {
                 toolName: toolName || 'unknown',
                 charOffset: textSliceLen,
                 totalChars: itemLen,
+                charPageSize: textSliceLen,
+                fullText: item.text,
                 createdAt: now,
               });
 
@@ -688,9 +980,12 @@ export class ShieldMiddleware {
           truncated: true,
           nextCursor: generatedCursor,
         };
+        this.emitSpan(toolName, 'BUDGET_TRUNCATED', now, false, { nextCursor: generatedCursor || '' });
+        return response;
       }
     }
 
+    this.emitSpan(toolName, 'PASS', now, Boolean(response.isError));
     return response;
   }
 }
@@ -699,16 +994,64 @@ export function shield<T extends object>(server: T, options: ShieldOptions): T {
   const middleware = new ShieldMiddleware(options);
   return new Proxy(server, {
     get(target, prop, receiver) {
+      if (prop === '__shieldMiddleware') {
+        return middleware;
+      }
       const orig = Reflect.get(target, prop, receiver);
-      if (typeof orig === 'function' && (prop === 'handleCallTool' || prop === 'callTool')) {
-        return async (...args: any[]) => {
-          return middleware.intercept(args[0], async (req) => orig.apply(target, [req]));
-        };
+      if (typeof orig === 'function') {
+        if (prop === 'handleCallTool' || prop === 'callTool') {
+          return async (...args: any[]) => {
+            return middleware.intercept(args[0], async (req) => orig.apply(target, [req]));
+          };
+        }
+        if (prop === 'setRequestHandler') {
+          return (schema: any, handler: (...hArgs: any[]) => Promise<any>) => {
+            const schemaMethod =
+              typeof schema === 'string'
+                ? schema
+                : schema?.method ||
+                  schema?.shape?.method?.value ||
+                  schema?.shape?.method?._def?.value;
+            const isToolsCall = schemaMethod === 'tools/call';
+            const wrappedHandler = async (request: any, extra?: any) => {
+              if (isToolsCall || request?.method === 'tools/call') {
+                return middleware.intercept(request, async (req) => handler(req, extra));
+              }
+              return handler(request, extra);
+            };
+            return orig.apply(target, [schema, wrappedHandler]);
+          };
+        }
+        if (prop === 'tool' || prop === 'registerTool') {
+          return (...args: any[]) => {
+            const toolName = typeof args[0] === 'string' ? args[0] : 'unknown_tool';
+            const lastIdx = args.length - 1;
+            if (lastIdx >= 1 && typeof args[lastIdx] === 'function') {
+              const origCallback = args[lastIdx];
+              const wrappedCallback = async (toolArgs: any, extra?: any) => {
+                const req: McpCallRequest = {
+                  method: 'tools/call',
+                  params: {
+                    name: toolName,
+                    arguments: toolArgs && typeof toolArgs === 'object' ? toolArgs : {},
+                    _meta: extra?._meta,
+                  },
+                };
+                return middleware.intercept(req, async (r) => origCallback(r.params.arguments, extra));
+              };
+              const newArgs = [...args.slice(0, lastIdx), wrappedCallback];
+              return orig.apply(target, newArgs);
+            }
+            return orig.apply(target, args);
+          };
+        }
       }
       return orig;
     },
   });
 }
+
+export const withToolVetoShield = shield;
 
 export * from './stores/redis.js';
 export * from './stores/postgres.js';

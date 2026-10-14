@@ -1,6 +1,9 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import * as crypto from 'node:crypto';
 import corePkg from '../../packages/core/dist/index.js';
+import { computeToolDefinitionHash, canonicalizeJson } from '../../packages/shield/dist/index.js';
+import { generateCedarPolicy, generateOpaRegoPolicy } from '../../packages/cli/src/commands/export-policy.ts';
 const { runSuite } = corePkg;
 
 interface TargetConfig {
@@ -16,6 +19,7 @@ interface DogfoodAuditSummary {
   name: string;
   stars: number;
   summary: any;
+  manifestHash: string;
 }
 
 export async function runDogfoodBenchmark(): Promise<void> {
@@ -23,9 +27,13 @@ export async function runDogfoodBenchmark(): Promise<void> {
   const targetsDir = path.join(rootDir, 'targets');
   const resultsDir = path.join(rootDir, 'results');
   const prsDir = path.join(rootDir, 'prs');
+  const locksDir = path.join(rootDir, 'locks');
+  const policiesDir = path.join(rootDir, 'policies');
 
   fs.mkdirSync(resultsDir, { recursive: true });
   fs.mkdirSync(prsDir, { recursive: true });
+  fs.mkdirSync(locksDir, { recursive: true });
+  fs.mkdirSync(policiesDir, { recursive: true });
 
   const targetFiles = fs
     .readdirSync(targetsDir)
@@ -45,20 +53,49 @@ export async function runDogfoodBenchmark(): Promise<void> {
     console.log(`Scanning: ${target.repo.padEnd(35)} (${target.name}) [${target.stars.toLocaleString()} stars]...`);
     const summary = await runSuite(target.repo, target.tools, { withLlm: false });
 
+    const slug = target.repo.replace('/', '__');
+
+    // 1. Generate SHA-256 Lockfile
+    const toolEntries: Record<string, { sha256: string; descriptionLength: number; isMutation: boolean }> = {};
+    for (const tool of target.tools) {
+      toolEntries[tool.name] = {
+        sha256: computeToolDefinitionHash(tool),
+        descriptionLength: (tool.description || '').length,
+        isMutation: Boolean(tool.isMutation),
+      };
+    }
+    const manifestHash =
+      'sha256:' + crypto.createHash('sha256').update(canonicalizeJson(toolEntries)).digest('hex');
+
+    const lockfile = {
+      version: '1.0',
+      generatedAt: new Date().toISOString(),
+      target: target.repo,
+      manifestHash,
+      tools: toolEntries,
+    };
+    fs.writeFileSync(path.join(locksDir, `${slug}.lock.json`), JSON.stringify(lockfile, null, 2));
+
+    // 2. Generate Least-Privilege AWS Cedar & OPA Rego Policies
+    const cedarPolicy = generateCedarPolicy(target.tools);
+    const opaPolicy = generateOpaRegoPolicy(target.tools);
+    fs.writeFileSync(path.join(policiesDir, `${slug}.cedar`), cedarPolicy);
+    fs.writeFileSync(path.join(policiesDir, `${slug}.rego`), opaPolicy);
+
     audits.push({
       repo: target.repo,
       name: target.name,
       stars: target.stars,
       summary,
+      manifestHash,
     });
 
-    const slug = target.repo.replace('/', '__');
     fs.writeFileSync(
       path.join(resultsDir, `${slug}.json`),
       JSON.stringify(summary, null, 2)
     );
 
-    // Generate specific draft PR description with diffs
+    // 3. Generate specific draft PR description with diffs
     const failedChecks = summary.results.filter((r: any) => r.status === 'FAIL');
     const prMarkdown = generatePrDraft(target, summary, failedChecks);
     fs.writeFileSync(path.join(prsDir, `${slug}__PR.md`), prMarkdown);
@@ -80,6 +117,8 @@ export async function runDogfoodBenchmark(): Promise<void> {
   console.log(` 📄 Comprehensive Report: ${reportPath}`);
   console.log(` 📁 Individual Scorecards: ${resultsDir}/*.json`);
   console.log(` 📁 Draft Pull Requests:   ${prsDir}/*.md`);
+  console.log(` 🔒 SHA-256 Lockfiles:     ${locksDir}/*.lock.json`);
+  console.log(` 🛡️  Cedar & OPA Policies:  ${policiesDir}/*.{cedar,rego}`);
   console.log(`================================================================================\n`);
 }
 
@@ -160,10 +199,11 @@ function generateStateOfMcpReport(audits: DogfoodAuditSummary[]): string {
   return `# The State of MCP Server Reliability — 2026
 *An Independent Empirical Safety & Resilience Benchmark of 10 Popular Open-Source Model Context Protocol Servers*
 
-- **Document ID**: AP-BENCHMARK-2026-V1
-- **Evaluator**: ToolVeto Open-Source Check Engine (v0.1.0)
+- **Document ID**: AP-BENCHMARK-2026-V2
+- **Evaluator**: ToolVeto Open-Source 14-Check Engine (v0.2.0)
 - **Target Population**: 10 Tier-1 Open Source MCP Servers (${totalStars.toLocaleString()} combined GitHub stars)
-- **Evaluation Mode**: Stages 1 & 2 Static Contract Verification (\`STATIC-ONLY\`, Zero Destructive Mutations)
+- **Evaluation Mode**: Stages 1 & 2 Static Contract Verification (\`STATIC-ONLY\`, Zero Destructive Mutations, Zero-LLM Poisoning & Shadowing Guard)
+- **Generated Artifacts**: Scorecards (\`results/\`), Auto-Fix PRs (\`prs/\`), SHA-256 Lockfiles (\`locks/\`), & AWS Cedar / OPA Policies (\`policies/\`)
 
 ---
 
@@ -203,9 +243,12 @@ Under dimension **D5 (State Auditability)**, safe agentic workflows require **"R
 
 ---
 
-## Actionable Remediations
+## Actionable Remediations, Lockfiles & Least-Privilege Policies
 
-Every failure flagged by ToolVeto includes a drop-in 3-line code patch. Pull requests containing these exact AST patches have been prepared for maintainers in \`benchmarks/dogfood/prs/\`.
+Every failure flagged by ToolVeto includes a drop-in 3-line code patch, a cryptographic SHA-256 supply-chain lockfile, and compiled AWS Cedar / OPA Rego policies:
+- **Auto-Remediation PRs**: \`benchmarks/dogfood/prs/*.md\`
+- **SHA-256 Tool Lockfiles (\`toolveto lock\`)**: \`benchmarks/dogfood/locks/*.lock.json\`
+- **AWS Cedar & OPA Rego Policies (\`toolveto export-policy\`)**: \`benchmarks/dogfood/policies/*.{cedar,rego}\`
 
 ### Example: Enforcing Idempotency in Payment & Mutation Tools
 \`\`\`diff
@@ -234,11 +277,15 @@ Every failure flagged by ToolVeto includes a drop-in 3-line code patch. Pull req
 This benchmark was executed using the open-source ToolVeto CLI:
 
 \`\`\`bash
-# Run the benchmark locally against any MCP server:
+# 1. Run the 14-check battery locally against any MCP server:
 npx toolveto@latest check ./path-to-server
+
+# 2. Generate SHA-256 lockfile and AWS Cedar / OPA policies:
+npx toolveto@latest lock ./path-to-server
+npx toolveto@latest export-policy ./path-to-server --format cedar
 \`\`\`
 
-*Evaluation criteria conform strictly to the formal **ToolVeto Scoring Rubric & Test Battery (v1.0.0)**.*
+*Evaluation criteria conform strictly to the formal **ToolVeto Scoring Rubric & 14-Check Battery (v1.1.0)**.*
 `;
 }
 

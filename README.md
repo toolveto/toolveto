@@ -61,10 +61,17 @@ npx toolveto@latest check ./my-mcp-server
 Checks: 4 passed · 2 failed · 0 LLM calls · $0.00 · 47 seconds
 ```
 
-Auto-apply the suggested AST code patches directly to your source files:
+Auto-apply the suggested AST code patches directly to your source files, pin tool definition hashes against runtime rug-pulls, or export least-privilege AWS Cedar / OPA Rego policies:
 
 ```bash
+# Auto-remediate TypeScript/Zod, Python/FastMCP, Go, or JSON manifests
 npx toolveto@latest fix --apply
+
+# Generate a cryptographic SHA-256 lockfile (toolveto.lock.json) to prevent rug-pulls
+npx toolveto@latest lock ./my-mcp-server
+
+# Export least-privilege AWS Cedar or Open Policy Agent (Rego) rules from MCP annotations
+npx toolveto@latest export-policy ./my-mcp-server --format cedar
 ```
 
 ---

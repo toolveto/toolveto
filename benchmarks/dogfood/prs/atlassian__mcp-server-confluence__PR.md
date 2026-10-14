@@ -4,8 +4,8 @@
 This automated pull request applies resilience and safety hardening to the MCP tool schemas in `atlassian/mcp-server-confluence`, addressing common agentic failure patterns identified by the **ToolVeto Static Verification Engine**:
 
 - **CRITICAL Issues Found:** 4
-- **HIGH Issues Found:** 3
-- **Total Checks Evaluated:** 48
+- **HIGH Issues Found:** 5
+- **Total Checks Evaluated:** 69
 - **ToolVeto Score:** 75/100 [Tier: Bronze]
 
 ---
@@ -20,13 +20,20 @@ This automated pull request applies resilience and safety hardening to the MCP t
 ```
 
 ### 🔧 Fix for `create_page` (TC-IDEMP-002 — CRITICAL)
-**Issue:** Concurrent burst vulnerability: Tool 'create_page' exposes no concurrency lock or idempotency parameter
+**Issue:** Concurrent burst vulnerability: Tool 'create_page' exposes no concurrency lock or idempotency parameter (double-spend risk)
 
 ```diff
 + idempotencyKey: z.string().uuid().describe("Unique key for atomic deduplication")
 ```
 
 ### 🔧 Fix for `create_page` (TC-IDEMP-003 — HIGH)
+**Issue:** Missing explicit idempotency key in schema definition for mutation tool 'create_page' (unprotected against crash-commit double-spend)
+
+```diff
++ idempotency_key: z.string().uuid().describe("Unique token for idempotent request processing")
+```
+
+### 🔧 Fix for `create_page` (TC-IDEMP-005 — HIGH)
 **Issue:** Missing explicit idempotency key in schema definition for mutation tool 'create_page'
 
 ```diff
@@ -41,13 +48,20 @@ This automated pull request applies resilience and safety hardening to the MCP t
 ```
 
 ### 🔧 Fix for `update_page` (TC-IDEMP-002 — CRITICAL)
-**Issue:** Concurrent burst vulnerability: Tool 'update_page' exposes no concurrency lock or idempotency parameter
+**Issue:** Concurrent burst vulnerability: Tool 'update_page' exposes no concurrency lock or idempotency parameter (double-spend risk)
 
 ```diff
 + idempotencyKey: z.string().uuid().describe("Unique key for atomic deduplication")
 ```
 
 ### 🔧 Fix for `update_page` (TC-IDEMP-003 — HIGH)
+**Issue:** Missing explicit idempotency key in schema definition for mutation tool 'update_page' (unprotected against crash-commit double-spend)
+
+```diff
++ idempotency_key: z.string().uuid().describe("Unique token for idempotent request processing")
+```
+
+### 🔧 Fix for `update_page` (TC-IDEMP-005 — HIGH)
 **Issue:** Missing explicit idempotency key in schema definition for mutation tool 'update_page'
 
 ```diff

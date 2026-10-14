@@ -4,9 +4,9 @@
 This automated pull request applies resilience and safety hardening to the MCP tool schemas in `anthropic/anthropic-quickstarts`, addressing common agentic failure patterns identified by the **ToolVeto Static Verification Engine**:
 
 - **CRITICAL Issues Found:** 2
-- **HIGH Issues Found:** 3
-- **Total Checks Evaluated:** 48
-- **ToolVeto Score:** 77/100 [Tier: Silver]
+- **HIGH Issues Found:** 4
+- **Total Checks Evaluated:** 69
+- **ToolVeto Score:** 80/100 [Tier: Gold]
 
 ---
 
@@ -27,13 +27,20 @@ This automated pull request applies resilience and safety hardening to the MCP t
 ```
 
 ### 🔧 Fix for `write_query` (TC-IDEMP-002 — CRITICAL)
-**Issue:** Concurrent burst vulnerability: Tool 'write_query' exposes no concurrency lock or idempotency parameter
+**Issue:** Concurrent burst vulnerability: Tool 'write_query' exposes no concurrency lock or idempotency parameter (double-spend risk)
 
 ```diff
 + idempotencyKey: z.string().uuid().describe("Unique key for atomic deduplication")
 ```
 
 ### 🔧 Fix for `write_query` (TC-IDEMP-003 — HIGH)
+**Issue:** Missing explicit idempotency key in schema definition for mutation tool 'write_query' (unprotected against crash-commit double-spend)
+
+```diff
++ idempotency_key: z.string().uuid().describe("Unique token for idempotent request processing")
+```
+
+### 🔧 Fix for `write_query` (TC-IDEMP-005 — HIGH)
 **Issue:** Missing explicit idempotency key in schema definition for mutation tool 'write_query'
 
 ```diff

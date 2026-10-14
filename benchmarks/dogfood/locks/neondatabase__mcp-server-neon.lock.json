@@ -1,0 +1,28 @@
+{
+  "version": "1.0",
+  "generatedAt": "2026-10-14T03:51:50.779Z",
+  "target": "neondatabase/mcp-server-neon",
+  "manifestHash": "sha256:c63e6500bc875ce4bbc3331bb1c2c54af794334f822f3944dc695a8897e14bb4",
+  "tools": {
+    "run_sql_query": {
+      "sha256": "49d0a2d3fe41f733bba4e5f489587648a705e138d26866dcb91e595a39e66f81",
+      "descriptionLength": 59,
+      "isMutation": true
+    },
+    "create_branch": {
+      "sha256": "024db1d3f84f471cc8567973c46fc567421baa5f4aba0f1e5edbf0e531ff1c7f",
+      "descriptionLength": 58,
+      "isMutation": true
+    },
+    "delete_branch": {
+      "sha256": "4bd1e3bf79385ff5fccaf8ee128c96a25f7c5db6cda0d79acc947d828b8534d7",
+      "descriptionLength": 37,
+      "isMutation": true
+    },
+    "list_projects": {
+      "sha256": "9aded5bb514431055b76368463f07bc7745f7918ac2d9db4ed5e2c0d1d14ed0f",
+      "descriptionLength": 38,
+      "isMutation": false
+    }
+  }
+}

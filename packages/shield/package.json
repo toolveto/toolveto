@@ -1,6 +1,6 @@
 {
   "name": "@toolveto/shield",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "ToolVeto Shield — Runtime Idempotency Deduplication, Loop Protection, and Token Budgeting Middleware for MCP Servers",
   "license": "Apache-2.0",
   "main": "./dist/index.js",

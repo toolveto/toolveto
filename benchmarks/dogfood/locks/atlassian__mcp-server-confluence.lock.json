@@ -1,0 +1,28 @@
+{
+  "version": "1.0",
+  "generatedAt": "2026-10-14T03:51:50.719Z",
+  "target": "atlassian/mcp-server-confluence",
+  "manifestHash": "sha256:616c4f56f1c88e7c117b5e00e073b6adde6dca52f19275697d81151ba9357225",
+  "tools": {
+    "create_page": {
+      "sha256": "d9bc60e554fef733f0cda1332eda77f54ee67a80efdc68a2f011425c140c20df",
+      "descriptionLength": 46,
+      "isMutation": true
+    },
+    "get_page": {
+      "sha256": "197c800534a2edd57b229818ce3151f646e428bf2c9e62af0fc3b2e3802be171",
+      "descriptionLength": 43,
+      "isMutation": false
+    },
+    "update_page": {
+      "sha256": "1e1c4ae7cce87f2ec051eb59cd2e80ca804ca1953e0297f0ceab4ffcddd246a5",
+      "descriptionLength": 50,
+      "isMutation": true
+    },
+    "search_content": {
+      "sha256": "ec019372909fe3109e710ea5a26afb12b737866a63f17b3dca5cf4444269f472",
+      "descriptionLength": 44,
+      "isMutation": false
+    }
+  }
+}

@@ -1,6 +1,6 @@
 {
   "name": "toolveto",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "ToolVeto CLI — Block double-charge, crash, and context bombs in CI with a 3-line PR fix",
   "license": "MIT",
   "bin": {

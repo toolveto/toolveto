@@ -1,39 +1,39 @@
 {
   "target": "supabase/mcp-server-supabase",
-  "totalChecks": 48,
-  "passed": 24,
-  "failed": 13,
-  "warned": 11,
+  "totalChecks": 69,
+  "passed": 39,
+  "failed": 16,
+  "warned": 14,
   "fatalVetoTriggered": true,
   "fatalVetoCode": "VETO_NONE",
   "phi": 1,
   "score": 63,
   "tier": "Bronze",
-  "durationMs": 0,
+  "durationMs": 9,
   "llmTokensUsed": 0,
   "dimensionalScores": {
     "D1": {
       "score": 25,
-      "weight": 0.3,
+      "weight": 0.35,
       "metrics": {}
     },
     "D2": {
-      "score": 83,
-      "weight": 0.25,
+      "score": 88,
+      "weight": 0.2,
       "metrics": {}
     },
     "D3": {
       "score": 81,
-      "weight": 0.25,
+      "weight": 0.2,
       "metrics": {}
     },
     "D4": {
       "score": 100,
-      "weight": 0.1,
+      "weight": 0.15,
       "metrics": {}
     },
     "D5": {
-      "score": 44,
+      "score": 54,
       "weight": 0.1,
       "metrics": {}
     }
@@ -78,7 +78,7 @@
       "tool": "execute_sql",
       "status": "FAIL",
       "severity": "CRITICAL",
-      "description": "Concurrent burst vulnerability: Tool 'execute_sql' exposes no concurrency lock or idempotency parameter",
+      "description": "Concurrent burst vulnerability: Tool 'execute_sql' exposes no concurrency lock or idempotency parameter (double-spend risk)",
       "evidence": {
         "requestsSent": 10,
         "mutationsCreated": 10,
@@ -99,6 +99,28 @@
     },
     {
       "checkId": "TC-IDEMP-003",
+      "dimension": "D1",
+      "tool": "execute_sql",
+      "status": "FAIL",
+      "severity": "HIGH",
+      "description": "Missing explicit idempotency key in schema definition for mutation tool 'execute_sql' (unprotected against crash-commit double-spend)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'idempotency_key: string' parameter to schema",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ idempotency_key: z.string().uuid().describe(\"Unique token for idempotent request processing\")"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-005",
       "dimension": "D1",
       "tool": "execute_sql",
       "status": "FAIL",
@@ -160,6 +182,18 @@
       "status": "PASS",
       "severity": "HIGH",
       "description": "Tool 'execute_sql' has no strict semantic date formats requiring healing evaluation",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SEC-002",
+      "dimension": "D2",
+      "tool": "execute_sql",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool 'execute_sql' schema descriptions are free from static prompt poisoning, invisible Unicode, and ANSI escape sequences",
       "evidence": {
         "evidenceQuality": "STATIC-ONLY"
       },
@@ -228,6 +262,30 @@
       "durationMs": 0
     },
     {
+      "checkId": "TC-STEER-001",
+      "dimension": "D4",
+      "tool": "execute_sql",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool description provides sufficient semantic steerability context (53 chars)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-STEER-002",
+      "dimension": "D4",
+      "tool": "execute_sql",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "All parameters provide adequate type and format guidance for LLM prompt steerability",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
       "checkId": "TC-PAIR-001",
       "dimension": "D5",
       "tool": "execute_sql",
@@ -276,6 +334,30 @@
       "durationMs": 0
     },
     {
+      "checkId": "TC-AUTH-002",
+      "dimension": "D5",
+      "tool": "execute_sql",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "OAuth 2.1 Scope Guidance: High-impact mutating tool 'execute_sql' does not specify required OAuth2.1 scopes (e.g. 'write:payments') in tool description.",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY",
+        "details": {
+          "recommendedScope": "write:execute_sql"
+        }
+      },
+      "fix": {
+        "summary": "Document required OAuth 2.1 scope in description of tool 'execute_sql'",
+        "diffs": [
+          {
+            "language": "json-schema",
+            "code": "\"description\": \"Executes SQL query against Supabase database instance (Requires OAuth 2.1 scope: write:execute_sql)\""
+          }
+        ]
+      },
+      "durationMs": 1
+    },
+    {
       "checkId": "TC-IDEMP-001",
       "dimension": "D1",
       "tool": "insert_row",
@@ -314,7 +396,7 @@
       "tool": "insert_row",
       "status": "FAIL",
       "severity": "CRITICAL",
-      "description": "Concurrent burst vulnerability: Tool 'insert_row' exposes no concurrency lock or idempotency parameter",
+      "description": "Concurrent burst vulnerability: Tool 'insert_row' exposes no concurrency lock or idempotency parameter (double-spend risk)",
       "evidence": {
         "requestsSent": 10,
         "mutationsCreated": 10,
@@ -335,6 +417,28 @@
     },
     {
       "checkId": "TC-IDEMP-003",
+      "dimension": "D1",
+      "tool": "insert_row",
+      "status": "FAIL",
+      "severity": "HIGH",
+      "description": "Missing explicit idempotency key in schema definition for mutation tool 'insert_row' (unprotected against crash-commit double-spend)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'idempotency_key: string' parameter to schema",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ idempotency_key: z.string().uuid().describe(\"Unique token for idempotent request processing\")"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-005",
       "dimension": "D1",
       "tool": "insert_row",
       "status": "FAIL",
@@ -396,6 +500,18 @@
       "status": "PASS",
       "severity": "HIGH",
       "description": "Tool 'insert_row' has no strict semantic date formats requiring healing evaluation",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SEC-002",
+      "dimension": "D2",
+      "tool": "insert_row",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool 'insert_row' schema descriptions are free from static prompt poisoning, invisible Unicode, and ANSI escape sequences",
       "evidence": {
         "evidenceQuality": "STATIC-ONLY"
       },
@@ -464,6 +580,30 @@
       "durationMs": 0
     },
     {
+      "checkId": "TC-STEER-001",
+      "dimension": "D4",
+      "tool": "insert_row",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool description provides sufficient semantic steerability context (44 chars)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-STEER-002",
+      "dimension": "D4",
+      "tool": "insert_row",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "All parameters provide adequate type and format guidance for LLM prompt steerability",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
       "checkId": "TC-PAIR-001",
       "dimension": "D5",
       "tool": "insert_row",
@@ -512,6 +652,30 @@
       "durationMs": 0
     },
     {
+      "checkId": "TC-AUTH-002",
+      "dimension": "D5",
+      "tool": "insert_row",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "OAuth 2.1 Scope Guidance: High-impact mutating tool 'insert_row' does not specify required OAuth2.1 scopes (e.g. 'write:payments') in tool description.",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY",
+        "details": {
+          "recommendedScope": "write:insert_row"
+        }
+      },
+      "fix": {
+        "summary": "Document required OAuth 2.1 scope in description of tool 'insert_row'",
+        "diffs": [
+          {
+            "language": "json-schema",
+            "code": "\"description\": \"Inserts record into specified database table (Requires OAuth 2.1 scope: write:insert_row)\""
+          }
+        ]
+      },
+      "durationMs": 1
+    },
+    {
       "checkId": "TC-IDEMP-001",
       "dimension": "D1",
       "tool": "update_row",
@@ -550,7 +714,7 @@
       "tool": "update_row",
       "status": "FAIL",
       "severity": "CRITICAL",
-      "description": "Concurrent burst vulnerability: Tool 'update_row' exposes no concurrency lock or idempotency parameter",
+      "description": "Concurrent burst vulnerability: Tool 'update_row' exposes no concurrency lock or idempotency parameter (double-spend risk)",
       "evidence": {
         "requestsSent": 10,
         "mutationsCreated": 10,
@@ -571,6 +735,28 @@
     },
     {
       "checkId": "TC-IDEMP-003",
+      "dimension": "D1",
+      "tool": "update_row",
+      "status": "FAIL",
+      "severity": "HIGH",
+      "description": "Missing explicit idempotency key in schema definition for mutation tool 'update_row' (unprotected against crash-commit double-spend)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'idempotency_key: string' parameter to schema",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ idempotency_key: z.string().uuid().describe(\"Unique token for idempotent request processing\")"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-005",
       "dimension": "D1",
       "tool": "update_row",
       "status": "FAIL",
@@ -632,6 +818,18 @@
       "status": "PASS",
       "severity": "HIGH",
       "description": "Tool 'update_row' has no strict semantic date formats requiring healing evaluation",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SEC-002",
+      "dimension": "D2",
+      "tool": "update_row",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool 'update_row' schema descriptions are free from static prompt poisoning, invisible Unicode, and ANSI escape sequences",
       "evidence": {
         "evidenceQuality": "STATIC-ONLY"
       },
@@ -700,6 +898,30 @@
       "durationMs": 0
     },
     {
+      "checkId": "TC-STEER-001",
+      "dimension": "D4",
+      "tool": "update_row",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool description provides sufficient semantic steerability context (48 chars)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-STEER-002",
+      "dimension": "D4",
+      "tool": "update_row",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "All parameters provide adequate type and format guidance for LLM prompt steerability",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
       "checkId": "TC-PAIR-001",
       "dimension": "D5",
       "tool": "update_row",
@@ -748,6 +970,30 @@
       "durationMs": 0
     },
     {
+      "checkId": "TC-AUTH-002",
+      "dimension": "D5",
+      "tool": "update_row",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "OAuth 2.1 Scope Guidance: High-impact mutating tool 'update_row' does not specify required OAuth2.1 scopes (e.g. 'write:payments') in tool description.",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY",
+        "details": {
+          "recommendedScope": "write:update_row"
+        }
+      },
+      "fix": {
+        "summary": "Document required OAuth 2.1 scope in description of tool 'update_row'",
+        "diffs": [
+          {
+            "language": "json-schema",
+            "code": "\"description\": \"Updates existing row matching primary key filter (Requires OAuth 2.1 scope: write:update_row)\""
+          }
+        ]
+      },
+      "durationMs": 1
+    },
+    {
       "checkId": "TC-IDEMP-001",
       "dimension": "D1",
       "tool": "list_tables",
@@ -776,6 +1022,18 @@
     },
     {
       "checkId": "TC-IDEMP-003",
+      "dimension": "D1",
+      "tool": "list_tables",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Query tool 'list_tables' is read-only and free from crash-commit double-spend risk",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-005",
       "dimension": "D1",
       "tool": "list_tables",
       "status": "PASS",
@@ -827,6 +1085,18 @@
       "status": "PASS",
       "severity": "HIGH",
       "description": "Tool 'list_tables' has no strict semantic date formats requiring healing evaluation",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SEC-002",
+      "dimension": "D2",
+      "tool": "list_tables",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool 'list_tables' schema descriptions are free from static prompt poisoning, invisible Unicode, and ANSI escape sequences",
       "evidence": {
         "evidenceQuality": "STATIC-ONLY"
       },
@@ -912,6 +1182,30 @@
       "durationMs": 0
     },
     {
+      "checkId": "TC-STEER-001",
+      "dimension": "D4",
+      "tool": "list_tables",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool description provides sufficient semantic steerability context (61 chars)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-STEER-002",
+      "dimension": "D4",
+      "tool": "list_tables",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "All parameters provide adequate type and format guidance for LLM prompt steerability",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
       "checkId": "TC-PAIR-001",
       "dimension": "D5",
       "tool": "list_tables",
@@ -934,6 +1228,77 @@
         "evidenceQuality": "STATIC-ONLY"
       },
       "durationMs": 0
+    },
+    {
+      "checkId": "TC-AUTH-002",
+      "dimension": "D5",
+      "tool": "list_tables",
+      "status": "PASS",
+      "severity": "INFO",
+      "description": "OAuth 2.1 scope specification verified for tool 'list_tables'.",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 1
+    },
+    {
+      "checkId": "TC-SEC-003",
+      "dimension": "D5",
+      "tool": "suite-wide",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Zero tool namespace collisions or cross-server shadowing directives across 4 tool(s)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
     }
-  ]
+  ],
+  "statisticalConfidence": {
+    "n": 30,
+    "pointEstimate": 63,
+    "confidenceInterval95": [
+      55,
+      73
+    ],
+    "certifiedLowerBound": 55
+  },
+  "aiuc1Compliance": {
+    "AIUC-1 §4.2 Idempotency": "FAIL",
+    "AIUC-1 §4.5 Error Guidance": "PASS",
+    "AIUC-1 §5.1 Auth Model & Tenant Isolation": "PASS",
+    "AIUC-1 §6.3 Loop Protection": "PASS",
+    "OWASP Agentic LLM01 Prompt Injection": "PASS",
+    "OWASP Agentic LLM02 Sensitive Information Disclosure": "PASS"
+  },
+  "environmentManifest": {
+    "harness": "toolveto-core-v1.1.0",
+    "protocolVersion": "2025-03-26",
+    "nodeVersion": "v26.5.0",
+    "platform": "darwin",
+    "destructiveAuthorization": "false"
+  },
+  "expiresAt": "2027-01-12T03:51:50.810Z",
+  "perToolScorecard": {
+    "execute_sql": {
+      "score": 47,
+      "checksPassed": 8,
+      "checksFailed": 5
+    },
+    "insert_row": {
+      "score": 47,
+      "checksPassed": 8,
+      "checksFailed": 5
+    },
+    "update_row": {
+      "score": 47,
+      "checksPassed": 8,
+      "checksFailed": 5
+    },
+    "list_tables": {
+      "score": 82,
+      "checksPassed": 14,
+      "checksFailed": 1
+    }
+  }
 }

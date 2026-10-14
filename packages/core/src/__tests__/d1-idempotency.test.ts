@@ -112,13 +112,14 @@ describe('D1: Idempotency & Concurrency Battery', () => {
     assert.strictEqual(result.evidence.mutationsCreated, 1);
   });
 
-  it('TC-IDEMP-003: evaluates schema idempotency key presence', () => {
+  it('TC-IDEMP-005: evaluates schema idempotency key presence', () => {
     const toolWithKey: McpToolDefinition = {
       name: 'pay',
       isMutation: true,
       inputSchema: { type: 'object', properties: { client_request_id: { type: 'string' } } },
     };
     const res = runIdempotencyKeyCheck(toolWithKey);
+    assert.strictEqual(res.checkId, 'TC-IDEMP-005');
     assert.strictEqual(res.status, 'PASS');
 
     const toolWithoutKey: McpToolDefinition = {
@@ -127,6 +128,7 @@ describe('D1: Idempotency & Concurrency Battery', () => {
       inputSchema: { type: 'object', properties: { amount: { type: 'number' } } },
     };
     const failRes = runIdempotencyKeyCheck(toolWithoutKey);
+    assert.strictEqual(failRes.checkId, 'TC-IDEMP-005');
     assert.strictEqual(failRes.status, 'FAIL');
   });
 });

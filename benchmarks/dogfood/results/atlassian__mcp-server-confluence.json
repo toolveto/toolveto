@@ -1,39 +1,39 @@
 {
   "target": "atlassian/mcp-server-confluence",
-  "totalChecks": 48,
-  "passed": 31,
-  "failed": 7,
-  "warned": 10,
+  "totalChecks": 69,
+  "passed": 48,
+  "failed": 9,
+  "warned": 12,
   "fatalVetoTriggered": true,
   "fatalVetoCode": "VETO_NONE",
   "phi": 1,
   "score": 75,
   "tier": "Bronze",
-  "durationMs": 0,
+  "durationMs": 12,
   "llmTokensUsed": 0,
   "dimensionalScores": {
     "D1": {
       "score": 50,
-      "weight": 0.3,
+      "weight": 0.35,
       "metrics": {}
     },
     "D2": {
-      "score": 83,
-      "weight": 0.25,
+      "score": 88,
+      "weight": 0.2,
       "metrics": {}
     },
     "D3": {
       "score": 81,
-      "weight": 0.25,
+      "weight": 0.2,
       "metrics": {}
     },
     "D4": {
       "score": 100,
-      "weight": 0.1,
+      "weight": 0.15,
       "metrics": {}
     },
     "D5": {
-      "score": 88,
+      "score": 85,
       "weight": 0.1,
       "metrics": {}
     }
@@ -78,7 +78,7 @@
       "tool": "create_page",
       "status": "FAIL",
       "severity": "CRITICAL",
-      "description": "Concurrent burst vulnerability: Tool 'create_page' exposes no concurrency lock or idempotency parameter",
+      "description": "Concurrent burst vulnerability: Tool 'create_page' exposes no concurrency lock or idempotency parameter (double-spend risk)",
       "evidence": {
         "requestsSent": 10,
         "mutationsCreated": 10,
@@ -99,6 +99,28 @@
     },
     {
       "checkId": "TC-IDEMP-003",
+      "dimension": "D1",
+      "tool": "create_page",
+      "status": "FAIL",
+      "severity": "HIGH",
+      "description": "Missing explicit idempotency key in schema definition for mutation tool 'create_page' (unprotected against crash-commit double-spend)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'idempotency_key: string' parameter to schema",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ idempotency_key: z.string().uuid().describe(\"Unique token for idempotent request processing\")"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-005",
       "dimension": "D1",
       "tool": "create_page",
       "status": "FAIL",
@@ -160,6 +182,18 @@
       "status": "PASS",
       "severity": "HIGH",
       "description": "Tool 'create_page' has no strict semantic date formats requiring healing evaluation",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SEC-002",
+      "dimension": "D2",
+      "tool": "create_page",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool 'create_page' schema descriptions are free from static prompt poisoning, invisible Unicode, and ANSI escape sequences",
       "evidence": {
         "evidenceQuality": "STATIC-ONLY"
       },
@@ -228,6 +262,30 @@
       "durationMs": 0
     },
     {
+      "checkId": "TC-STEER-001",
+      "dimension": "D4",
+      "tool": "create_page",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool description provides sufficient semantic steerability context (46 chars)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-STEER-002",
+      "dimension": "D4",
+      "tool": "create_page",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "All parameters provide adequate type and format guidance for LLM prompt steerability",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
       "checkId": "TC-PAIR-001",
       "dimension": "D5",
       "tool": "create_page",
@@ -262,6 +320,30 @@
       "durationMs": 0
     },
     {
+      "checkId": "TC-AUTH-002",
+      "dimension": "D5",
+      "tool": "create_page",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "OAuth 2.1 Scope Guidance: High-impact mutating tool 'create_page' does not specify required OAuth2.1 scopes (e.g. 'write:payments') in tool description.",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY",
+        "details": {
+          "recommendedScope": "write:create_page"
+        }
+      },
+      "fix": {
+        "summary": "Document required OAuth 2.1 scope in description of tool 'create_page'",
+        "diffs": [
+          {
+            "language": "json-schema",
+            "code": "\"description\": \"Creates a new wiki page in the specified space (Requires OAuth 2.1 scope: write:create_page)\""
+          }
+        ]
+      },
+      "durationMs": 1
+    },
+    {
       "checkId": "TC-IDEMP-001",
       "dimension": "D1",
       "tool": "get_page",
@@ -290,6 +372,18 @@
     },
     {
       "checkId": "TC-IDEMP-003",
+      "dimension": "D1",
+      "tool": "get_page",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Query tool 'get_page' is read-only and free from crash-commit double-spend risk",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-005",
       "dimension": "D1",
       "tool": "get_page",
       "status": "PASS",
@@ -341,6 +435,18 @@
       "status": "PASS",
       "severity": "HIGH",
       "description": "Tool 'get_page' has no strict semantic date formats requiring healing evaluation",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SEC-002",
+      "dimension": "D2",
+      "tool": "get_page",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool 'get_page' schema descriptions are free from static prompt poisoning, invisible Unicode, and ANSI escape sequences",
       "evidence": {
         "evidenceQuality": "STATIC-ONLY"
       },
@@ -409,6 +515,30 @@
       "durationMs": 0
     },
     {
+      "checkId": "TC-STEER-001",
+      "dimension": "D4",
+      "tool": "get_page",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool description provides sufficient semantic steerability context (43 chars)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-STEER-002",
+      "dimension": "D4",
+      "tool": "get_page",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "All parameters provide adequate type and format guidance for LLM prompt steerability",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
       "checkId": "TC-PAIR-001",
       "dimension": "D5",
       "tool": "get_page",
@@ -431,6 +561,18 @@
         "evidenceQuality": "STATIC-ONLY"
       },
       "durationMs": 0
+    },
+    {
+      "checkId": "TC-AUTH-002",
+      "dimension": "D5",
+      "tool": "get_page",
+      "status": "PASS",
+      "severity": "INFO",
+      "description": "OAuth 2.1 scope specification verified for tool 'get_page'.",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 1
     },
     {
       "checkId": "TC-IDEMP-001",
@@ -471,7 +613,7 @@
       "tool": "update_page",
       "status": "FAIL",
       "severity": "CRITICAL",
-      "description": "Concurrent burst vulnerability: Tool 'update_page' exposes no concurrency lock or idempotency parameter",
+      "description": "Concurrent burst vulnerability: Tool 'update_page' exposes no concurrency lock or idempotency parameter (double-spend risk)",
       "evidence": {
         "requestsSent": 10,
         "mutationsCreated": 10,
@@ -492,6 +634,28 @@
     },
     {
       "checkId": "TC-IDEMP-003",
+      "dimension": "D1",
+      "tool": "update_page",
+      "status": "FAIL",
+      "severity": "HIGH",
+      "description": "Missing explicit idempotency key in schema definition for mutation tool 'update_page' (unprotected against crash-commit double-spend)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'idempotency_key: string' parameter to schema",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ idempotency_key: z.string().uuid().describe(\"Unique token for idempotent request processing\")"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-005",
       "dimension": "D1",
       "tool": "update_page",
       "status": "FAIL",
@@ -553,6 +717,18 @@
       "status": "PASS",
       "severity": "HIGH",
       "description": "Tool 'update_page' has no strict semantic date formats requiring healing evaluation",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SEC-002",
+      "dimension": "D2",
+      "tool": "update_page",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool 'update_page' schema descriptions are free from static prompt poisoning, invisible Unicode, and ANSI escape sequences",
       "evidence": {
         "evidenceQuality": "STATIC-ONLY"
       },
@@ -621,6 +797,30 @@
       "durationMs": 0
     },
     {
+      "checkId": "TC-STEER-001",
+      "dimension": "D4",
+      "tool": "update_page",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool description provides sufficient semantic steerability context (50 chars)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-STEER-002",
+      "dimension": "D4",
+      "tool": "update_page",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "All parameters provide adequate type and format guidance for LLM prompt steerability",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
       "checkId": "TC-PAIR-001",
       "dimension": "D5",
       "tool": "update_page",
@@ -655,6 +855,30 @@
       "durationMs": 0
     },
     {
+      "checkId": "TC-AUTH-002",
+      "dimension": "D5",
+      "tool": "update_page",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "OAuth 2.1 Scope Guidance: High-impact mutating tool 'update_page' does not specify required OAuth2.1 scopes (e.g. 'write:payments') in tool description.",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY",
+        "details": {
+          "recommendedScope": "write:update_page"
+        }
+      },
+      "fix": {
+        "summary": "Document required OAuth 2.1 scope in description of tool 'update_page'",
+        "diffs": [
+          {
+            "language": "json-schema",
+            "code": "\"description\": \"Updates an existing page with new title or content (Requires OAuth 2.1 scope: write:update_page)\""
+          }
+        ]
+      },
+      "durationMs": 1
+    },
+    {
       "checkId": "TC-IDEMP-001",
       "dimension": "D1",
       "tool": "search_content",
@@ -683,6 +907,18 @@
     },
     {
       "checkId": "TC-IDEMP-003",
+      "dimension": "D1",
+      "tool": "search_content",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Query tool 'search_content' is read-only and free from crash-commit double-spend risk",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-005",
       "dimension": "D1",
       "tool": "search_content",
       "status": "PASS",
@@ -734,6 +970,18 @@
       "status": "PASS",
       "severity": "HIGH",
       "description": "Tool 'search_content' has no strict semantic date formats requiring healing evaluation",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SEC-002",
+      "dimension": "D2",
+      "tool": "search_content",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool 'search_content' schema descriptions are free from static prompt poisoning, invisible Unicode, and ANSI escape sequences",
       "evidence": {
         "evidenceQuality": "STATIC-ONLY"
       },
@@ -819,6 +1067,30 @@
       "durationMs": 0
     },
     {
+      "checkId": "TC-STEER-001",
+      "dimension": "D4",
+      "tool": "search_content",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool description provides sufficient semantic steerability context (44 chars)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-STEER-002",
+      "dimension": "D4",
+      "tool": "search_content",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "All parameters provide adequate type and format guidance for LLM prompt steerability",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
       "checkId": "TC-PAIR-001",
       "dimension": "D5",
       "tool": "search_content",
@@ -841,6 +1113,77 @@
         "evidenceQuality": "STATIC-ONLY"
       },
       "durationMs": 0
+    },
+    {
+      "checkId": "TC-AUTH-002",
+      "dimension": "D5",
+      "tool": "search_content",
+      "status": "PASS",
+      "severity": "INFO",
+      "description": "OAuth 2.1 scope specification verified for tool 'search_content'.",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 1
+    },
+    {
+      "checkId": "TC-SEC-003",
+      "dimension": "D5",
+      "tool": "suite-wide",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Zero tool namespace collisions or cross-server shadowing directives across 4 tool(s)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
     }
-  ]
+  ],
+  "statisticalConfidence": {
+    "n": 30,
+    "pointEstimate": 75,
+    "confidenceInterval95": [
+      64,
+      84
+    ],
+    "certifiedLowerBound": 64
+  },
+  "aiuc1Compliance": {
+    "AIUC-1 §4.2 Idempotency": "FAIL",
+    "AIUC-1 §4.5 Error Guidance": "PASS",
+    "AIUC-1 §5.1 Auth Model & Tenant Isolation": "PASS",
+    "AIUC-1 §6.3 Loop Protection": "PASS",
+    "OWASP Agentic LLM01 Prompt Injection": "PASS",
+    "OWASP Agentic LLM02 Sensitive Information Disclosure": "PASS"
+  },
+  "environmentManifest": {
+    "harness": "toolveto-core-v1.1.0",
+    "protocolVersion": "2025-03-26",
+    "nodeVersion": "v26.5.0",
+    "platform": "darwin",
+    "destructiveAuthorization": "false"
+  },
+  "expiresAt": "2027-01-12T03:51:50.719Z",
+  "perToolScorecard": {
+    "create_page": {
+      "score": 53,
+      "checksPassed": 9,
+      "checksFailed": 4
+    },
+    "get_page": {
+      "score": 88,
+      "checksPassed": 15,
+      "checksFailed": 0
+    },
+    "update_page": {
+      "score": 53,
+      "checksPassed": 9,
+      "checksFailed": 4
+    },
+    "search_content": {
+      "score": 82,
+      "checksPassed": 14,
+      "checksFailed": 1
+    }
+  }
 }

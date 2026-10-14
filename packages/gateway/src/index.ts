@@ -128,7 +128,12 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
   const middlewares: Map<string, ShieldMiddleware> = new Map();
   for (const [key, upstream] of Object.entries(loadedConfig.upstreams)) {
     const policy = upstream.policy || loadedConfig.defaultPolicy || 'standard';
-    middlewares.set(key, new ShieldMiddleware(getShieldOptionsForPolicy(policy)));
+    const baseOpts = getShieldOptionsForPolicy(policy);
+    const customBudget = upstream.tokenBudget ?? loadedConfig.tokenBudget;
+    middlewares.set(
+      key,
+      new ShieldMiddleware(customBudget !== undefined ? { ...baseOpts, tokenBudget: customBudget } : baseOpts)
+    );
   }
 
   function resolveUpstream(urlPath: string, toolName?: string): { upstream: UpstreamRouteConfig; middleware: ShieldMiddleware } {
@@ -166,7 +171,8 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
       return;
     }
 
-    // CORS Allowlist
+    // CORS Allowlist & ToolVeto Shield Header
+    res.setHeader('X-ToolVeto-Shield', 'active');
     const ALLOWED_ORIGINS = new Set(['https://toolveto.ai', 'http://localhost:3000', 'http://localhost:8080']);
     const origin = req.headers.origin as string;
     if (origin && ALLOWED_ORIGINS.has(origin)) {
@@ -333,62 +339,98 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
 
           // If tool call, pass through Shield Airbag middleware with upstream policy
           if (jsonRpc.method === 'tools/call') {
+            const callStart = performance.now();
+            let upstreamTimeMs = 0;
             const intercepted = await middleware.intercept(jsonRpc, async (rpcReq) => {
-              // Forward to actual upstream server via HTTP POST
-              if (upstream.url && upstream.url.startsWith('http')) {
-                validateUpstreamUrl(upstream.url, upstream.allowLocal);
-                const headers: Record<string, string> = {
-                  'Content-Type': 'application/json',
-                  'X-ToolVeto-Egress-Canary': crypto.randomUUID(),
+              const upStart = performance.now();
+              try {
+                // Forward to actual upstream server via HTTP POST
+                if (upstream.url && upstream.url.startsWith('http')) {
+                  validateUpstreamUrl(upstream.url, upstream.allowLocal);
+                  const headers: Record<string, string> = {
+                    'Content-Type': 'application/json',
+                    'X-ToolVeto-Egress-Canary': crypto.randomUUID(),
+                  };
+                  // Zero-Trust: ONLY forward explicit upstream authentication credential.
+                  // NEVER forward incoming client's master gateway authorization token.
+                  if (upstream.authHeader) {
+                    headers['Authorization'] = upstream.authHeader;
+                  }
+
+                  const upstreamRes = await fetch(upstream.url, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify(rpcReq),
+                    signal: AbortSignal.timeout(upstream.timeoutMs || 30000),
+                    redirect: 'manual',
+                  });
+
+                  if (upstreamRes.status >= 300 && upstreamRes.status < 400) {
+                    return {
+                      isError: true,
+                      content: [{ type: 'text', text: `[ToolVeto Gateway Security] Upstream redirect to ${upstreamRes.headers.get('location') || 'unknown'} disallowed (SSRF protection).` }],
+                    };
+                  }
+
+                  const responseText = await readResponseWithLimit(upstreamRes, MAX_BODY);
+                  let data: any;
+                  try {
+                    data = JSON.parse(responseText);
+                  } catch {
+                    return {
+                      isError: true,
+                      content: [{ type: 'text', text: `Upstream response was not valid JSON: ${responseText.slice(0, 200)}` }],
+                    };
+                  }
+
+                  if (data.error) {
+                    return {
+                      isError: true,
+                      content: [{ type: 'text', text: data.error.message || JSON.stringify(data.error) }],
+                    };
+                  }
+                  return data.result || data;
+                }
+
+                // In-process mock or fallback
+                return {
+                  content: [{ type: 'text', text: `Upstream response from ${upstream.name} for ${rpcReq.params?.name}` }],
                 };
-                // Zero-Trust: ONLY forward explicit upstream authentication credential.
-                // NEVER forward incoming client's master gateway authorization token.
-                if (upstream.authHeader) {
-                  headers['Authorization'] = upstream.authHeader;
-                }
-
-                const upstreamRes = await fetch(upstream.url, {
-                  method: 'POST',
-                  headers,
-                  body: JSON.stringify(rpcReq),
-                  signal: AbortSignal.timeout(upstream.timeoutMs || 30000),
-                  redirect: 'manual',
-                });
-
-                if (upstreamRes.status >= 300 && upstreamRes.status < 400) {
-                  return {
-                    isError: true,
-                    content: [{ type: 'text', text: `[ToolVeto Gateway Security] Upstream redirect to ${upstreamRes.headers.get('location') || 'unknown'} disallowed (SSRF protection).` }],
-                  };
-                }
-
-                const responseText = await readResponseWithLimit(upstreamRes, MAX_BODY);
-                let data: any;
-                try {
-                  data = JSON.parse(responseText);
-                } catch {
-                  return {
-                    isError: true,
-                    content: [{ type: 'text', text: `Upstream response was not valid JSON: ${responseText.slice(0, 200)}` }],
-                  };
-                }
-
-                if (data.error) {
-                  return {
-                    isError: true,
-                    content: [{ type: 'text', text: data.error.message || JSON.stringify(data.error) }],
-                  };
-                }
-                return data.result || data;
+              } finally {
+                upstreamTimeMs = performance.now() - upStart;
               }
-
-              // In-process mock or fallback
-              return {
-                content: [{ type: 'text', text: `Upstream response from ${upstream.name} for ${rpcReq.params?.name}` }],
-              };
             });
 
-            res.writeHead(200, { 'Content-Type': 'application/json' });
+            const airbagLatencyMs = Math.max(0.01, Number((performance.now() - callStart - upstreamTimeMs).toFixed(2)));
+            let shieldAction = 'PASS';
+            if (intercepted._shield?.promptInjectionDetected && intercepted._shield.promptInjectionAction === 'block') {
+              shieldAction = 'INJECTION_BLOCKED';
+            } else if (intercepted._shield?.promptInjectionDetected && intercepted._shield.promptInjectionAction === 'sanitize') {
+              shieldAction = 'INJECTION_SANITIZED';
+            } else if (intercepted._shield?.loopChecked) {
+              shieldAction = 'LOOP_BROKEN';
+            } else if (intercepted._shield?.cached) {
+              shieldAction = 'DEDUPLICATED';
+            } else if (intercepted._shield?.truncated) {
+              shieldAction = 'BUDGET_TRUNCATED';
+            }
+
+            const idempKeyHeader =
+              intercepted._shield?.idempotencyKey ||
+              jsonRpc.params?.arguments?.idempotency_key ||
+              jsonRpc.params?.arguments?.idempotencyKey;
+
+            const responseHeaders: Record<string, string> = {
+              'Content-Type': 'application/json',
+              'X-ToolVeto-Shield': 'active',
+              'X-ToolVeto-Action': shieldAction,
+              'X-ToolVeto-Airbag-Latency': `${airbagLatencyMs}ms`,
+            };
+            if (idempKeyHeader) {
+              responseHeaders['X-ToolVeto-Idempotency-Key'] = String(idempKeyHeader);
+            }
+
+            res.writeHead(200, responseHeaders);
             res.end(JSON.stringify({ jsonrpc: '2.0', id: jsonRpc.id, result: intercepted }));
             return;
           }

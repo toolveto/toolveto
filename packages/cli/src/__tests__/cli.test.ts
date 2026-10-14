@@ -303,4 +303,152 @@ describe('ToolVeto CLI Commands', () => {
     assert.ok(addr && typeof addr === 'object' && addr.port > 0, 'Server must bind to valid port');
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
+
+  it('should enforce --threshold, --fail-on-severity, and audit multi-server .cursor/mcp.json configs (toolveto check)', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tv-check-multi-'));
+    const cursorDir = path.join(tmpDir, '.cursor');
+    fs.mkdirSync(cursorDir, { recursive: true });
+    const mcpJsonPath = path.join(cursorDir, 'mcp.json');
+
+    fs.writeFileSync(
+      mcpJsonPath,
+      JSON.stringify({
+        mcpServers: {
+          billing: {
+            tools: [
+              {
+                name: 'create_invoice',
+                description: 'Creates a verified customer invoice with idempotency and limit controls',
+                isMutation: true,
+                inputSchema: {
+                  type: 'object',
+                  properties: {
+                    customer_id: { type: 'string' },
+                    idempotency_key: { type: 'string' },
+                    dry_run: { type: 'boolean' },
+                  },
+                  required: ['customer_id', 'idempotency_key'],
+                  additionalProperties: false,
+                },
+              },
+            ],
+          },
+        },
+      })
+    );
+
+    // Threshold 101 should fail
+    process.exitCode = 0;
+    await checkCommand(tmpDir, { json: true, threshold: 101 });
+    assert.strictEqual(process.exitCode, 1, 'Threshold 101 must set exit code 1');
+
+    // Fail-on-severity HIGH on unpained mutation (TC-PAIR-001 fails with HIGH)
+    process.exitCode = 0;
+    await checkCommand(tmpDir, { json: true, failOnSeverity: 'HIGH' });
+    assert.strictEqual(process.exitCode, 1, 'failOnSeverity HIGH must set exit code 1 when HIGH check fails');
+    process.exitCode = 0;
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('should patch .ts, .py, and .go source files on disk when running toolveto fix --apply', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tv-fix-src-'));
+    const tsFile = path.join(tmpDir, 'server.ts');
+    const pyFile = path.join(tmpDir, 'server.py');
+    const goFile = path.join(tmpDir, 'server.go');
+
+    fs.writeFileSync(
+      tsFile,
+      `import { z } from 'zod';\nconst schema = z.object({\n  amount: z.number(),\n});\n`
+    );
+    fs.writeFileSync(
+      pyFile,
+      `from pydantic import BaseModel\nclass ChargeArgs(BaseModel):\n    amount: float\n`
+    );
+    fs.writeFileSync(
+      goFile,
+      `package main\ntype ChargeInput struct {\n\tAmount float64 \`json:"amount"\`\n}\n`
+    );
+
+    await fixCommand(tmpDir, { apply: true, check: 'TC-IDEMP-001' });
+
+    const tsUpdated = fs.readFileSync(tsFile, 'utf-8');
+    const pyUpdated = fs.readFileSync(pyFile, 'utf-8');
+    const goUpdated = fs.readFileSync(goFile, 'utf-8');
+
+    assert.ok(tsUpdated.includes('idempotencyKey'), 'TypeScript file must be patched with idempotencyKey');
+    assert.ok(pyUpdated.includes('idempotency_key'), 'Python file must be patched with idempotency_key');
+    assert.ok(goUpdated.includes('IdempotencyKey'), 'Go file must be patched with IdempotencyKey');
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('should verify ES256 asymmetric JWS tokens and --jws flag (toolveto verify)', async () => {
+    const { publicKey, privateKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+    const headerB64 = Buffer.from(JSON.stringify({ alg: 'ES256', typ: 'JWT', kid: 'es256-key-1' })).toString('base64url');
+    const payloadB64 = Buffer.from(
+      JSON.stringify({
+        sub: 'es256-server',
+        score: 96,
+        tier: 'Platinum',
+        phi: 1.0,
+        iat: Math.floor(Date.now() / 1000),
+        exp: Math.floor(Date.now() / 1000) + 3600,
+      })
+    ).toString('base64url');
+
+    const sig = crypto
+      .sign('sha256', Buffer.from(`${headerB64}.${payloadB64}`), { key: privateKey, dsaEncoding: 'ieee-p1363' })
+      .toString('base64url');
+    const jws = `${headerB64}.${payloadB64}.${sig}`;
+    const pubPem = publicKey.export({ type: 'spki', format: 'pem' }).toString();
+
+    process.exitCode = 0;
+    await verifyCommand(undefined, { jws, publicKey: pubPem });
+    assert.strictEqual(process.exitCode, 0, 'Valid ES256 token via --jws must succeed');
+  });
+
+  it('should generate toolveto.lock.json and export Cedar/OPA policies (toolveto lock & export-policy)', async () => {
+    const { lockCommand } = await import('../commands/lock.js');
+    const { exportPolicyCommand } = await import('../commands/export-policy.js');
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tv-lock-policy-'));
+    const toolsPath = path.join(tmpDir, 'tools.json');
+    fs.writeFileSync(
+      toolsPath,
+      JSON.stringify([
+        {
+          name: 'create_payment',
+          description: 'Creates a verified payment with idempotency protection',
+          isMutation: true,
+          inputSchema: {
+            type: 'object',
+            properties: {
+              amount: { type: 'number' },
+              idempotency_key: { type: 'string' },
+            },
+            required: ['amount', 'idempotency_key'],
+          },
+        },
+      ])
+    );
+
+    const lockPath = path.join(tmpDir, 'toolveto.lock.json');
+    await lockCommand(toolsPath, { output: lockPath });
+    assert.ok(fs.existsSync(lockPath), 'toolveto.lock.json must be created');
+    const lockData = JSON.parse(fs.readFileSync(lockPath, 'utf-8'));
+    assert.ok(lockData.tools.create_payment?.sha256, 'Lockfile must contain SHA-256 hash of create_payment');
+
+    const cedarPath = path.join(tmpDir, 'policy.cedar');
+    await exportPolicyCommand(toolsPath, { format: 'cedar', output: cedarPath });
+    assert.ok(fs.existsSync(cedarPath), 'Cedar policy file must be created');
+    assert.ok(fs.readFileSync(cedarPath, 'utf-8').includes('Tool::"create_payment"'));
+
+    const opaPath = path.join(tmpDir, 'policy.rego');
+    await exportPolicyCommand(toolsPath, { format: 'opa', output: opaPath });
+    assert.ok(fs.existsSync(opaPath), 'OPA Rego policy file must be created');
+    assert.ok(fs.readFileSync(opaPath, 'utf-8').includes('package toolveto.authz'));
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
 });

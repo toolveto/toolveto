@@ -4,7 +4,7 @@ export function runIdempotencyKeyCheck(tool: McpToolDefinition): CheckResult {
   const startTime = Date.now();
   if (!tool.isMutation) {
     return {
-      checkId: 'TC-IDEMP-003',
+      checkId: 'TC-IDEMP-005',
       dimension: 'D1',
       tool: tool.name,
       status: 'PASS',
@@ -25,7 +25,7 @@ export function runIdempotencyKeyCheck(tool: McpToolDefinition): CheckResult {
 
   if (hasExplicitKey) {
     return {
-      checkId: 'TC-IDEMP-003',
+      checkId: 'TC-IDEMP-005',
       dimension: 'D1',
       tool: tool.name,
       status: 'PASS',
@@ -37,7 +37,7 @@ export function runIdempotencyKeyCheck(tool: McpToolDefinition): CheckResult {
   }
 
   return {
-    checkId: 'TC-IDEMP-003',
+    checkId: 'TC-IDEMP-005',
     dimension: 'D1',
     tool: tool.name,
     status: 'FAIL',

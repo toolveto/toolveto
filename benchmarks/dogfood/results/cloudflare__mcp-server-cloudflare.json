@@ -1,39 +1,39 @@
 {
   "target": "cloudflare/mcp-server-cloudflare",
-  "totalChecks": 48,
-  "passed": 25,
-  "failed": 12,
-  "warned": 11,
+  "totalChecks": 69,
+  "passed": 40,
+  "failed": 15,
+  "warned": 14,
   "fatalVetoTriggered": true,
   "fatalVetoCode": "VETO_NONE",
   "phi": 1,
   "score": 64,
   "tier": "Bronze",
-  "durationMs": 0,
+  "durationMs": 13,
   "llmTokensUsed": 0,
   "dimensionalScores": {
     "D1": {
       "score": 25,
-      "weight": 0.3,
+      "weight": 0.35,
       "metrics": {}
     },
     "D2": {
-      "score": 83,
-      "weight": 0.25,
+      "score": 88,
+      "weight": 0.2,
       "metrics": {}
     },
     "D3": {
       "score": 81,
-      "weight": 0.25,
+      "weight": 0.2,
       "metrics": {}
     },
     "D4": {
       "score": 100,
-      "weight": 0.1,
+      "weight": 0.15,
       "metrics": {}
     },
     "D5": {
-      "score": 56,
+      "score": 62,
       "weight": 0.1,
       "metrics": {}
     }
@@ -78,7 +78,7 @@
       "tool": "deploy_worker",
       "status": "FAIL",
       "severity": "CRITICAL",
-      "description": "Concurrent burst vulnerability: Tool 'deploy_worker' exposes no concurrency lock or idempotency parameter",
+      "description": "Concurrent burst vulnerability: Tool 'deploy_worker' exposes no concurrency lock or idempotency parameter (double-spend risk)",
       "evidence": {
         "requestsSent": 10,
         "mutationsCreated": 10,
@@ -99,6 +99,28 @@
     },
     {
       "checkId": "TC-IDEMP-003",
+      "dimension": "D1",
+      "tool": "deploy_worker",
+      "status": "FAIL",
+      "severity": "HIGH",
+      "description": "Missing explicit idempotency key in schema definition for mutation tool 'deploy_worker' (unprotected against crash-commit double-spend)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'idempotency_key: string' parameter to schema",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ idempotency_key: z.string().uuid().describe(\"Unique token for idempotent request processing\")"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-005",
       "dimension": "D1",
       "tool": "deploy_worker",
       "status": "FAIL",
@@ -151,7 +173,7 @@
           }
         ]
       },
-      "durationMs": 0
+      "durationMs": 1
     },
     {
       "checkId": "TC-ERR-001",
@@ -160,6 +182,18 @@
       "status": "PASS",
       "severity": "HIGH",
       "description": "Tool 'deploy_worker' has no strict semantic date formats requiring healing evaluation",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SEC-002",
+      "dimension": "D2",
+      "tool": "deploy_worker",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool 'deploy_worker' schema descriptions are free from static prompt poisoning, invisible Unicode, and ANSI escape sequences",
       "evidence": {
         "evidenceQuality": "STATIC-ONLY"
       },
@@ -228,6 +262,30 @@
       "durationMs": 0
     },
     {
+      "checkId": "TC-STEER-001",
+      "dimension": "D4",
+      "tool": "deploy_worker",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool description provides sufficient semantic steerability context (66 chars)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-STEER-002",
+      "dimension": "D4",
+      "tool": "deploy_worker",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "All parameters provide adequate type and format guidance for LLM prompt steerability",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
       "checkId": "TC-PAIR-001",
       "dimension": "D5",
       "tool": "deploy_worker",
@@ -276,6 +334,30 @@
       "durationMs": 0
     },
     {
+      "checkId": "TC-AUTH-002",
+      "dimension": "D5",
+      "tool": "deploy_worker",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "OAuth 2.1 Scope Guidance: High-impact mutating tool 'deploy_worker' does not specify required OAuth2.1 scopes (e.g. 'write:payments') in tool description.",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY",
+        "details": {
+          "recommendedScope": "write:deploy_worker"
+        }
+      },
+      "fix": {
+        "summary": "Document required OAuth 2.1 scope in description of tool 'deploy_worker'",
+        "diffs": [
+          {
+            "language": "json-schema",
+            "code": "\"description\": \"Deploys JavaScript worker script to Cloudflare global edge network (Requires OAuth 2.1 scope: write:deploy_worker)\""
+          }
+        ]
+      },
+      "durationMs": 1
+    },
+    {
       "checkId": "TC-IDEMP-001",
       "dimension": "D1",
       "tool": "purge_cache",
@@ -314,7 +396,7 @@
       "tool": "purge_cache",
       "status": "FAIL",
       "severity": "CRITICAL",
-      "description": "Concurrent burst vulnerability: Tool 'purge_cache' exposes no concurrency lock or idempotency parameter",
+      "description": "Concurrent burst vulnerability: Tool 'purge_cache' exposes no concurrency lock or idempotency parameter (double-spend risk)",
       "evidence": {
         "requestsSent": 10,
         "mutationsCreated": 10,
@@ -335,6 +417,28 @@
     },
     {
       "checkId": "TC-IDEMP-003",
+      "dimension": "D1",
+      "tool": "purge_cache",
+      "status": "FAIL",
+      "severity": "HIGH",
+      "description": "Missing explicit idempotency key in schema definition for mutation tool 'purge_cache' (unprotected against crash-commit double-spend)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'idempotency_key: string' parameter to schema",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ idempotency_key: z.string().uuid().describe(\"Unique token for idempotent request processing\")"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-005",
       "dimension": "D1",
       "tool": "purge_cache",
       "status": "FAIL",
@@ -396,6 +500,18 @@
       "status": "PASS",
       "severity": "HIGH",
       "description": "Tool 'purge_cache' has no strict semantic date formats requiring healing evaluation",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SEC-002",
+      "dimension": "D2",
+      "tool": "purge_cache",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool 'purge_cache' schema descriptions are free from static prompt poisoning, invisible Unicode, and ANSI escape sequences",
       "evidence": {
         "evidenceQuality": "STATIC-ONLY"
       },
@@ -464,6 +580,30 @@
       "durationMs": 0
     },
     {
+      "checkId": "TC-STEER-001",
+      "dimension": "D4",
+      "tool": "purge_cache",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool description provides sufficient semantic steerability context (50 chars)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-STEER-002",
+      "dimension": "D4",
+      "tool": "purge_cache",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "All parameters provide adequate type and format guidance for LLM prompt steerability",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
       "checkId": "TC-PAIR-001",
       "dimension": "D5",
       "tool": "purge_cache",
@@ -512,6 +652,30 @@
       "durationMs": 0
     },
     {
+      "checkId": "TC-AUTH-002",
+      "dimension": "D5",
+      "tool": "purge_cache",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "OAuth 2.1 Scope Guidance: High-impact mutating tool 'purge_cache' does not specify required OAuth2.1 scopes (e.g. 'write:payments') in tool description.",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY",
+        "details": {
+          "recommendedScope": "write:purge_cache"
+        }
+      },
+      "fix": {
+        "summary": "Document required OAuth 2.1 scope in description of tool 'purge_cache'",
+        "diffs": [
+          {
+            "language": "json-schema",
+            "code": "\"description\": \"Purges cached assets across Cloudflare global edge (Requires OAuth 2.1 scope: write:purge_cache)\""
+          }
+        ]
+      },
+      "durationMs": 1
+    },
+    {
       "checkId": "TC-IDEMP-001",
       "dimension": "D1",
       "tool": "list_dns_records",
@@ -540,6 +704,18 @@
     },
     {
       "checkId": "TC-IDEMP-003",
+      "dimension": "D1",
+      "tool": "list_dns_records",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Query tool 'list_dns_records' is read-only and free from crash-commit double-spend risk",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-005",
       "dimension": "D1",
       "tool": "list_dns_records",
       "status": "PASS",
@@ -591,6 +767,18 @@
       "status": "PASS",
       "severity": "HIGH",
       "description": "Tool 'list_dns_records' has no strict semantic date formats requiring healing evaluation",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SEC-002",
+      "dimension": "D2",
+      "tool": "list_dns_records",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool 'list_dns_records' schema descriptions are free from static prompt poisoning, invisible Unicode, and ANSI escape sequences",
       "evidence": {
         "evidenceQuality": "STATIC-ONLY"
       },
@@ -676,6 +864,30 @@
       "durationMs": 0
     },
     {
+      "checkId": "TC-STEER-001",
+      "dimension": "D4",
+      "tool": "list_dns_records",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool description provides sufficient semantic steerability context (38 chars)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-STEER-002",
+      "dimension": "D4",
+      "tool": "list_dns_records",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "All parameters provide adequate type and format guidance for LLM prompt steerability",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
       "checkId": "TC-PAIR-001",
       "dimension": "D5",
       "tool": "list_dns_records",
@@ -698,6 +910,18 @@
         "evidenceQuality": "STATIC-ONLY"
       },
       "durationMs": 0
+    },
+    {
+      "checkId": "TC-AUTH-002",
+      "dimension": "D5",
+      "tool": "list_dns_records",
+      "status": "PASS",
+      "severity": "INFO",
+      "description": "OAuth 2.1 scope specification verified for tool 'list_dns_records'.",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 1
     },
     {
       "checkId": "TC-IDEMP-001",
@@ -738,7 +962,7 @@
       "tool": "update_dns_record",
       "status": "FAIL",
       "severity": "CRITICAL",
-      "description": "Concurrent burst vulnerability: Tool 'update_dns_record' exposes no concurrency lock or idempotency parameter",
+      "description": "Concurrent burst vulnerability: Tool 'update_dns_record' exposes no concurrency lock or idempotency parameter (double-spend risk)",
       "evidence": {
         "requestsSent": 10,
         "mutationsCreated": 10,
@@ -759,6 +983,28 @@
     },
     {
       "checkId": "TC-IDEMP-003",
+      "dimension": "D1",
+      "tool": "update_dns_record",
+      "status": "FAIL",
+      "severity": "HIGH",
+      "description": "Missing explicit idempotency key in schema definition for mutation tool 'update_dns_record' (unprotected against crash-commit double-spend)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'idempotency_key: string' parameter to schema",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ idempotency_key: z.string().uuid().describe(\"Unique token for idempotent request processing\")"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-005",
       "dimension": "D1",
       "tool": "update_dns_record",
       "status": "FAIL",
@@ -820,6 +1066,18 @@
       "status": "PASS",
       "severity": "HIGH",
       "description": "Tool 'update_dns_record' has no strict semantic date formats requiring healing evaluation",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SEC-002",
+      "dimension": "D2",
+      "tool": "update_dns_record",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool 'update_dns_record' schema descriptions are free from static prompt poisoning, invisible Unicode, and ANSI escape sequences",
       "evidence": {
         "evidenceQuality": "STATIC-ONLY"
       },
@@ -888,6 +1146,30 @@
       "durationMs": 0
     },
     {
+      "checkId": "TC-STEER-001",
+      "dimension": "D4",
+      "tool": "update_dns_record",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool description provides sufficient semantic steerability context (53 chars)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-STEER-002",
+      "dimension": "D4",
+      "tool": "update_dns_record",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "All parameters provide adequate type and format guidance for LLM prompt steerability",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
       "checkId": "TC-PAIR-001",
       "dimension": "D5",
       "tool": "update_dns_record",
@@ -920,6 +1202,89 @@
         ]
       },
       "durationMs": 0
+    },
+    {
+      "checkId": "TC-AUTH-002",
+      "dimension": "D5",
+      "tool": "update_dns_record",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "OAuth 2.1 Scope Guidance: High-impact mutating tool 'update_dns_record' does not specify required OAuth2.1 scopes (e.g. 'write:payments') in tool description.",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY",
+        "details": {
+          "recommendedScope": "write:update_dns_record"
+        }
+      },
+      "fix": {
+        "summary": "Document required OAuth 2.1 scope in description of tool 'update_dns_record'",
+        "diffs": [
+          {
+            "language": "json-schema",
+            "code": "\"description\": \"Updates an existing DNS record IP or hostname mapping (Requires OAuth 2.1 scope: write:update_dns_record)\""
+          }
+        ]
+      },
+      "durationMs": 1
+    },
+    {
+      "checkId": "TC-SEC-003",
+      "dimension": "D5",
+      "tool": "suite-wide",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Zero tool namespace collisions or cross-server shadowing directives across 4 tool(s)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
     }
-  ]
+  ],
+  "statisticalConfidence": {
+    "n": 30,
+    "pointEstimate": 64,
+    "confidenceInterval95": [
+      55,
+      73
+    ],
+    "certifiedLowerBound": 55
+  },
+  "aiuc1Compliance": {
+    "AIUC-1 §4.2 Idempotency": "FAIL",
+    "AIUC-1 §4.5 Error Guidance": "PASS",
+    "AIUC-1 §5.1 Auth Model & Tenant Isolation": "PASS",
+    "AIUC-1 §6.3 Loop Protection": "PASS",
+    "OWASP Agentic LLM01 Prompt Injection": "PASS",
+    "OWASP Agentic LLM02 Sensitive Information Disclosure": "PASS"
+  },
+  "environmentManifest": {
+    "harness": "toolveto-core-v1.1.0",
+    "protocolVersion": "2025-03-26",
+    "nodeVersion": "v26.5.0",
+    "platform": "darwin",
+    "destructiveAuthorization": "false"
+  },
+  "expiresAt": "2027-01-12T03:51:50.733Z",
+  "perToolScorecard": {
+    "deploy_worker": {
+      "score": 47,
+      "checksPassed": 8,
+      "checksFailed": 5
+    },
+    "purge_cache": {
+      "score": 47,
+      "checksPassed": 8,
+      "checksFailed": 5
+    },
+    "list_dns_records": {
+      "score": 82,
+      "checksPassed": 14,
+      "checksFailed": 1
+    },
+    "update_dns_record": {
+      "score": 53,
+      "checksPassed": 9,
+      "checksFailed": 4
+    }
+  }
 }

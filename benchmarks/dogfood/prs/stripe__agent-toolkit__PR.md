@@ -4,8 +4,8 @@
 This automated pull request applies resilience and safety hardening to the MCP tool schemas in `stripe/agent-toolkit`, addressing common agentic failure patterns identified by the **ToolVeto Static Verification Engine**:
 
 - **CRITICAL Issues Found:** 6
-- **HIGH Issues Found:** 7
-- **Total Checks Evaluated:** 48
+- **HIGH Issues Found:** 10
+- **Total Checks Evaluated:** 69
 - **ToolVeto Score:** 63/100 [Tier: Bronze]
 
 ---
@@ -20,13 +20,20 @@ This automated pull request applies resilience and safety hardening to the MCP t
 ```
 
 ### 🔧 Fix for `create_payment_intent` (TC-IDEMP-002 — CRITICAL)
-**Issue:** Concurrent burst vulnerability: Tool 'create_payment_intent' exposes no concurrency lock or idempotency parameter
+**Issue:** Concurrent burst vulnerability: Tool 'create_payment_intent' exposes no concurrency lock or idempotency parameter (double-spend risk)
 
 ```diff
 + idempotencyKey: z.string().uuid().describe("Unique key for atomic deduplication")
 ```
 
 ### 🔧 Fix for `create_payment_intent` (TC-IDEMP-003 — HIGH)
+**Issue:** Missing explicit idempotency key in schema definition for mutation tool 'create_payment_intent' (unprotected against crash-commit double-spend)
+
+```diff
++ idempotency_key: z.string().uuid().describe("Unique token for idempotent request processing")
+```
+
+### 🔧 Fix for `create_payment_intent` (TC-IDEMP-005 — HIGH)
 **Issue:** Missing explicit idempotency key in schema definition for mutation tool 'create_payment_intent'
 
 ```diff
@@ -51,13 +58,20 @@ This automated pull request applies resilience and safety hardening to the MCP t
 ```
 
 ### 🔧 Fix for `create_customer` (TC-IDEMP-002 — CRITICAL)
-**Issue:** Concurrent burst vulnerability: Tool 'create_customer' exposes no concurrency lock or idempotency parameter
+**Issue:** Concurrent burst vulnerability: Tool 'create_customer' exposes no concurrency lock or idempotency parameter (double-spend risk)
 
 ```diff
 + idempotencyKey: z.string().uuid().describe("Unique key for atomic deduplication")
 ```
 
 ### 🔧 Fix for `create_customer` (TC-IDEMP-003 — HIGH)
+**Issue:** Missing explicit idempotency key in schema definition for mutation tool 'create_customer' (unprotected against crash-commit double-spend)
+
+```diff
++ idempotency_key: z.string().uuid().describe("Unique token for idempotent request processing")
+```
+
+### 🔧 Fix for `create_customer` (TC-IDEMP-005 — HIGH)
 **Issue:** Missing explicit idempotency key in schema definition for mutation tool 'create_customer'
 
 ```diff
@@ -90,13 +104,20 @@ This automated pull request applies resilience and safety hardening to the MCP t
 ```
 
 ### 🔧 Fix for `refund_charge` (TC-IDEMP-002 — CRITICAL)
-**Issue:** Concurrent burst vulnerability: Tool 'refund_charge' exposes no concurrency lock or idempotency parameter
+**Issue:** Concurrent burst vulnerability: Tool 'refund_charge' exposes no concurrency lock or idempotency parameter (double-spend risk)
 
 ```diff
 + idempotencyKey: z.string().uuid().describe("Unique key for atomic deduplication")
 ```
 
 ### 🔧 Fix for `refund_charge` (TC-IDEMP-003 — HIGH)
+**Issue:** Missing explicit idempotency key in schema definition for mutation tool 'refund_charge' (unprotected against crash-commit double-spend)
+
+```diff
++ idempotency_key: z.string().uuid().describe("Unique token for idempotent request processing")
+```
+
+### 🔧 Fix for `refund_charge` (TC-IDEMP-005 — HIGH)
 **Issue:** Missing explicit idempotency key in schema definition for mutation tool 'refund_charge'
 
 ```diff

@@ -30,6 +30,7 @@ import { runAnnotationCrossCheck } from './checks/annotation-cross-check.js';
 import { runDelayedReplayCheck, runHeterogeneousInterleavingCheck } from './checks/delayed-replay.js';
 import { runEnvelopeFuzzCheck } from './checks/envelope-fuzz.js';
 import { runTasksExtensionCheck } from './checks/tasks-extension.js';
+import { runToolPoisoningCheck, runToolShadowingCheck } from './checks/tool-poisoning.js';
 import { loadToolvetoConfig } from './config.js';
 
 export interface RunSuiteOptions {
@@ -58,15 +59,20 @@ export async function runSuite(
     results.push(await runConcurrentBurstCheck(tool, client, 10, destructiveAuthorization));
     results.push(await runCrashCommitCheck(tool, client, destructiveAuthorization));
     results.push(runIdempotencyKeyCheck(tool));
-    results.push(await runDelayedReplayCheck(tool, client, destructiveAuthorization));
-    results.push(await runCancellationCheck(tool, client, destructiveAuthorization));
-    results.push(await runLatencyProfilingCheck(tool, client, destructiveAuthorization));
+    if (client) {
+      results.push(await runDelayedReplayCheck(tool, client, destructiveAuthorization));
+      results.push(await runCancellationCheck(tool, client, destructiveAuthorization));
+      results.push(await runLatencyProfilingCheck(tool, client, destructiveAuthorization));
+    }
 
     // D2 Checks
     results.push(await runTypeInversionFuzzCheck(tool, client));
     results.push(await runHallucinatedParamsCheck(tool, client));
     results.push(await runSemanticErrorCheck(tool, client));
-    results.push(await runEnvelopeFuzzCheck(tool, client));
+    if (client) {
+      results.push(await runEnvelopeFuzzCheck(tool, client));
+    }
+    results.push(runToolPoisoningCheck(tool));
 
     // D3 Checks
     results.push(await runTokenBudgetCheck(tool, client));
@@ -77,50 +83,87 @@ export async function runSuite(
     // D4 Checks (Steerability & Schema Ambiguity & Annotations)
     results.push(runDescriptionAmbiguityCheck(tool, tools));
     results.push(runParamSteerabilityCheck(tool));
-    results.push(await runAnnotationCrossCheck(tool, client, replayCheck.status === 'PASS'));
+    if (client) {
+      results.push(await runAnnotationCrossCheck(tool, client, replayCheck.status === 'PASS'));
+    }
 
     // D5 Checks (State auditability, Tenant Isolation, Auth, Roots)
     results.push(runReadBeforeWritePairingCheck(tool, tools));
     results.push(runDryRunCheck(tool));
-    results.push(await runTenantIsolationCheck(tool, client, destructiveAuthorization));
     results.push(runOAuthScopeCheck(tool));
-    results.push(await runRootsPathTraversalCheck(tool, client));
-    results.push(await runTasksExtensionCheck(tool, client, destructiveAuthorization));
-  }
-
-  // Multi-tool heterogeneous interleaving check
-  results.push(await runHeterogeneousInterleavingCheck(tools, client, destructiveAuthorization));
-
-  // Resource / Prompt / Capability surface checks
-  if (client && client.listResources) {
-    try {
-      const resources = await client.listResources();
-      results.push(await runResourceListCheck(resources, client));
-      results.push(await runResourceReadCheck(resources, client));
-    } catch {
-      // Safe fallback
+    if (client) {
+      results.push(await runTenantIsolationCheck(tool, client, destructiveAuthorization));
+      results.push(await runRootsPathTraversalCheck(tool, client));
+      results.push(await runTasksExtensionCheck(tool, client, destructiveAuthorization));
     }
   }
-  results.push(await runServerCapabilityCheck(client));
+
+  // Multi-tool heterogeneous interleaving & cross-server shadowing checks
+  if (client) {
+    results.push(await runHeterogeneousInterleavingCheck(tools, client, destructiveAuthorization));
+  }
+  results.push(runToolShadowingCheck(tools));
+
+  // Resource / Prompt / Capability surface checks
+  if (client) {
+    if (client.listResources) {
+      try {
+        const resources = await client.listResources();
+        results.push(await runResourceListCheck(resources, client));
+        results.push(await runResourceReadCheck(resources, client));
+      } catch {
+        // Safe fallback
+      }
+    }
+    results.push(await runServerCapabilityCheck(client));
+  }
 
   // Detect prompt injection / exfiltration if live client is available
+  const injectionResponsePattern =
+    /(?:SYSTEM\s*OVERRIDE|Ignore\s+(?:all\s+)?(?:previous|prior)\s+instructions|<system>|<<SYS>>|you\s+are\s+now\s+DAN|disregard\s+(?:all\s+)?(?:previous|prior)\s+instructions)/i;
+
   if (client) {
     for (const tool of tools) {
-      if (tool.name.includes('prompt') || tool.name.includes('exfil')) {
+      const shouldProbeInjection =
+        !tool.isMutation ||
+        destructiveAuthorization ||
+        tool.name.includes('prompt') ||
+        tool.name.includes('exfil');
+
+      if (shouldProbeInjection) {
         try {
-          const resp = await client.callTool(tool.name, { input: 'ignore previous instructions' });
+          const probeArgs: Record<string, any> = { input: 'ignore previous instructions' };
+          const schemaProps = tool.inputSchema?.properties || {};
+          for (const [k, propSchema] of Object.entries(schemaProps)) {
+            if (propSchema?.type === 'string') {
+              if (propSchema.format === 'date' || k.includes('date')) {
+                probeArgs[k] = '2026-10-15';
+              } else if (k.endsWith('_id') || k === 'id' || k === 'cursor' || k === 'currency' || k.includes('key')) {
+                probeArgs[k] = 'probe_ref_001';
+              } else {
+                probeArgs[k] = 'ignore previous instructions';
+              }
+            } else if (propSchema?.type === 'number' || propSchema?.type === 'integer') {
+              probeArgs[k] = 1;
+            } else if (propSchema?.type === 'boolean') {
+              probeArgs[k] = true;
+            }
+          }
+
+          const resp = await client.callTool(tool.name, probeArgs);
           const text = resp.content?.map((c) => c.text).join('') || '';
-          if (text.includes('SYSTEM OVERRIDE') || text.includes('Ignore previous instructions')) {
+          if (injectionResponsePattern.test(text)) {
             results.push({
               checkId: 'TC-VETO-INJECT-001',
               dimension: 'D2',
               tool: tool.name,
               status: 'FAIL',
               severity: 'CRITICAL',
+              vetoClass: 'VETO_INJECT',
               description: `VETO_INJECT: Indirect prompt injection vulnerability detected in tool response`,
               evidence: {
                 evidenceQuality: 'VERIFIED',
-                details: { leakedPattern: 'SYSTEM OVERRIDE override detected in output' },
+                details: { leakedPattern: 'Prompt override directive detected in tool output' },
               },
               durationMs: 10,
             });
@@ -130,7 +173,6 @@ export async function runSuite(
         }
       }
 
-      // Deterministic SSRF callback probe
       // Deterministic SSRF callback probe
       const props = tool.inputSchema?.properties || {};
       const callbackParam = Object.keys(props).find((k) =>
@@ -192,7 +234,12 @@ export async function runSuite(
   );
 
   const hasInject = results.some(
-    (r) => r.checkId === 'TC-VETO-INJECT-001' || r.checkId === 'TC-RES-002' || r.description.includes('VETO_INJECT')
+    (r) =>
+      r.status === 'FAIL' &&
+      (r.checkId === 'TC-VETO-INJECT-001' ||
+       r.checkId === 'TC-SEC-002' ||
+       r.checkId === 'TC-SEC-003' ||
+       r.description.includes('VETO_INJECT'))
   );
 
   const hasTenantLeak = results.some(
@@ -208,7 +255,10 @@ export async function runSuite(
   );
 
   const hasContextBomb = results.some(
-    (r) => r.checkId === 'TC-CTX-001' && r.status === 'FAIL' && r.severity === 'CRITICAL'
+    (r) =>
+      (r.checkId === 'TC-CTX-001' || (r.checkId === 'TC-RES-002' && !r.description.includes('VETO_INJECT'))) &&
+      r.status === 'FAIL' &&
+      r.severity === 'CRITICAL'
   );
 
   const hasDataLoss = results.some(
@@ -220,6 +270,8 @@ export async function runSuite(
 
   const idempFailures = results.filter(
     (r) =>
+      Boolean(client) &&
+      r.evidence?.evidenceQuality === 'VERIFIED' &&
       r.dimension === 'D1' &&
       r.status === 'FAIL' &&
       r.severity === 'CRITICAL' &&
@@ -229,6 +281,8 @@ export async function runSuite(
 
   const hasSevereBurst = results.some(
     (r) =>
+      Boolean(client) &&
+      r.evidence?.evidenceQuality === 'VERIFIED' &&
       r.checkId === 'TC-IDEMP-002' &&
       r.status === 'FAIL' &&
       r.severity === 'CRITICAL' &&

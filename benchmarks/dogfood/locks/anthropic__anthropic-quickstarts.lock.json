@@ -1,0 +1,28 @@
+{
+  "version": "1.0",
+  "generatedAt": "2026-10-14T03:51:50.705Z",
+  "target": "anthropic/anthropic-quickstarts",
+  "manifestHash": "sha256:dc925054871c00f3309edd80856e660676a8234ed80f9af5cadee38bdfc34e13",
+  "tools": {
+    "read_query": {
+      "sha256": "f5228c0ff747f6433b1c66336358f04dd02486ea358e049ca022227c8b260917",
+      "descriptionLength": 29,
+      "isMutation": false
+    },
+    "write_query": {
+      "sha256": "b30ce8dd70f6d761a13cf2b12cc62cdeb7a90a434acf5cebb2340c06d0e225c9",
+      "descriptionLength": 24,
+      "isMutation": true
+    },
+    "list_tables": {
+      "sha256": "62f5528756f46e2d1f71d0fe30efcd8760a175836cc209faf1516c4f3900f52f",
+      "descriptionLength": 28,
+      "isMutation": false
+    },
+    "describe_table": {
+      "sha256": "5767d1b2fb13b11a8ef90c4579974184030679944107226bff3c2795c99f1635",
+      "descriptionLength": 39,
+      "isMutation": false
+    }
+  }
+}

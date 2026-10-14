@@ -4,9 +4,9 @@
 This automated pull request applies resilience and safety hardening to the MCP tool schemas in `modelcontextprotocol/servers`, addressing common agentic failure patterns identified by the **ToolVeto Static Verification Engine**:
 
 - **CRITICAL Issues Found:** 4
-- **HIGH Issues Found:** 4
-- **Total Checks Evaluated:** 60
-- **ToolVeto Score:** 78/100 [Tier: Silver]
+- **HIGH Issues Found:** 6
+- **Total Checks Evaluated:** 86
+- **ToolVeto Score:** 79/100 [Tier: Silver]
 
 ---
 
@@ -20,13 +20,20 @@ This automated pull request applies resilience and safety hardening to the MCP t
 ```
 
 ### 🔧 Fix for `filesystem_write_file` (TC-IDEMP-002 — CRITICAL)
-**Issue:** Concurrent burst vulnerability: Tool 'filesystem_write_file' exposes no concurrency lock or idempotency parameter
+**Issue:** Concurrent burst vulnerability: Tool 'filesystem_write_file' exposes no concurrency lock or idempotency parameter (double-spend risk)
 
 ```diff
 + idempotencyKey: z.string().uuid().describe("Unique key for atomic deduplication")
 ```
 
 ### 🔧 Fix for `filesystem_write_file` (TC-IDEMP-003 — HIGH)
+**Issue:** Missing explicit idempotency key in schema definition for mutation tool 'filesystem_write_file' (unprotected against crash-commit double-spend)
+
+```diff
++ idempotency_key: z.string().uuid().describe("Unique token for idempotent request processing")
+```
+
+### 🔧 Fix for `filesystem_write_file` (TC-IDEMP-005 — HIGH)
 **Issue:** Missing explicit idempotency key in schema definition for mutation tool 'filesystem_write_file'
 
 ```diff
@@ -51,13 +58,20 @@ This automated pull request applies resilience and safety hardening to the MCP t
 ```
 
 ### 🔧 Fix for `git_create_commit` (TC-IDEMP-002 — CRITICAL)
-**Issue:** Concurrent burst vulnerability: Tool 'git_create_commit' exposes no concurrency lock or idempotency parameter
+**Issue:** Concurrent burst vulnerability: Tool 'git_create_commit' exposes no concurrency lock or idempotency parameter (double-spend risk)
 
 ```diff
 + idempotencyKey: z.string().uuid().describe("Unique key for atomic deduplication")
 ```
 
 ### 🔧 Fix for `git_create_commit` (TC-IDEMP-003 — HIGH)
+**Issue:** Missing explicit idempotency key in schema definition for mutation tool 'git_create_commit' (unprotected against crash-commit double-spend)
+
+```diff
++ idempotency_key: z.string().uuid().describe("Unique token for idempotent request processing")
+```
+
+### 🔧 Fix for `git_create_commit` (TC-IDEMP-005 — HIGH)
 **Issue:** Missing explicit idempotency key in schema definition for mutation tool 'git_create_commit'
 
 ```diff

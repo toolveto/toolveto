@@ -88,16 +88,16 @@ Would love your feedback on our scoring rubric and chaos invariants!
 
 **Tweet 6 (The Dogfood Targets):**
 > We didn't test toys. We audited:
-> • @modelcontextprotocol servers (Score: 78)
-> • @anthropic quickstarts (Score: 77)
+> • @anthropic SQLite Server (Score: 80)
+> • @modelcontextprotocol servers (Score: 79)
 > • @atlassian Confluence (Score: 75)
 > • @linear MCP (Score: 75)
-> • @getsentry MCP (Score: 73)
-> • @neondatabase MCP (Score: 71)
+> • @github Official MCP (Score: 74)
+> • @SlackHQ MCP (Score: 72)
+> • @cloudflare MCP (Score: 64)
+> • @neondatabase MCP (Score: 63)
 > • @stripe Agent Toolkit (Score: 63)
-> • @SlackHQ MCP (Score: 66)
-> • @docker MCP (Score: 63)
-> • @github MCP (Score: 62)
+> • @supabase MCP (Score: 63)
 
 **Tweet 7 (The Potency Rule):**
 > Our rule: A number without a fix is useless.

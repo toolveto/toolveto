@@ -2,6 +2,7 @@ import { McpClient } from './interface.js';
 import {
   McpToolDefinition,
   McpCallResponse,
+  McpResourceDefinition,
   McpServerCapabilities,
   McpTask,
   LATEST_MCP_PROTOCOL_VERSION,
@@ -119,6 +120,68 @@ export class HttpMcpClient implements McpClient {
       return result.tools;
     }
     return [];
+  }
+
+  public async listResources(): Promise<McpResourceDefinition[]> {
+    try {
+      const result = await this.jsonRpcRequest('resources/list', {
+        _meta: {
+          protocolVersion: this.protocolVersion,
+          client: 'toolveto-harness',
+        },
+      });
+      return Array.isArray(result?.resources) ? result.resources : [];
+    } catch {
+      return [];
+    }
+  }
+
+  public async readResource(uri: string): Promise<{ contents: Array<{ uri: string; text?: string; blob?: string }> }> {
+    const result = await this.jsonRpcRequest('resources/read', {
+      uri,
+      _meta: {
+        protocolVersion: this.protocolVersion,
+        client: 'toolveto-harness',
+      },
+    });
+    return {
+      contents: Array.isArray(result?.contents) ? result.contents : [],
+    };
+  }
+
+  public async sendRawRequest(rawJson: string | Record<string, unknown>): Promise<any> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      const response = await fetch(this.baseUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...this.headers,
+        },
+        body: typeof rawJson === 'string' ? rawJson : JSON.stringify(rawJson),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      const text = await response.text();
+      if (!text || !text.trim()) {
+        return undefined;
+      }
+      try {
+        return JSON.parse(text);
+      } catch {
+        return {
+          jsonrpc: '2.0',
+          error: {
+            code: response.status >= 500 ? -32603 : -32700,
+            message: text || response.statusText,
+          },
+        };
+      }
+    } catch (err: any) {
+      clearTimeout(timer);
+      throw err;
+    }
   }
 
   public async callTool(name: string, args: Record<string, any>): Promise<McpCallResponse> {
