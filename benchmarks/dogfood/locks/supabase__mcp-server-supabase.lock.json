@@ -1,0 +1,28 @@
+{
+  "version": "1.0",
+  "generatedAt": "2026-10-14T03:51:50.810Z",
+  "target": "supabase/mcp-server-supabase",
+  "manifestHash": "sha256:240a4fd68a3b9126f618baf11bf016d5e5829fca872ab7043154b5c8f35645d2",
+  "tools": {
+    "execute_sql": {
+      "sha256": "e83626660115cb879c5c29be9df0de46f20d822d8df0007903d0edbdd7189e18",
+      "descriptionLength": 53,
+      "isMutation": true
+    },
+    "insert_row": {
+      "sha256": "442e495b7af06defeb90d3441096b3b9a2ed927d8314505dd637385c14724a37",
+      "descriptionLength": 44,
+      "isMutation": true
+    },
+    "update_row": {
+      "sha256": "53c9c21afc706c466ed68729cfc2d6f8fb54d8b92ae8fd4dae0b2c396cdee28b",
+      "descriptionLength": 48,
+      "isMutation": true
+    },
+    "list_tables": {
+      "sha256": "e673dae3510e358239e2be06aac3c84cf8fbab2ecca5eda13eb3bb02e0d432d6",
+      "descriptionLength": 61,
+      "isMutation": false
+    }
+  }
+}

@@ -18,11 +18,13 @@ export async function proxyCommand(options: ProxyOptions = {}): Promise<any> {
 
   const server = createGatewayServer({
     port,
+    tokenBudget,
     upstreams: {
       default: {
         name: 'default',
         url: upstreamUrl,
         policy: 'standard',
+        tokenBudget,
       },
     },
   });

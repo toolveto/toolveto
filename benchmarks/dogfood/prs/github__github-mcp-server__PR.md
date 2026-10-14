@@ -4,8 +4,8 @@
 This automated pull request applies resilience and safety hardening to the MCP tool schemas in `github/github-mcp-server`, addressing common agentic failure patterns identified by the **ToolVeto Static Verification Engine**:
 
 - **CRITICAL Issues Found:** 4
-- **HIGH Issues Found:** 4
-- **Total Checks Evaluated:** 48
+- **HIGH Issues Found:** 6
+- **Total Checks Evaluated:** 69
 - **ToolVeto Score:** 74/100 [Tier: Bronze]
 
 ---
@@ -20,13 +20,20 @@ This automated pull request applies resilience and safety hardening to the MCP t
 ```
 
 ### 🔧 Fix for `create_issue` (TC-IDEMP-002 — CRITICAL)
-**Issue:** Concurrent burst vulnerability: Tool 'create_issue' exposes no concurrency lock or idempotency parameter
+**Issue:** Concurrent burst vulnerability: Tool 'create_issue' exposes no concurrency lock or idempotency parameter (double-spend risk)
 
 ```diff
 + idempotencyKey: z.string().uuid().describe("Unique key for atomic deduplication")
 ```
 
 ### 🔧 Fix for `create_issue` (TC-IDEMP-003 — HIGH)
+**Issue:** Missing explicit idempotency key in schema definition for mutation tool 'create_issue' (unprotected against crash-commit double-spend)
+
+```diff
++ idempotency_key: z.string().uuid().describe("Unique token for idempotent request processing")
+```
+
+### 🔧 Fix for `create_issue` (TC-IDEMP-005 — HIGH)
 **Issue:** Missing explicit idempotency key in schema definition for mutation tool 'create_issue'
 
 ```diff
@@ -49,13 +56,20 @@ This automated pull request applies resilience and safety hardening to the MCP t
 ```
 
 ### 🔧 Fix for `merge_pull_request` (TC-IDEMP-002 — CRITICAL)
-**Issue:** Concurrent burst vulnerability: Tool 'merge_pull_request' exposes no concurrency lock or idempotency parameter
+**Issue:** Concurrent burst vulnerability: Tool 'merge_pull_request' exposes no concurrency lock or idempotency parameter (double-spend risk)
 
 ```diff
 + idempotencyKey: z.string().uuid().describe("Unique key for atomic deduplication")
 ```
 
 ### 🔧 Fix for `merge_pull_request` (TC-IDEMP-003 — HIGH)
+**Issue:** Missing explicit idempotency key in schema definition for mutation tool 'merge_pull_request' (unprotected against crash-commit double-spend)
+
+```diff
++ idempotency_key: z.string().uuid().describe("Unique token for idempotent request processing")
+```
+
+### 🔧 Fix for `merge_pull_request` (TC-IDEMP-005 — HIGH)
 **Issue:** Missing explicit idempotency key in schema definition for mutation tool 'merge_pull_request'
 
 ```diff

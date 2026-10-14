@@ -1,10 +1,11 @@
 # The State of MCP Server Reliability — 2026
 *An Independent Empirical Safety & Resilience Benchmark of 10 Popular Open-Source Model Context Protocol Servers*
 
-- **Document ID**: AP-BENCHMARK-2026-V1
-- **Evaluator**: ToolVeto Open-Source Check Engine (v0.1.0)
+- **Document ID**: AP-BENCHMARK-2026-V2
+- **Evaluator**: ToolVeto Open-Source 14-Check Engine (v0.2.0)
 - **Target Population**: 10 Tier-1 Open Source MCP Servers (109,700 combined GitHub stars)
-- **Evaluation Mode**: Stages 1 & 2 Static Contract Verification (`STATIC-ONLY`, Zero Destructive Mutations)
+- **Evaluation Mode**: Stages 1 & 2 Static Contract Verification (`STATIC-ONLY`, Zero Destructive Mutations, Zero-LLM Poisoning & Shadowing Guard)
+- **Generated Artifacts**: Scorecards (`results/`), Auto-Fix PRs (`prs/`), SHA-256 Lockfiles (`locks/`), & AWS Cedar / OPA Policies (`policies/`)
 
 ---
 
@@ -23,14 +24,14 @@ When autonomous agents interact with today's open-source MCP ecosystem:
 
 | Server Repository | GitHub Stars | ToolVeto Score | Certification Tier | Critical Violations | CI Merge Gate |
 |:------------------|:------------:|:--------------:|:------------------:|:-------------------:|:-------------:|
-| **Anthropic SQLite Server** (`anthropic/anthropic-quickstarts`) | 13,200 | **77/100** | Silver | 🔴 2 Critical | 🔴 Blocked |
+| **Anthropic SQLite Server** (`anthropic/anthropic-quickstarts`) | 13,200 | **80/100** | Gold | 🔴 2 Critical | 🔴 Blocked |
 | **Atlassian Confluence Server** (`atlassian/mcp-server-confluence`) | 2,400 | **75/100** | Bronze | 🔴 4 Critical | 🔴 Blocked |
 | **Cloudflare MCP Server** (`cloudflare/mcp-server-cloudflare`) | 5,400 | **64/100** | Bronze | 🔴 6 Critical | 🔴 Blocked |
 | **GitHub Official MCP Server** (`github/github-mcp-server`) | 15,800 | **74/100** | Bronze | 🔴 4 Critical | 🔴 Blocked |
 | **Linear MCP Server** (`linear/mcp-linear`) | 3,400 | **75/100** | Bronze | 🔴 4 Critical | 🔴 Blocked |
-| **Reference MCP Servers** (`modelcontextprotocol/servers`) | 42,000 | **78/100** | Silver | 🔴 4 Critical | 🔴 Blocked |
+| **Reference MCP Servers** (`modelcontextprotocol/servers`) | 42,000 | **79/100** | Silver | 🔴 4 Critical | 🔴 Blocked |
 | **Neon Database Server** (`neondatabase/mcp-server-neon`) | 6,200 | **63/100** | Bronze | 🔴 6 Critical | 🔴 Blocked |
-| **Slack MCP Server** (`slack/mcp-server`) | 4,600 | **71/100** | Bronze | 🔴 4 Critical | 🔴 Blocked |
+| **Slack MCP Server** (`slack/mcp-server`) | 4,600 | **72/100** | Bronze | 🔴 4 Critical | 🔴 Blocked |
 | **Stripe Agent Toolkit** (`stripe/agent-toolkit`) | 8,500 | **63/100** | Bronze | 🔴 6 Critical | 🔴 Blocked |
 | **Supabase MCP Server** (`supabase/mcp-server-supabase`) | 8,200 | **63/100** | Bronze | 🔴 6 Critical | 🔴 Blocked |
 
@@ -53,9 +54,12 @@ Under dimension **D5 (State Auditability)**, safe agentic workflows require **"R
 
 ---
 
-## Actionable Remediations
+## Actionable Remediations, Lockfiles & Least-Privilege Policies
 
-Every failure flagged by ToolVeto includes a drop-in 3-line code patch. Pull requests containing these exact AST patches have been prepared for maintainers in `benchmarks/dogfood/prs/`.
+Every failure flagged by ToolVeto includes a drop-in 3-line code patch, a cryptographic SHA-256 supply-chain lockfile, and compiled AWS Cedar / OPA Rego policies:
+- **Auto-Remediation PRs**: `benchmarks/dogfood/prs/*.md`
+- **SHA-256 Tool Lockfiles (`toolveto lock`)**: `benchmarks/dogfood/locks/*.lock.json`
+- **AWS Cedar & OPA Rego Policies (`toolveto export-policy`)**: `benchmarks/dogfood/policies/*.{cedar,rego}`
 
 ### Example: Enforcing Idempotency in Payment & Mutation Tools
 ```diff
@@ -84,8 +88,12 @@ Every failure flagged by ToolVeto includes a drop-in 3-line code patch. Pull req
 This benchmark was executed using the open-source ToolVeto CLI:
 
 ```bash
-# Run the benchmark locally against any MCP server:
+# 1. Run the 14-check battery locally against any MCP server:
 npx toolveto@latest check ./path-to-server
+
+# 2. Generate SHA-256 lockfile and AWS Cedar / OPA policies:
+npx toolveto@latest lock ./path-to-server
+npx toolveto@latest export-policy ./path-to-server --format cedar
 ```
 
-*Evaluation criteria conform strictly to the formal **ToolVeto Scoring Rubric & Test Battery (v1.0.0)**.*
+*Evaluation criteria conform strictly to the formal **ToolVeto Scoring Rubric & 14-Check Battery (v1.1.0)**.*

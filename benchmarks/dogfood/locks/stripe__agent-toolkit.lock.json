@@ -1,0 +1,28 @@
+{
+  "version": "1.0",
+  "generatedAt": "2026-10-14T03:51:50.800Z",
+  "target": "stripe/agent-toolkit",
+  "manifestHash": "sha256:276056481985cda1db397905dc8a56f0ea2e8f8564dc51cb6b7c90fc5d57e721",
+  "tools": {
+    "create_payment_intent": {
+      "sha256": "e45206518130dcd2e660bab2b7a29b4f88f2bec2755ccd0aaa5d1eb7fd1bf0af",
+      "descriptionLength": 66,
+      "isMutation": true
+    },
+    "create_customer": {
+      "sha256": "83fa54bb69b6f8ea74fd333ed264e05a165569f292749421d87992192aff8eef",
+      "descriptionLength": 39,
+      "isMutation": true
+    },
+    "list_charges": {
+      "sha256": "f370c06d88c2bd4a45b04a15deddc4b0f99da8310559f9569c849bad0091ee25",
+      "descriptionLength": 47,
+      "isMutation": false
+    },
+    "refund_charge": {
+      "sha256": "6aae9fb7f139994c33ecc81eaac8963e3451ddf6d31469d1d72a8da389cb5907",
+      "descriptionLength": 38,
+      "isMutation": true
+    }
+  }
+}

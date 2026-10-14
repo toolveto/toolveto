@@ -19,7 +19,7 @@ export interface EvidenceOptions {
 export const AIUC1_CONTROL_MAP: Record<string, { title: string; checks: string[] }> = {
   'AIUC-1-4.2-tool-integrity': {
     title: 'Tool Execution Integrity, Concurrency & Idempotency Controls',
-    checks: ['TC-IDEMP-001', 'TC-IDEMP-002', 'TC-IDEMP-003', 'TC-IDEMP-004', 'TC-CANCEL-001', 'TC-ANNOTATION-001'],
+    checks: ['TC-IDEMP-001', 'TC-IDEMP-002', 'TC-IDEMP-003', 'TC-IDEMP-004', 'TC-IDEMP-005', 'TC-CANCEL-001', 'TC-ANNOTATION-001'],
   },
   'AIUC-1-5.1-auth-model': {
     title: 'Authentication, Tenant Isolation & Scoped Authorization Controls',
@@ -35,7 +35,7 @@ export const AIUC1_CONTROL_MAP: Record<string, { title: string; checks: string[]
   },
   'OWASP-AGENTIC-1-prompt-inject': {
     title: 'Indirect Prompt Injection, Exfiltration & Traversal Prevention',
-    checks: ['TC-VETO-INJECT-001', 'TC-VETO-EXFIL-001', 'TC-RES-002', 'TC-AUTH-003'],
+    checks: ['TC-VETO-INJECT-001', 'TC-VETO-EXFIL-001', 'TC-SEC-002', 'TC-SEC-003', 'TC-RES-002', 'TC-AUTH-003'],
   },
   'OWASP-AGENTIC-3-excess-agency': {
     title: 'Blind Write Mitigation, Capability Sandboxing & Read-Before-Write Verification',
@@ -59,7 +59,15 @@ function signAttestationJws(payload: Record<string, unknown>, keyId = 'toolveto-
   return `${header}.${body}.${sig}`;
 }
 
-export async function evidenceCommand(options: EvidenceOptions = {}): Promise<void> {
+export async function evidenceCommand(
+  targetOrOptions: string | EvidenceOptions = {},
+  maybeOptions: EvidenceOptions = {}
+): Promise<void> {
+  const options: EvidenceOptions =
+    typeof targetOrOptions === 'string'
+      ? { ...maybeOptions, target: targetOrOptions || maybeOptions.target }
+      : targetOrOptions;
+
   const format = options.format || 'aiuc1';
   const targetPath = options.target || '.';
   const resolvedTarget = path.resolve(process.cwd(), targetPath);
@@ -71,7 +79,16 @@ export async function evidenceCommand(options: EvidenceOptions = {}): Promise<vo
     const stat = fs.statSync(resolvedTarget);
     if (stat.isFile() && resolvedTarget.endsWith('.json')) {
       const parsed = JSON.parse(fs.readFileSync(resolvedTarget, 'utf-8'));
-      tools = Array.isArray(parsed) ? parsed : parsed.tools || [];
+      tools = Array.isArray(parsed) ? parsed : parsed.tools || (parsed.name && parsed.inputSchema ? [parsed] : []);
+    } else if (stat.isDirectory()) {
+      for (const candidateName of ['tools.json', 'mcp.json', 'schema.json']) {
+        const candidatePath = path.join(resolvedTarget, candidateName);
+        if (fs.existsSync(candidatePath)) {
+          const parsed = JSON.parse(fs.readFileSync(candidatePath, 'utf-8'));
+          tools = Array.isArray(parsed) ? parsed : parsed.tools || (parsed.name && parsed.inputSchema ? [parsed] : []);
+          if (tools.length > 0) break;
+        }
+      }
     }
   }
 
@@ -153,7 +170,6 @@ export async function evidenceCommand(options: EvidenceOptions = {}): Promise<vo
   const contextPassCount = summary.results.filter(r => r.checkId.startsWith('TC-CTX') && r.status === 'PASS').length;
   const tokensSaved = contextPassCount > 0 ? contextPassCount * 128000 : summary.results.length * 12000;
 
-
   const attestationPayload = {
     iss: 'toolveto-evidence-engine',
     sub: path.basename(resolvedTarget) || 'mcp-server',
@@ -218,7 +234,7 @@ ${Object.entries(controlEvaluations)
 ${jws}
 ================================================================================
 Verify online at: https://toolveto.ai/verify or via:
-  toolveto verify --jws "${jws.slice(0, 32)}..."
+  toolveto verify "${jws}"
 ================================================================================
 `;
 

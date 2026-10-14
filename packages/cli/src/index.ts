@@ -6,6 +6,8 @@ import { badgeCommand } from './commands/badge.js';
 import { evidenceCommand } from './commands/evidence.js';
 import { loginCommand } from './commands/login.js';
 import { verifyCommand } from './commands/verify.js';
+import { lockCommand } from './commands/lock.js';
+import { exportPolicyCommand } from './commands/export-policy.js';
 
 export function createProgram(): Command {
   const program = new Command();
@@ -13,7 +15,7 @@ export function createProgram(): Command {
   program
     .name('toolveto')
     .description('Deterministic Chaos Testing, CI Blocking Gates & Auto-Remediation for MCP Servers')
-    .version('0.1.0');
+    .version('0.2.0');
 
   program
     .command('check')
@@ -23,6 +25,8 @@ export function createProgram(): Command {
     .option('--allow-destructive', 'Authorize live stateful replay and concurrent burst mutations (D1)')
     .option('--json', 'Output machine-readable JSON report')
     .option('-f, --format <format>', 'Output format: terminal, json, or github-pr', 'terminal')
+    .option('-t, --threshold <score>', 'Minimum certification score threshold (0-100)')
+    .option('--fail-on-severity <severity>', 'Fail with exit code 1 if any failed check meets or exceeds severity (LOW, MEDIUM, HIGH, CRITICAL)')
     .option('--demo', 'Allow synthetic mock tools when target has zero tools (demo mode)')
     .action(async (target, options) => {
       await checkCommand(target, options);
@@ -32,8 +36,9 @@ export function createProgram(): Command {
     .command('fix')
     .description('Auto-apply schema fixes or generate standard git patch for failed checks')
     .argument('[target]', 'Path to schema file or server directory')
-    .option('--apply', 'Directly modify local JSON schema files or output git patch')
+    .option('--apply', 'Directly modify local JSON schema or source code files on disk')
     .option('--suggest', 'Print multi-language AST diffs and generate toolveto-remediation.patch')
+    .option('-c, --check <checkId>', 'Target a specific check ID for remediation (e.g., TC-IDEMP-001)')
     .action(async (target, options) => {
       await fixCommand(target, options);
     });
@@ -61,22 +66,45 @@ export function createProgram(): Command {
   program
     .command('evidence')
     .description('Generate an AIUC-1 / OWASP compliant JWS-signed evidence packet for CISO review')
+    .argument('[target]', 'Target server path or schema file')
     .option('-f, --format <format>', 'Output format: aiuc1, owasp, json', 'aiuc1')
     .option('-t, --target <path>', 'Target server path or schema file', '.')
     .option('-o, --output <path>', 'Output file destination')
+    .option('-s, --secret <secret>', 'Signing secret (>= 32 chars) for JWS attestation')
     .option('--demo', 'Allow synthetic mock tools when target has zero tools (demo mode)')
-    .action(async (options) => {
-      await evidenceCommand(options);
+    .action(async (target, options) => {
+      await evidenceCommand(target, options);
     });
 
   program
     .command('verify')
     .description('Verify an RFC 7515 detached JWS compliance token and inspect audit claims')
     .argument('[token]', 'RFC 7515 JWS token string')
+    .option('--jws <token>', 'RFC 7515 JWS token string')
     .option('-f, --file <path>', 'Read JWS token from certificate file')
-    .option('-s, --secret <secret>', 'Shared HMAC secret for offline verification')
+    .option('-s, --secret <secret>', 'Shared HMAC secret for offline HS256 verification')
+    .option('-k, --public-key <key>', 'Public key (PEM, JWK, or path) for ES256 verification')
     .action(async (token, options) => {
       await verifyCommand(token, options);
+    });
+
+  program
+    .command('lock')
+    .description('Generate cryptographic toolveto.lock.json pinning SHA-256 hashes of tool schemas & descriptions')
+    .argument('[target]', 'Target MCP server directory or tool manifest', '.')
+    .option('-o, --output <path>', 'Output lockfile path')
+    .action(async (target, options) => {
+      await lockCommand(target, options);
+    });
+
+  program
+    .command('export-policy')
+    .description('Generate AWS Cedar or Open Policy Agent (OPA/Rego) guardrails from MCP tool definitions')
+    .argument('[target]', 'Target MCP server directory or tool manifest', '.')
+    .option('-f, --format <format>', 'Policy language: cedar or opa', 'cedar')
+    .option('-o, --output <path>', 'Output policy file path')
+    .action(async (target, options) => {
+      await exportPolicyCommand(target, options);
     });
 
   program

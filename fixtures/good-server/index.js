@@ -99,6 +99,16 @@ rl.on('line', (line) => {
     const req = JSON.parse(trimmed);
     const { id, method, params } = req;
 
+    if (req.jsonrpc !== '2.0') {
+      sendError(id ?? null, -32600, 'Invalid Request: jsonrpc version must be 2.0');
+      return;
+    }
+
+    if (id === undefined) {
+      // JSON-RPC 2.0 notifications MUST NOT elicit a response
+      return;
+    }
+
     if (method === 'server/discover' || method === 'initialize') {
       sendResponse(id, {
         protocolVersion: '2026-07-28',

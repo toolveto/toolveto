@@ -1,13 +1,46 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 export interface VerifyCommandOptions {
   secret?: string;
   file?: string;
+  jws?: string;
+  publicKey?: string;
+}
+
+function resolveEs256PublicKey(rawOrPath?: string): crypto.KeyObject | null {
+  let raw = rawOrPath || process.env.TOOLVETO_PUBLIC_KEY;
+  if (!raw) {
+    const defaultKeypairPath = path.join(os.homedir(), '.toolveto', 'keys', 'es256_keypair.json');
+    if (fs.existsSync(defaultKeypairPath)) {
+      raw = fs.readFileSync(defaultKeypairPath, 'utf8');
+    }
+  }
+  if (!raw) return null;
+
+  if (fs.existsSync(raw) && fs.statSync(raw).isFile()) {
+    raw = fs.readFileSync(raw, 'utf8');
+  }
+
+  const trimmed = raw.trim();
+  if (trimmed.startsWith('{')) {
+    const parsed = JSON.parse(trimmed);
+    if (parsed.publicKey && typeof parsed.publicKey === 'string') {
+      return crypto.createPublicKey(parsed.publicKey);
+    }
+    if (parsed.publicKey && typeof parsed.publicKey === 'object') {
+      return crypto.createPublicKey({ key: parsed.publicKey, format: 'jwk' });
+    }
+    return crypto.createPublicKey({ key: parsed, format: 'jwk' });
+  }
+
+  return crypto.createPublicKey(trimmed);
 }
 
 export async function verifyCommand(tokenArg?: string, options: VerifyCommandOptions = {}): Promise<void> {
-  let token = tokenArg;
+  let token = tokenArg || options.jws;
 
   if (!token && options.file && fs.existsSync(options.file)) {
     const raw = fs.readFileSync(options.file, 'utf8');
@@ -30,24 +63,40 @@ export async function verifyCommand(tokenArg?: string, options: VerifyCommandOpt
   }
 
   const [headerB64, payloadB64, signature] = parts;
-  const resolvedSecret = options.secret || process.env.TOOLVETO_SIGNING_SECRET;
-  if (!resolvedSecret || resolvedSecret.length < 32) {
-    console.error('\n❌ Error: TOOLVETO_SIGNING_SECRET environment variable or --secret option (>=32 chars) is required.');
-    process.exitCode = 1;
-    return;
-  }
 
   try {
-    const expectedHmac = crypto.createHmac('sha256', resolvedSecret);
-    expectedHmac.update(`${headerB64}.${payloadB64}`);
-    const expectedSig = expectedHmac.digest('base64url');
-
-    const sigBuf = Buffer.from(signature);
-    const expBuf = Buffer.from(expectedSig);
-    const isValidSignature = sigBuf.length === expBuf.length && crypto.timingSafeEqual(sigBuf, expBuf);
-
     const header = JSON.parse(Buffer.from(headerB64, 'base64url').toString('utf8'));
     const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8'));
+    let isValidSignature = false;
+
+    if (header.alg === 'ES256') {
+      const pubKey = resolveEs256PublicKey(options.publicKey);
+      if (!pubKey) {
+        console.error('\n❌ Error: ES256 token requires --public-key, TOOLVETO_PUBLIC_KEY, or ~/.toolveto/keys/es256_keypair.json.');
+        process.exitCode = 1;
+        return;
+      }
+      const signingInput = Buffer.from(`${headerB64}.${payloadB64}`);
+      const sigBytes = Buffer.from(signature, 'base64url');
+      isValidSignature =
+        crypto.verify('sha256', signingInput, { key: pubKey, dsaEncoding: 'ieee-p1363' }, sigBytes) ||
+        crypto.verify('sha256', signingInput, pubKey, sigBytes);
+    } else {
+      const resolvedSecret = options.secret || process.env.TOOLVETO_SIGNING_SECRET;
+      if (!resolvedSecret || resolvedSecret.length < 32) {
+        console.error('\n❌ Error: TOOLVETO_SIGNING_SECRET environment variable or --secret option (>=32 chars) is required.');
+        process.exitCode = 1;
+        return;
+      }
+
+      const expectedHmac = crypto.createHmac('sha256', resolvedSecret);
+      expectedHmac.update(`${headerB64}.${payloadB64}`);
+      const expectedSig = expectedHmac.digest('base64url');
+
+      const sigBuf = Buffer.from(signature);
+      const expBuf = Buffer.from(expectedSig);
+      isValidSignature = sigBuf.length === expBuf.length && crypto.timingSafeEqual(sigBuf, expBuf);
+    }
 
     const nowSec = Math.floor(Date.now() / 1000);
     const isExpired = payload.exp && typeof payload.exp === 'number' && nowSec > payload.exp;

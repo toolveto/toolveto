@@ -1,0 +1,28 @@
+{
+  "version": "1.0",
+  "generatedAt": "2026-10-14T03:51:50.745Z",
+  "target": "github/github-mcp-server",
+  "manifestHash": "sha256:b0c7442e3c7819d6ec4d4a5e960cc4bc200c65a00eb918963a83a58e5f2d9d45",
+  "tools": {
+    "create_issue": {
+      "sha256": "03b1626cf5f27ec1e6cd09ae498737ec5eb22caec70c0e8bba8cb47834f5f210",
+      "descriptionLength": 42,
+      "isMutation": true
+    },
+    "get_issue": {
+      "sha256": "13d5f385d2fe27d7086ad5225134045a5d834e09f87f019d8fb47760925ac093",
+      "descriptionLength": 53,
+      "isMutation": false
+    },
+    "list_pull_requests": {
+      "sha256": "2ce97ead151b5c1b2ac49a62f99655b00e2b63a12a737e02be2a8fe256baca6c",
+      "descriptionLength": 33,
+      "isMutation": false
+    },
+    "merge_pull_request": {
+      "sha256": "8491b2b87095a7113f7ef2013bb612d29926bc80b2fc74e78fb396cbe29ddecd",
+      "descriptionLength": 50,
+      "isMutation": true
+    }
+  }
+}

@@ -12,6 +12,7 @@ export interface UpstreamRouteConfig {
   authHeader?: string;
   timeoutMs?: number;
   allowLocal?: boolean;
+  tokenBudget?: number;
 }
 
 export interface GatewayYamlConfig {
@@ -22,6 +23,8 @@ export interface GatewayYamlConfig {
     secret?: string;
   };
   defaultPolicy?: GatewayPolicy;
+  allowLocal?: boolean;
+  tokenBudget?: number;
   upstreams: Record<string, UpstreamRouteConfig>;
 }
 
@@ -78,6 +81,7 @@ export function parseGatewayYaml(content: string): GatewayYamlConfig {
           name: currentUpstream,
           url: '',
           policy: config.defaultPolicy || 'standard',
+          allowLocal: config.allowLocal,
         };
         continue;
       }
@@ -97,6 +101,8 @@ export function parseGatewayYaml(content: string): GatewayYamlConfig {
           else if (key === 'policy') u.policy = val as GatewayPolicy;
           else if (key === 'authHeader') u.authHeader = val;
           else if (key === 'timeoutMs' || key === 'timeout') u.timeoutMs = Number(val);
+          else if (key === 'allowLocal') u.allowLocal = val === 'true' || val === '1';
+          else if (key === 'tokenBudget') u.tokenBudget = Number(val);
         }
         continue;
       }
@@ -110,6 +116,8 @@ export function parseGatewayYaml(content: string): GatewayYamlConfig {
       if (key === 'port') config.port = Number(val);
       else if (key === 'policy' || key === 'defaultPolicy') config.defaultPolicy = val as GatewayPolicy;
       else if (key === 'version') config.version = val;
+      else if (key === 'allowLocal') config.allowLocal = val === 'true' || val === '1';
+      else if (key === 'tokenBudget') config.tokenBudget = Number(val);
     }
   }
 
@@ -119,11 +127,14 @@ export function parseGatewayYaml(content: string): GatewayYamlConfig {
       name: 'default',
       url: process.env.UPSTREAM_URL || 'http://localhost:3000',
       policy: config.defaultPolicy || 'standard',
+      allowLocal: config.allowLocal,
     };
   }
 
   return config;
 }
+
+export const parseGatewayConfig = parseGatewayYaml;
 
 export function loadGatewayConfig(targetDir = '.'): GatewayYamlConfig {
   const candidates = [

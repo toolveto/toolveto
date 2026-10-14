@@ -1,39 +1,39 @@
 {
   "target": "modelcontextprotocol/servers",
-  "totalChecks": 60,
-  "passed": 40,
-  "failed": 8,
-  "warned": 12,
+  "totalChecks": 86,
+  "passed": 62,
+  "failed": 10,
+  "warned": 14,
   "fatalVetoTriggered": true,
   "fatalVetoCode": "VETO_NONE",
   "phi": 1,
-  "score": 78,
+  "score": 79,
   "tier": "Silver",
-  "durationMs": 0,
+  "durationMs": 11,
   "llmTokensUsed": 0,
   "dimensionalScores": {
     "D1": {
       "score": 60,
-      "weight": 0.3,
+      "weight": 0.35,
       "metrics": {}
     },
     "D2": {
-      "score": 83,
-      "weight": 0.25,
+      "score": 88,
+      "weight": 0.2,
       "metrics": {}
     },
     "D3": {
       "score": 88,
-      "weight": 0.25,
+      "weight": 0.2,
       "metrics": {}
     },
     "D4": {
       "score": 100,
-      "weight": 0.1,
+      "weight": 0.15,
       "metrics": {}
     },
     "D5": {
-      "score": 70,
+      "score": 75,
       "weight": 0.1,
       "metrics": {}
     }
@@ -68,6 +68,18 @@
     },
     {
       "checkId": "TC-IDEMP-003",
+      "dimension": "D1",
+      "tool": "fetch",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Query tool 'fetch' is read-only and free from crash-commit double-spend risk",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-005",
       "dimension": "D1",
       "tool": "fetch",
       "status": "PASS",
@@ -119,6 +131,18 @@
       "status": "PASS",
       "severity": "HIGH",
       "description": "Tool 'fetch' has no strict semantic date formats requiring healing evaluation",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SEC-002",
+      "dimension": "D2",
+      "tool": "fetch",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool 'fetch' schema descriptions are free from static prompt poisoning, invisible Unicode, and ANSI escape sequences",
       "evidence": {
         "evidenceQuality": "STATIC-ONLY"
       },
@@ -187,6 +211,30 @@
       "durationMs": 0
     },
     {
+      "checkId": "TC-STEER-001",
+      "dimension": "D4",
+      "tool": "fetch",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool description provides sufficient semantic steerability context (61 chars)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-STEER-002",
+      "dimension": "D4",
+      "tool": "fetch",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "All parameters provide adequate type and format guidance for LLM prompt steerability",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
       "checkId": "TC-PAIR-001",
       "dimension": "D5",
       "tool": "fetch",
@@ -209,6 +257,18 @@
         "evidenceQuality": "STATIC-ONLY"
       },
       "durationMs": 0
+    },
+    {
+      "checkId": "TC-AUTH-002",
+      "dimension": "D5",
+      "tool": "fetch",
+      "status": "PASS",
+      "severity": "INFO",
+      "description": "OAuth 2.1 scope specification verified for tool 'fetch'.",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 1
     },
     {
       "checkId": "TC-IDEMP-001",
@@ -239,6 +299,18 @@
     },
     {
       "checkId": "TC-IDEMP-003",
+      "dimension": "D1",
+      "tool": "filesystem_read_file",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Query tool 'filesystem_read_file' is read-only and free from crash-commit double-spend risk",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-005",
       "dimension": "D1",
       "tool": "filesystem_read_file",
       "status": "PASS",
@@ -290,6 +362,18 @@
       "status": "PASS",
       "severity": "HIGH",
       "description": "Tool 'filesystem_read_file' has no strict semantic date formats requiring healing evaluation",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SEC-002",
+      "dimension": "D2",
+      "tool": "filesystem_read_file",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool 'filesystem_read_file' schema descriptions are free from static prompt poisoning, invisible Unicode, and ANSI escape sequences",
       "evidence": {
         "evidenceQuality": "STATIC-ONLY"
       },
@@ -358,6 +442,30 @@
       "durationMs": 0
     },
     {
+      "checkId": "TC-STEER-001",
+      "dimension": "D4",
+      "tool": "filesystem_read_file",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool description provides sufficient semantic steerability context (75 chars)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-STEER-002",
+      "dimension": "D4",
+      "tool": "filesystem_read_file",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "All parameters provide adequate type and format guidance for LLM prompt steerability",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
       "checkId": "TC-PAIR-001",
       "dimension": "D5",
       "tool": "filesystem_read_file",
@@ -380,6 +488,18 @@
         "evidenceQuality": "STATIC-ONLY"
       },
       "durationMs": 0
+    },
+    {
+      "checkId": "TC-AUTH-002",
+      "dimension": "D5",
+      "tool": "filesystem_read_file",
+      "status": "PASS",
+      "severity": "INFO",
+      "description": "OAuth 2.1 scope specification verified for tool 'filesystem_read_file'.",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 1
     },
     {
       "checkId": "TC-IDEMP-001",
@@ -420,7 +540,7 @@
       "tool": "filesystem_write_file",
       "status": "FAIL",
       "severity": "CRITICAL",
-      "description": "Concurrent burst vulnerability: Tool 'filesystem_write_file' exposes no concurrency lock or idempotency parameter",
+      "description": "Concurrent burst vulnerability: Tool 'filesystem_write_file' exposes no concurrency lock or idempotency parameter (double-spend risk)",
       "evidence": {
         "requestsSent": 10,
         "mutationsCreated": 10,
@@ -441,6 +561,28 @@
     },
     {
       "checkId": "TC-IDEMP-003",
+      "dimension": "D1",
+      "tool": "filesystem_write_file",
+      "status": "FAIL",
+      "severity": "HIGH",
+      "description": "Missing explicit idempotency key in schema definition for mutation tool 'filesystem_write_file' (unprotected against crash-commit double-spend)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'idempotency_key: string' parameter to schema",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ idempotency_key: z.string().uuid().describe(\"Unique token for idempotent request processing\")"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-005",
       "dimension": "D1",
       "tool": "filesystem_write_file",
       "status": "FAIL",
@@ -502,6 +644,18 @@
       "status": "PASS",
       "severity": "HIGH",
       "description": "Tool 'filesystem_write_file' has no strict semantic date formats requiring healing evaluation",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SEC-002",
+      "dimension": "D2",
+      "tool": "filesystem_write_file",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool 'filesystem_write_file' schema descriptions are free from static prompt poisoning, invisible Unicode, and ANSI escape sequences",
       "evidence": {
         "evidenceQuality": "STATIC-ONLY"
       },
@@ -570,6 +724,30 @@
       "durationMs": 0
     },
     {
+      "checkId": "TC-STEER-001",
+      "dimension": "D4",
+      "tool": "filesystem_write_file",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool description provides sufficient semantic steerability context (48 chars)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-STEER-002",
+      "dimension": "D4",
+      "tool": "filesystem_write_file",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "All parameters provide adequate type and format guidance for LLM prompt steerability",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
       "checkId": "TC-PAIR-001",
       "dimension": "D5",
       "tool": "filesystem_write_file",
@@ -618,6 +796,30 @@
       "durationMs": 0
     },
     {
+      "checkId": "TC-AUTH-002",
+      "dimension": "D5",
+      "tool": "filesystem_write_file",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "OAuth 2.1 Scope Guidance: High-impact mutating tool 'filesystem_write_file' does not specify required OAuth2.1 scopes (e.g. 'write:payments') in tool description.",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY",
+        "details": {
+          "recommendedScope": "write:filesystem_write_file"
+        }
+      },
+      "fix": {
+        "summary": "Document required OAuth 2.1 scope in description of tool 'filesystem_write_file'",
+        "diffs": [
+          {
+            "language": "json-schema",
+            "code": "\"description\": \"Writes contents to a file path in the filesystem (Requires OAuth 2.1 scope: write:filesystem_write_file)\""
+          }
+        ]
+      },
+      "durationMs": 1
+    },
+    {
       "checkId": "TC-IDEMP-001",
       "dimension": "D1",
       "tool": "git_create_commit",
@@ -656,7 +858,7 @@
       "tool": "git_create_commit",
       "status": "FAIL",
       "severity": "CRITICAL",
-      "description": "Concurrent burst vulnerability: Tool 'git_create_commit' exposes no concurrency lock or idempotency parameter",
+      "description": "Concurrent burst vulnerability: Tool 'git_create_commit' exposes no concurrency lock or idempotency parameter (double-spend risk)",
       "evidence": {
         "requestsSent": 10,
         "mutationsCreated": 10,
@@ -677,6 +879,28 @@
     },
     {
       "checkId": "TC-IDEMP-003",
+      "dimension": "D1",
+      "tool": "git_create_commit",
+      "status": "FAIL",
+      "severity": "HIGH",
+      "description": "Missing explicit idempotency key in schema definition for mutation tool 'git_create_commit' (unprotected against crash-commit double-spend)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "fix": {
+        "summary": "Add 'idempotency_key: string' parameter to schema",
+        "applyCommand": "toolveto fix --apply",
+        "diffs": [
+          {
+            "language": "typescript-zod",
+            "code": "+ idempotency_key: z.string().uuid().describe(\"Unique token for idempotent request processing\")"
+          }
+        ]
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-005",
       "dimension": "D1",
       "tool": "git_create_commit",
       "status": "FAIL",
@@ -738,6 +962,18 @@
       "status": "PASS",
       "severity": "HIGH",
       "description": "Tool 'git_create_commit' has no strict semantic date formats requiring healing evaluation",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SEC-002",
+      "dimension": "D2",
+      "tool": "git_create_commit",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool 'git_create_commit' schema descriptions are free from static prompt poisoning, invisible Unicode, and ANSI escape sequences",
       "evidence": {
         "evidenceQuality": "STATIC-ONLY"
       },
@@ -806,6 +1042,30 @@
       "durationMs": 0
     },
     {
+      "checkId": "TC-STEER-001",
+      "dimension": "D4",
+      "tool": "git_create_commit",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool description provides sufficient semantic steerability context (56 chars)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-STEER-002",
+      "dimension": "D4",
+      "tool": "git_create_commit",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "All parameters provide adequate type and format guidance for LLM prompt steerability",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
       "checkId": "TC-PAIR-001",
       "dimension": "D5",
       "tool": "git_create_commit",
@@ -854,6 +1114,30 @@
       "durationMs": 0
     },
     {
+      "checkId": "TC-AUTH-002",
+      "dimension": "D5",
+      "tool": "git_create_commit",
+      "status": "WARN",
+      "severity": "MEDIUM",
+      "description": "OAuth 2.1 Scope Guidance: High-impact mutating tool 'git_create_commit' does not specify required OAuth2.1 scopes (e.g. 'write:payments') in tool description.",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY",
+        "details": {
+          "recommendedScope": "write:git_create_commit"
+        }
+      },
+      "fix": {
+        "summary": "Document required OAuth 2.1 scope in description of tool 'git_create_commit'",
+        "diffs": [
+          {
+            "language": "json-schema",
+            "code": "\"description\": \"Creates a new git commit with staged changes and message (Requires OAuth 2.1 scope: write:git_create_commit)\""
+          }
+        ]
+      },
+      "durationMs": 1
+    },
+    {
       "checkId": "TC-IDEMP-001",
       "dimension": "D1",
       "tool": "git_status",
@@ -882,6 +1166,18 @@
     },
     {
       "checkId": "TC-IDEMP-003",
+      "dimension": "D1",
+      "tool": "git_status",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Query tool 'git_status' is read-only and free from crash-commit double-spend risk",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-IDEMP-005",
       "dimension": "D1",
       "tool": "git_status",
       "status": "PASS",
@@ -933,6 +1229,18 @@
       "status": "PASS",
       "severity": "HIGH",
       "description": "Tool 'git_status' has no strict semantic date formats requiring healing evaluation",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-SEC-002",
+      "dimension": "D2",
+      "tool": "git_status",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool 'git_status' schema descriptions are free from static prompt poisoning, invisible Unicode, and ANSI escape sequences",
       "evidence": {
         "evidenceQuality": "STATIC-ONLY"
       },
@@ -1001,6 +1309,30 @@
       "durationMs": 0
     },
     {
+      "checkId": "TC-STEER-001",
+      "dimension": "D4",
+      "tool": "git_status",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Tool description provides sufficient semantic steerability context (47 chars)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
+      "checkId": "TC-STEER-002",
+      "dimension": "D4",
+      "tool": "git_status",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "All parameters provide adequate type and format guidance for LLM prompt steerability",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
+    },
+    {
       "checkId": "TC-PAIR-001",
       "dimension": "D5",
       "tool": "git_status",
@@ -1023,6 +1355,82 @@
         "evidenceQuality": "STATIC-ONLY"
       },
       "durationMs": 0
+    },
+    {
+      "checkId": "TC-AUTH-002",
+      "dimension": "D5",
+      "tool": "git_status",
+      "status": "PASS",
+      "severity": "INFO",
+      "description": "OAuth 2.1 scope specification verified for tool 'git_status'.",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 1
+    },
+    {
+      "checkId": "TC-SEC-003",
+      "dimension": "D5",
+      "tool": "suite-wide",
+      "status": "PASS",
+      "severity": "LOW",
+      "description": "Zero tool namespace collisions or cross-server shadowing directives across 5 tool(s)",
+      "evidence": {
+        "evidenceQuality": "STATIC-ONLY"
+      },
+      "durationMs": 0
     }
-  ]
+  ],
+  "statisticalConfidence": {
+    "n": 30,
+    "pointEstimate": 79,
+    "confidenceInterval95": [
+      70,
+      86
+    ],
+    "certifiedLowerBound": 70
+  },
+  "aiuc1Compliance": {
+    "AIUC-1 §4.2 Idempotency": "FAIL",
+    "AIUC-1 §4.5 Error Guidance": "PASS",
+    "AIUC-1 §5.1 Auth Model & Tenant Isolation": "PASS",
+    "AIUC-1 §6.3 Loop Protection": "PASS",
+    "OWASP Agentic LLM01 Prompt Injection": "PASS",
+    "OWASP Agentic LLM02 Sensitive Information Disclosure": "PASS"
+  },
+  "environmentManifest": {
+    "harness": "toolveto-core-v1.1.0",
+    "protocolVersion": "2025-03-26",
+    "nodeVersion": "v26.5.0",
+    "platform": "darwin",
+    "destructiveAuthorization": "false"
+  },
+  "expiresAt": "2027-01-12T03:51:50.768Z",
+  "perToolScorecard": {
+    "fetch": {
+      "score": 88,
+      "checksPassed": 15,
+      "checksFailed": 0
+    },
+    "filesystem_read_file": {
+      "score": 88,
+      "checksPassed": 15,
+      "checksFailed": 0
+    },
+    "filesystem_write_file": {
+      "score": 47,
+      "checksPassed": 8,
+      "checksFailed": 5
+    },
+    "git_create_commit": {
+      "score": 47,
+      "checksPassed": 8,
+      "checksFailed": 5
+    },
+    "git_status": {
+      "score": 88,
+      "checksPassed": 15,
+      "checksFailed": 0
+    }
+  }
 }

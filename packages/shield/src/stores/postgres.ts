@@ -26,6 +26,12 @@ export class PostgresShieldStorage implements ShieldStorage {
         );
         CREATE INDEX IF NOT EXISTS idx_toolveto_shield_calls_key_time ON toolveto_shield_calls(key, call_timestamp);
       `);
+      await this.client.query(`
+        CREATE TABLE IF NOT EXISTS toolveto_shield_locks (
+          key VARCHAR(255) PRIMARY KEY,
+          expires_at BIGINT NOT NULL
+        );
+      `);
       this.tablesInitialized = true;
     } catch {
       // Allow fallback if tables already exist or permissions are read-only
@@ -92,8 +98,30 @@ export class PostgresShieldStorage implements ShieldStorage {
     return countRes.rows?.[0]?.count ? Number(countRes.rows[0].count) : 1;
   }
 
+  async acquireLock(key: string, ttlMs = 30000): Promise<boolean> {
+    await this.ensureTables();
+    const now = Date.now();
+    const expiresAt = now + ttlMs;
+    const res = await this.client.query(
+      `INSERT INTO toolveto_shield_locks (key, expires_at)
+       VALUES ($1, $2)
+       ON CONFLICT (key) DO UPDATE SET expires_at = EXCLUDED.expires_at
+       WHERE toolveto_shield_locks.expires_at < $3
+       RETURNING key`,
+      [key, expiresAt, now]
+    );
+    return Boolean(res.rows && res.rows.length > 0);
+  }
+
+  async releaseLock(key: string): Promise<void> {
+    await this.ensureTables();
+    await this.client.query(`DELETE FROM toolveto_shield_locks WHERE key = $1`, [key]);
+  }
+
   async clear(): Promise<void> {
     await this.ensureTables();
-    await this.client.query(`TRUNCATE TABLE toolveto_shield_cache, toolveto_shield_calls`);
+    await this.client.query(`TRUNCATE TABLE toolveto_shield_cache, toolveto_shield_calls, toolveto_shield_locks`);
   }
 }
+
+export const PostgresIdempotencyStore = PostgresShieldStorage;

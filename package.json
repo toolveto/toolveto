@@ -1,6 +1,6 @@
 {
   "name": "toolveto-monorepo",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "ToolVeto — Stateful Chaos Testing, CI Gate & Runtime Shield for Model Context Protocol (MCP) Servers",
   "license": "MIT",

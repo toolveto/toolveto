@@ -1,0 +1,28 @@
+{
+  "version": "1.0",
+  "generatedAt": "2026-10-14T03:51:50.789Z",
+  "target": "slack/mcp-server",
+  "manifestHash": "sha256:809ba767c684b822a7033cd4c39fa9a406fa7e5e6a4552c3e3973ffc0180eebb",
+  "tools": {
+    "post_message": {
+      "sha256": "fe333c8d743248adfcf6451b0913e6dab1c6f1a049d5fc307b4c949b4eb673cf",
+      "descriptionLength": 49,
+      "isMutation": true
+    },
+    "list_channels": {
+      "sha256": "0027e81cf5239413843c67cb134d103151fec19f784074ff2c8f99e6d72e3ed4",
+      "descriptionLength": 46,
+      "isMutation": false
+    },
+    "get_channel_history": {
+      "sha256": "6687103fce5c3700f1c847afa31228bd8df94ddaa328b1b8d77159f59e916b9c",
+      "descriptionLength": 49,
+      "isMutation": false
+    },
+    "add_reaction": {
+      "sha256": "660bc7735015f44c1790a85f8057be61549cb30a171f6a45de2ab7e4e7d81cd8",
+      "descriptionLength": 32,
+      "isMutation": true
+    }
+  }
+}

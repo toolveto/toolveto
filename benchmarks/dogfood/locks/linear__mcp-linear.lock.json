@@ -1,0 +1,28 @@
+{
+  "version": "1.0",
+  "generatedAt": "2026-10-14T03:51:50.756Z",
+  "target": "linear/mcp-linear",
+  "manifestHash": "sha256:99dfe52baa9fa0bf06a6f733bdf73367e013202067b98fa8f5cfe08d78d007e3",
+  "tools": {
+    "create_issue": {
+      "sha256": "ba909e966e677b6deb1bce74b86e838cf43a99eb14ce80dff2b94dafa4aeb267",
+      "descriptionLength": 44,
+      "isMutation": true
+    },
+    "update_issue": {
+      "sha256": "47d3db2cb6918494236d948e4a67e2cd104dea26396925d2ee4eef15cdb13301",
+      "descriptionLength": 61,
+      "isMutation": true
+    },
+    "get_issue": {
+      "sha256": "b371cd75e7d6b906c7c844ece8d4b18d1c4ede3c537b28dc7a4ba5c1d4bb366c",
+      "descriptionLength": 46,
+      "isMutation": false
+    },
+    "list_issues": {
+      "sha256": "30831387fdb1c43dbaf74a8eca326cc86bd2c2bb4804653770e3fc638b51391a",
+      "descriptionLength": 49,
+      "isMutation": false
+    }
+  }
+}

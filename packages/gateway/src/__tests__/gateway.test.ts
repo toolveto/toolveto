@@ -284,5 +284,58 @@ describe('ToolVeto Gateway Reverse Proxy', () => {
     assert.strictEqual(data.id, 101);
     assert.ok(data.result);
   });
+
+  it('should emit X-ToolVeto-Shield, X-ToolVeto-Action, X-ToolVeto-Airbag-Latency, and X-ToolVeto-Idempotency-Key headers', async () => {
+    const payload = {
+      jsonrpc: '2.0',
+      id: 'hdr_req_1',
+      method: 'tools/call',
+      params: {
+        name: 'create_order',
+        arguments: { item: 'gadget', idempotency_key: 'idemp_hdr_777' },
+      },
+    };
+
+    const res1 = await fetch(`http://localhost:${gatewayPort}/mcp`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer test-gateway-secret-token',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    assert.strictEqual(res1.headers.get('x-toolveto-shield'), 'active');
+    assert.strictEqual(res1.headers.get('x-toolveto-action'), 'PASS');
+    assert.ok(res1.headers.get('x-toolveto-airbag-latency')?.endsWith('ms'));
+    assert.strictEqual(res1.headers.get('x-toolveto-idempotency-key'), 'idemp_hdr_777');
+
+    // Second request hits cache -> DEDUPLICATED
+    const res2 = await fetch(`http://localhost:${gatewayPort}/mcp`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer test-gateway-secret-token',
+      },
+      body: JSON.stringify(payload),
+    });
+    assert.strictEqual(res2.headers.get('x-toolveto-action'), 'DEDUPLICATED');
+  });
+
+  it('should parse allowLocal and tokenBudget in parseGatewayConfig', async () => {
+    const { parseGatewayConfig } = await import('../config.js');
+    const cfg = parseGatewayConfig(`
+port: 8090
+allowLocal: true
+tokenBudget: 2048
+upstreams:
+  local_srv:
+    url: http://localhost:3000/mcp
+    policy: strict
+`);
+    assert.strictEqual(cfg.port, 8090);
+    assert.strictEqual(cfg.allowLocal, true);
+    assert.strictEqual(cfg.tokenBudget, 2048);
+  });
 });
 

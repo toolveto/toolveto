@@ -51,7 +51,7 @@ runs:
         TARGET="${{ inputs.server-url || inputs.server-path }}"
         echo "🛡️ Running ToolVeto Check on: $TARGET"
 
-        ARGS=("$TARGET" "--format" "json")
+        ARGS=("$TARGET" "--format" "json" "--fail-on-severity" "${{ inputs.fail-on-severity }}")
         if [ "${{ inputs.with-llm }}" = "true" ]; then
           ARGS+=("--with-llm")
         fi
@@ -66,9 +66,9 @@ runs:
         REPORT_JSON=$($CLI_CMD check "${ARGS[@]}" 2>&1)
         EXIT_CODE=$?
 
-        # Parse output fields safely
-        SCORE=$(echo "$REPORT_JSON" | grep -o '"score":[0-9]*' | head -1 | cut -d: -f2 || echo "0")
-        TIER=$(echo "$REPORT_JSON" | grep -o '"tier":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "REJECTED")
+        # Parse output fields safely from pretty-printed JSON
+        SCORE=$(REPORT_RAW="$REPORT_JSON" node -e 'try { const raw = process.env.REPORT_RAW || ""; const idx = raw.indexOf("{"); const d = JSON.parse(idx >= 0 ? raw.slice(idx) : raw); console.log(d.score ?? 0); } catch { console.log(0); }')
+        TIER=$(REPORT_RAW="$REPORT_JSON" node -e 'try { const raw = process.env.REPORT_RAW || ""; const idx = raw.indexOf("{"); const d = JSON.parse(idx >= 0 ? raw.slice(idx) : raw); console.log(d.tier || "REJECTED"); } catch { console.log("REJECTED"); }')
         PASSED=$([ "$EXIT_CODE" -eq 0 ] && echo "true" || echo "false")
         REPORT_URL="https://toolveto.ai/verify?score=$SCORE&tier=$TIER"
 

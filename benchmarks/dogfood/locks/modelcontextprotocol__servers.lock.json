@@ -1,0 +1,33 @@
+{
+  "version": "1.0",
+  "generatedAt": "2026-10-14T03:51:50.768Z",
+  "target": "modelcontextprotocol/servers",
+  "manifestHash": "sha256:736c6ad68283ea144febe8b58d01af9089ab2948ec5be3233493a964ff939223",
+  "tools": {
+    "fetch": {
+      "sha256": "cbb4bd037f13b4d7d9dfbfd9deb9df889763b9c181c21028d0e48072f36496f5",
+      "descriptionLength": 61,
+      "isMutation": false
+    },
+    "filesystem_read_file": {
+      "sha256": "a7c67c8611f4f4ce8f506b74ae4d04e4a2600d8bff06ea34d4f15b0aa5e5f2be",
+      "descriptionLength": 75,
+      "isMutation": false
+    },
+    "filesystem_write_file": {
+      "sha256": "49396c984094e66c8ffcdbab91cb07ab94dfb9956a0304922616733db04c0090",
+      "descriptionLength": 48,
+      "isMutation": true
+    },
+    "git_create_commit": {
+      "sha256": "0f07d2064fe890afe3e95a225838e49534e79ee253d5e6a622480ef3b1c0093d",
+      "descriptionLength": 56,
+      "isMutation": true
+    },
+    "git_status": {
+      "sha256": "96e343105b1d4207ce0c41a24e1e764fec4f8cdad70613970ec7285b2006f67d",
+      "descriptionLength": 47,
+      "isMutation": false
+    }
+  }
+}

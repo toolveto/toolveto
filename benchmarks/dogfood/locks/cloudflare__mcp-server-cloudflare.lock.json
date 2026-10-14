@@ -1,0 +1,28 @@
+{
+  "version": "1.0",
+  "generatedAt": "2026-10-14T03:51:50.733Z",
+  "target": "cloudflare/mcp-server-cloudflare",
+  "manifestHash": "sha256:9cf3ab1cc4b6f42b1b56bc92b8d9f5c95b06753591fce36ad13f368469a04d73",
+  "tools": {
+    "deploy_worker": {
+      "sha256": "f4b39fb5ef8d9d2418c79f4882acf6fc1190e741d7d2d25721ec0ff65bf669cd",
+      "descriptionLength": 66,
+      "isMutation": true
+    },
+    "purge_cache": {
+      "sha256": "85eb4413b0744fbc004601c155fe22c41accd38ba6a7938586df8121ff10716b",
+      "descriptionLength": 50,
+      "isMutation": true
+    },
+    "list_dns_records": {
+      "sha256": "91de52c2db097aadf43e8cea4622098cf1769a944c550128231c451954dc5877",
+      "descriptionLength": 38,
+      "isMutation": false
+    },
+    "update_dns_record": {
+      "sha256": "bf2e14921754517835acee41197045c18fbeefe099e7e22c59a7589e593bc332",
+      "descriptionLength": 53,
+      "isMutation": true
+    }
+  }
+}
