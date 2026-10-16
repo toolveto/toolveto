@@ -337,5 +337,29 @@ upstreams:
     assert.strictEqual(cfg.allowLocal, true);
     assert.strictEqual(cfg.tokenBudget, 2048);
   });
+
+  it('should reject SSRF bypass vectors including decimal IP, hex IP, octal IP, IPv4-mapped IPv6, CGNAT, and embedded credentials', async () => {
+    const { validateUpstreamUrl, isPrivateIpOrBlockedHost, validateUpstreamDns } = await import('../index.js');
+
+    // 1. Decimal IP (2130706433 = 127.0.0.1)
+    assert.throws(() => validateUpstreamUrl('http://2130706433/mcp', false), /SSRF blocked/);
+    // 2. Hex IP (0x7f.0.0.1 = 127.0.0.1)
+    assert.throws(() => validateUpstreamUrl('http://0x7f.0.0.1/mcp', false), /SSRF blocked/);
+    // 3. Octal IP (0177.0.0.1 = 127.0.0.1)
+    assert.throws(() => validateUpstreamUrl('http://0177.0.0.1/mcp', false), /SSRF blocked/);
+    // 4. IPv4-mapped IPv6 ([::ffff:127.0.0.1])
+    assert.throws(() => validateUpstreamUrl('http://[::ffff:127.0.0.1]/mcp', false), /SSRF blocked/);
+    assert.strictEqual(isPrivateIpOrBlockedHost('[::ffff:127.0.0.1]'), true);
+    // 5. CGNAT (100.64.0.1)
+    assert.throws(() => validateUpstreamUrl('http://100.64.0.1/mcp', false), /SSRF blocked/);
+    assert.strictEqual(isPrivateIpOrBlockedHost('100.64.0.1'), true);
+    // 6. Embedded credentials (http://user@evil.com)
+    assert.throws(() => validateUpstreamUrl('http://user@evil.com/mcp', false), /Embedded credentials/);
+    assert.throws(() => validateUpstreamUrl('http://user:pass@evil.com/mcp', false), /Embedded credentials/);
+    // 7. DNS validation blocks private IPs directly
+    await assert.rejects(() => validateUpstreamDns('100.64.0.1', false), /SSRF DNS check blocked/);
+    await assert.rejects(() => validateUpstreamDns('[::ffff:127.0.0.1]', false), /SSRF DNS check blocked/);
+  });
 });
+
 
