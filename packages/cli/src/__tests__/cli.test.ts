@@ -617,8 +617,16 @@ describe('ToolVeto CLI Commands', () => {
     const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'tv-plg-home-'));
     const oldHome = process.env.HOME;
     const oldDnt = process.env.DO_NOT_TRACK;
+    const outerGhActions = process.env.GITHUB_ACTIONS;
+    const outerGhRepo = process.env.GITHUB_REPOSITORY;
+    const outerGhRunNum = process.env.GITHUB_RUN_NUMBER;
+    const outerCi = process.env.CI;
     process.env.HOME = tmpHome;
     delete process.env.DO_NOT_TRACK;
+    delete process.env.GITHUB_ACTIONS;
+    delete process.env.GITHUB_REPOSITORY;
+    delete process.env.GITHUB_RUN_NUMBER;
+    delete process.env.CI;
 
     const telemetryPayloads: any[] = [];
     let versionCheckRequests = 0;
@@ -767,6 +775,14 @@ describe('ToolVeto CLI Commands', () => {
     } finally {
       if (oldDnt === undefined) delete process.env.DO_NOT_TRACK;
       else process.env.DO_NOT_TRACK = oldDnt;
+      if (outerGhActions === undefined) delete process.env.GITHUB_ACTIONS;
+      else process.env.GITHUB_ACTIONS = outerGhActions;
+      if (outerGhRepo === undefined) delete process.env.GITHUB_REPOSITORY;
+      else process.env.GITHUB_REPOSITORY = outerGhRepo;
+      if (outerGhRunNum === undefined) delete process.env.GITHUB_RUN_NUMBER;
+      else process.env.GITHUB_RUN_NUMBER = outerGhRunNum;
+      if (outerCi === undefined) delete process.env.CI;
+      else process.env.CI = outerCi;
       delete process.env.TOOLVETO_TELEMETRY_DISABLED;
       process.env.HOME = oldHome;
       await new Promise<void>((resolve) => mockApi.close(() => resolve()));
