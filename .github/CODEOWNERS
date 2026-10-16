@@ -1,9 +1,9 @@
 # Global owners for ToolVeto repository
-* @toolveto-core-team
+* @samirsavla
 
 # Package specific ownership
-/packages/core/         @toolveto-engineers
-/packages/cli/          @toolveto-engineers
-/packages/shield/       @toolveto-security
-/packages/gateway/      @toolveto-infrastructure
-/apps/marketing/        @toolveto-design
+/packages/core/         @samirsavla
+/packages/cli/          @samirsavla
+/packages/shield/       @samirsavla
+/packages/gateway/      @samirsavla
+/apps/marketing/        @samirsavla

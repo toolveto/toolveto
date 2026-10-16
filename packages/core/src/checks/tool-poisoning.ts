@@ -152,7 +152,13 @@ export function runToolShadowingCheck(tools: McpToolDefinition[]): CheckResult {
   }
 
   const hijackingFindings: Array<{ tool: string; reason: string }> = [];
-  const allNames = tools.map((t) => t.name);
+  // Precompute normalized lowercase tool names (length >= 3) once outside the loop
+  const normalizedNames = new Map<string, string>();
+  for (const t of tools) {
+    if (t.name && t.name.length >= 3) {
+      normalizedNames.set(t.name.toLowerCase(), t.name);
+    }
+  }
 
   const explicitHijackRegex =
     /(?:instead\s+of\s+calling|override\s+tool|replaces?\s+the\s+built-?in|shadow\s+tool|intercept\s+calls\s+to|when\s+the\s+user\s+asks\s+to\s+use\s+[a-z0-9_-]+\s*,\s*use\s+this)/i;
@@ -172,14 +178,30 @@ export function runToolShadowingCheck(tools: McpToolDefinition[]): CheckResult {
     }
 
     if (hijackDirectiveRegex.test(desc)) {
-      for (const otherName of allNames) {
-        if (otherName !== tool.name && otherName.length >= 3 && desc.toLowerCase().includes(otherName.toLowerCase())) {
-          hijackingFindings.push({
-            tool: tool.name,
-            reason: `Tool '${tool.name}' description attempts to shadow or redirect calls from '${otherName}'`,
-          });
+      const lowerDesc = desc.toLowerCase();
+      const ownLower = tool.name.toLowerCase();
+      // Fast O(W) token lookup against normalizedNames Map, with substring fallback for compound names
+      const tokens = lowerDesc.match(/[a-z0-9_-]{3,}/g) || [];
+      let matchedOther: string | undefined;
+      for (const tok of tokens) {
+        if (tok !== ownLower && normalizedNames.has(tok)) {
+          matchedOther = normalizedNames.get(tok);
           break;
         }
+      }
+      if (!matchedOther) {
+        for (const [otherLower, origName] of normalizedNames.entries()) {
+          if (otherLower !== ownLower && lowerDesc.includes(otherLower)) {
+            matchedOther = origName;
+            break;
+          }
+        }
+      }
+      if (matchedOther) {
+        hijackingFindings.push({
+          tool: tool.name,
+          reason: `Tool '${tool.name}' description attempts to shadow or redirect calls from '${matchedOther}'`,
+        });
       }
     }
   }

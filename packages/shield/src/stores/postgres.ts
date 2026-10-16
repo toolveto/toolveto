@@ -4,10 +4,22 @@ export interface PostgresClientLike {
   query(sql: string, params?: any[]): Promise<{ rows: any[] }>;
 }
 
+export interface PostgresShieldStorageOptions {
+  vacuumIntervalCalls?: number; // default: 500 (0 disables automatic cleanup)
+}
+
 export class PostgresShieldStorage implements ShieldStorage {
   private tablesInitialized = false;
+  private callCounter = 0;
+  private vacuumInFlight = false;
+  private vacuumIntervalCalls: number;
 
-  constructor(private client: PostgresClientLike) {}
+  constructor(
+    private client: PostgresClientLike,
+    options: PostgresShieldStorageOptions = {}
+  ) {
+    this.vacuumIntervalCalls = options.vacuumIntervalCalls ?? 500;
+  }
 
   private async ensureTables(): Promise<void> {
     if (this.tablesInitialized) return;
@@ -49,7 +61,7 @@ export class PostgresShieldStorage implements ShieldStorage {
     if (!res.rows || res.rows.length === 0) return undefined;
     const row = res.rows[0];
     if (row.expires_at && Number(row.expires_at) < now) {
-      await this.client.query(`DELETE FROM toolveto_shield_cache WHERE key = $1`, [key]);
+      this.client.query(`DELETE FROM toolveto_shield_cache WHERE key = $1`, [key]).catch(() => {});
       return undefined;
     }
     try {
@@ -75,24 +87,30 @@ export class PostgresShieldStorage implements ShieldStorage {
     await this.ensureTables();
     const windowStart = timestamp - windowMs;
 
-    // 1. Insert current call timestamp
-    await this.client.query(
-      `INSERT INTO toolveto_shield_calls (key, call_timestamp) VALUES ($1, $2)`,
-      [key, timestamp]
-    );
-
-    // 2. Count active calls within the current sliding window
+    // Single-RTT CTE combining INSERT and sliding-window COUNT(*)
     const countRes = await this.client.query(
-      `SELECT COUNT(*)::int as count FROM toolveto_shield_calls WHERE key = $1 AND call_timestamp >= $2`,
-      [key, windowStart]
+      `WITH inserted AS (
+         INSERT INTO toolveto_shield_calls (key, call_timestamp) VALUES ($1, $2)
+       )
+       SELECT COUNT(*)::int + 1 as count FROM toolveto_shield_calls WHERE key = $1 AND call_timestamp >= $3`,
+      [key, timestamp, windowStart]
     );
 
-    // 3. Opportunistically purge stale records to prevent unbounded table growth
-    if (Math.random() < 0.1) {
-      this.client.query(
-        `DELETE FROM toolveto_shield_calls WHERE call_timestamp < $1`,
-        [windowStart]
-      ).catch(() => {});
+    // Deterministic non-blocking background purge every N calls instead of 10% random vacuum
+    this.callCounter++;
+    if (
+      this.vacuumIntervalCalls > 0 &&
+      this.callCounter >= this.vacuumIntervalCalls &&
+      !this.vacuumInFlight
+    ) {
+      this.callCounter = 0;
+      this.vacuumInFlight = true;
+      this.client
+        .query(`DELETE FROM toolveto_shield_calls WHERE call_timestamp < $1`, [windowStart])
+        .catch(() => {})
+        .finally(() => {
+          this.vacuumInFlight = false;
+        });
     }
 
     return countRes.rows?.[0]?.count ? Number(countRes.rows[0].count) : 1;

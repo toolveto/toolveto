@@ -20,6 +20,8 @@ export interface ShieldOptions {
   idempotency?: boolean | { enabled?: boolean; ttlSeconds?: number; ttlMs?: number };
   idempotencyTtlMs?: number;
   autoFingerprintFallback?: boolean; // default: true (RFC 8785 SHA256 fallback when explicit key omitted)
+  autoFingerprintWindowMs?: number; // optional short coalescing window for un-keyed identical mutations
+  autoKeyUnkeyedMutations?: boolean; // when true, generates unique auto_<uuid> for un-keyed mutations outside coalescing window
   loopLimit?: {
     count: number;
     windowMs: number;
@@ -112,7 +114,7 @@ export interface ShieldStorage {
 export class MemoryShieldStorage implements ShieldStorage {
   private cache: LRUCache<string, McpCallResponse>;
   private callHistory: LRUCache<string, number[]>;
-  private locks = new Set<string>();
+  private locks = new Map<string, number>();
 
   constructor(maxItems = 10000) {
     this.cache = new LRUCache<string, McpCallResponse>({ max: maxItems });
@@ -128,17 +130,39 @@ export class MemoryShieldStorage implements ShieldStorage {
   }
 
   async recordCall(key: string, timestamp: number, windowMs: number): Promise<number> {
-    const history = this.callHistory.get(key) || [];
+    let history = this.callHistory.get(key);
     const windowStart = timestamp - windowMs;
-    const recent = history.filter((t) => t > windowStart);
-    recent.push(timestamp);
-    this.callHistory.set(key, recent, { ttl: windowMs * 2 });
-    return recent.length;
+    if (!history) {
+      history = [timestamp];
+      this.callHistory.set(key, history, { ttl: windowMs * 2 });
+      return 1;
+    }
+
+    // Amortized O(1) front-pointer pruning on monotonic timestamps
+    let firstValidIdx = 0;
+    while (firstValidIdx < history.length && history[firstValidIdx] <= windowStart) {
+      firstValidIdx++;
+    }
+    if (firstValidIdx > 0) {
+      history.splice(0, firstValidIdx);
+    }
+    history.push(timestamp);
+    this.callHistory.set(key, history, { ttl: windowMs * 2 });
+    return history.length;
   }
 
-  async acquireLock(key: string, _ttlMs = 5000): Promise<boolean> {
-    if (this.locks.has(key)) return false;
-    this.locks.add(key);
+  async acquireLock(key: string, ttlMs = 5000): Promise<boolean> {
+    const now = Date.now();
+    const existingExpiry = this.locks.get(key);
+    if (existingExpiry !== undefined && existingExpiry > now) {
+      return false;
+    }
+    if (this.locks.size > 10000) {
+      for (const [k, exp] of this.locks.entries()) {
+        if (exp <= now) this.locks.delete(k);
+      }
+    }
+    this.locks.set(key, now + ttlMs);
     return true;
   }
 
@@ -234,15 +258,33 @@ function sanitizeObject(
   return obj;
 }
 
-export function canonicalizeJson(value: any): string {
+export function canonicalizeJson(value: any, visited = new WeakSet<object>(), depth = 0): string {
+  if (depth > 32) {
+    return '"[MAX_DEPTH]"';
+  }
   if (value === null || typeof value !== 'object') {
-    return JSON.stringify(value);
+    return JSON.stringify(value) ?? 'null';
   }
-  if (Array.isArray(value)) {
-    return '[' + value.map(canonicalizeJson).join(',') + ']';
+  if (visited.has(value)) {
+    return '"[CIRCULAR]"';
   }
-  const keys = Object.keys(value).sort();
-  return '{' + keys.map((k) => JSON.stringify(k) + ':' + canonicalizeJson(value[k])).join(',') + '}';
+  visited.add(value);
+  try {
+    if (Array.isArray(value)) {
+      return '[' + value.map((item) => canonicalizeJson(item, visited, depth + 1)).join(',') + ']';
+    }
+    const keys = Object.keys(value).sort();
+    return (
+      '{' +
+      keys
+        .filter((k) => value[k] !== undefined && typeof value[k] !== 'function' && typeof value[k] !== 'symbol')
+        .map((k) => JSON.stringify(k) + ':' + canonicalizeJson(value[k], visited, depth + 1))
+        .join(',') +
+      '}'
+    );
+  } finally {
+    visited.delete(value);
+  }
 }
 
 /**
@@ -321,6 +363,8 @@ interface NormalizedShieldOptions {
   idempotency: boolean;
   idempotencyTtlMs?: number;
   autoFingerprintFallback?: boolean;
+  autoFingerprintWindowMs?: number;
+  autoKeyUnkeyedMutations?: boolean;
   loopLimit?: { count: number; windowMs: number };
   tokenBudget?: number;
   promptInjectionScan?: PromptInjectionScanOptions;
@@ -362,6 +406,8 @@ function normalizeShieldOptions(opts: ShieldOptions = {}): NormalizedShieldOptio
     idempotency: idempEnabled,
     idempotencyTtlMs: idempTtlMs,
     autoFingerprintFallback: opts.autoFingerprintFallback,
+    autoFingerprintWindowMs: opts.autoFingerprintWindowMs,
+    autoKeyUnkeyedMutations: opts.autoKeyUnkeyedMutations,
     loopLimit,
     tokenBudget,
     promptInjectionScan: opts.promptInjectionScan,
@@ -395,7 +441,10 @@ export class ShieldMiddleware {
   private storage: ShieldStorage;
   private options: NormalizedShieldOptions;
   private inFlightRequests: Map<string, Promise<McpCallResponse>> = new Map();
-  private cursorStore: LRUCache<string, CursorStoreEntry> = new LRUCache({ max: 5000 });
+  private cursorStore: LRUCache<string, CursorStoreEntry> = new LRUCache({
+    max: 5000,
+    ttl: 15 * 60 * 1000,
+  });
   private rugPulledTools: Set<string> = new Set();
   private listChangedUnverified = false;
   private metrics: ShieldMetrics = {
@@ -793,13 +842,21 @@ export class ShieldMiddleware {
     let idempKey = explicitIdempKey;
     let isFingerprintFallback = false;
 
-    // RFC 8785 SHA256 fallback when explicit key is omitted (prevents double-charge on un-keyed mutation calls)
-    if (!idempKey && this.options.idempotency && toolName && this.options.autoFingerprintFallback !== false) {
-      const cleanArgs = sanitizeArgsForHash(args);
-      const canonicalArgs = canonicalizeJson(cleanArgs);
-      const hash = crypto.createHash('sha256').update(`${toolName}:${canonicalArgs}`).digest('hex');
-      idempKey = `fp_${hash}`;
-      isFingerprintFallback = true;
+    // RFC 8785 SHA256 fallback when explicit key is omitted
+    if (!idempKey && this.options.idempotency && toolName) {
+      if (this.options.autoKeyUnkeyedMutations || this.options.autoFingerprintFallback === false) {
+        idempKey = `auto_${crypto.randomUUID()}`;
+        if (req.params) {
+          req.params.arguments = { ...args, idempotency_key: idempKey };
+          args = req.params.arguments;
+        }
+      } else {
+        const cleanArgs = sanitizeArgsForHash(args);
+        const canonicalArgs = canonicalizeJson(cleanArgs);
+        const hash = crypto.createHash('sha256').update(`${toolName}:${canonicalArgs}`).digest('hex');
+        idempKey = `fp_${hash}`;
+        isFingerprintFallback = true;
+      }
     }
 
     const executeDownstream = async (): Promise<{ response: McpCallResponse; postAction?: string; nextCursor?: string }> => {
@@ -1067,7 +1124,7 @@ export class ShieldMiddleware {
         try {
           if (this.storage.acquireLock) {
             try {
-              lockAcquired = await this.storage.acquireLock(cacheKey, this.options.idempotencyTtlMs || 30000);
+              lockAcquired = await this.storage.acquireLock(cacheKey, this.options.idempotencyTtlMs || 5000);
             } catch (err: any) {
               if (this.options.failClosed) {
                 return {
@@ -1113,7 +1170,9 @@ export class ShieldMiddleware {
           // Never cache error responses or intermediate 'input_required' task responses for 24h
           const isInputRequired = res.resultType === 'input_required';
           if (!res.isError && !isInputRequired) {
-            const ttl = this.options.idempotencyTtlMs || 24 * 60 * 60 * 1000; // default 24h
+            const ttl = isFingerprintFallback
+              ? (this.options.autoFingerprintWindowMs ?? this.options.idempotencyTtlMs ?? 2000)
+              : (this.options.idempotencyTtlMs || 24 * 60 * 60 * 1000); // default 24h for explicit keys, 2s coalescing window for un-keyed fingerprint
             await this.storage.set(cacheKey, res, ttl);
           }
           return res;

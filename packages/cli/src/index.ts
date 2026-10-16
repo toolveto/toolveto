@@ -24,12 +24,15 @@ export function createProgram(): Command {
     .argument('<target>', 'Path to local MCP server directory, binary, or Streamable HTTP URL')
     .option('--with-llm', 'Enable Stage 4 LLM E_heal self-heal judge (requires API key)')
     .option('--allow-destructive', 'Authorize live stateful replay and concurrent burst mutations (D1)')
+    .option('--allow-exec', 'Authorize spawning local server entrypoint scripts discovered inside target directory')
     .option('--ephemeral-mock', 'Zero-setup ephemeral mock evaluation on static manifests with live VERIFIED runtime evidence')
     .option('--json', 'Output machine-readable JSON report')
     .option('-f, --format <format>', 'Output format: terminal, json, or github-pr', 'terminal')
     .option('-t, --threshold <score>', 'Minimum certification score threshold (0-100)')
     .option('--fail-on-severity <severity>', 'Fail with exit code 1 if any failed check meets or exceeds severity (LOW, MEDIUM, HIGH, CRITICAL)')
     .option('--demo', 'Allow synthetic mock tools when target has zero tools (demo mode)')
+    .option('--skip-update-check', 'Skip checking for new ToolVeto CLI versions and update notices (Trivy/Grype compatible)')
+    .option('--no-telemetry', 'Disable anonymous CLI run telemetry (or set DO_NOT_TRACK=1 / TOOLVETO_NO_TELEMETRY=1)')
     .action(async (target, options) => {
       await checkCommand(target, options);
     });
@@ -133,3 +136,6 @@ export function createProgram(): Command {
 
   return program;
 }
+
+export * from './telemetry.js';
+

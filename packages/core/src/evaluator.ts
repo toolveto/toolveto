@@ -38,6 +38,42 @@ export interface RunSuiteOptions {
   withLlm?: boolean;
   destructiveAuthorization?: boolean;
   targetDir?: string;
+  concurrency?: number;
+  bootstrapIterations?: number;
+}
+
+export function pLimit(concurrency: number) {
+  let activeCount = 0;
+  const queue: Array<() => void> = [];
+
+  const next = () => {
+    activeCount--;
+    const fn = queue.shift();
+    if (fn) fn();
+  };
+
+  return <T>(fn: () => Promise<T>): Promise<T> =>
+    new Promise<T>((resolve, reject) => {
+      const run = () => {
+        activeCount++;
+        fn().then(
+          (val) => {
+            resolve(val);
+            next();
+          },
+          (err) => {
+            reject(err);
+            next();
+          }
+        );
+      };
+
+      if (activeCount < concurrency) {
+        run();
+      } else {
+        queue.push(run);
+      }
+    });
 }
 
 export async function runSuite(
@@ -50,51 +86,64 @@ export async function runSuite(
   const { client } = options;
   const config = loadToolvetoConfig(options.targetDir || (target.startsWith('http') ? '.' : target));
   const destructiveAuthorization = options.destructiveAuthorization ?? config.destructiveAuthorization ?? false;
+  const limit = pLimit(Math.max(1, options.concurrency ?? 5));
 
-  // Run all check batteries across tools
-  for (const tool of tools) {
-    // D1 Checks (guarded by destructiveAuthorization to prevent live corruption)
-    const replayCheck = await runSequentialReplayCheck(tool, client, destructiveAuthorization);
-    results.push(replayCheck);
-    results.push(await runConcurrentBurstCheck(tool, client, 10, destructiveAuthorization));
-    results.push(await runCrashCommitCheck(tool, client, destructiveAuthorization));
-    results.push(runIdempotencyKeyCheck(tool));
-    if (client) {
-      results.push(await runDelayedReplayCheck(tool, client, destructiveAuthorization));
-      results.push(await runCancellationCheck(tool, client, destructiveAuthorization));
-      results.push(await runLatencyProfilingCheck(tool, client, destructiveAuthorization));
-    }
+  // Run check batteries across tools with bounded concurrency (pLimit(5) + Promise.allSettled)
+  const settledTools = await Promise.allSettled(
+    tools.map((tool) =>
+      limit(async () => {
+        const toolResults: CheckResult[] = [];
+        // D1 Checks (guarded by destructiveAuthorization to prevent live corruption)
+        const replayCheck = await runSequentialReplayCheck(tool, client, destructiveAuthorization);
+        toolResults.push(replayCheck);
+        toolResults.push(await runConcurrentBurstCheck(tool, client, 10, destructiveAuthorization));
+        toolResults.push(await runCrashCommitCheck(tool, client, destructiveAuthorization));
+        toolResults.push(runIdempotencyKeyCheck(tool));
+        if (client) {
+          toolResults.push(await runDelayedReplayCheck(tool, client, destructiveAuthorization));
+          toolResults.push(await runCancellationCheck(tool, client, destructiveAuthorization));
+          toolResults.push(await runLatencyProfilingCheck(tool, client, destructiveAuthorization));
+        }
 
-    // D2 Checks
-    results.push(await runTypeInversionFuzzCheck(tool, client));
-    results.push(await runHallucinatedParamsCheck(tool, client));
-    results.push(await runSemanticErrorCheck(tool, client));
-    if (client) {
-      results.push(await runEnvelopeFuzzCheck(tool, client));
-    }
-    results.push(runToolPoisoningCheck(tool));
+        // D2 Checks
+        toolResults.push(await runTypeInversionFuzzCheck(tool, client));
+        toolResults.push(await runHallucinatedParamsCheck(tool, client));
+        toolResults.push(await runSemanticErrorCheck(tool, client));
+        if (client) {
+          toolResults.push(await runEnvelopeFuzzCheck(tool, client));
+        }
+        toolResults.push(runToolPoisoningCheck(tool));
 
-    // D3 Checks
-    results.push(await runTokenBudgetCheck(tool, client));
-    results.push(runPaginationSchemaCheck(tool));
-    results.push(runDescriptionClarityCheck(tool));
-    results.push(runAdditionalPropertiesCheck(tool));
+        // D3 Checks
+        toolResults.push(await runTokenBudgetCheck(tool, client));
+        toolResults.push(runPaginationSchemaCheck(tool));
+        toolResults.push(runDescriptionClarityCheck(tool));
+        toolResults.push(runAdditionalPropertiesCheck(tool));
 
-    // D4 Checks (Steerability & Schema Ambiguity & Annotations)
-    results.push(runDescriptionAmbiguityCheck(tool, tools));
-    results.push(runParamSteerabilityCheck(tool));
-    if (client) {
-      results.push(await runAnnotationCrossCheck(tool, client, replayCheck.status === 'PASS'));
-    }
+        // D4 Checks (Steerability & Schema Ambiguity & Annotations)
+        toolResults.push(runDescriptionAmbiguityCheck(tool, tools));
+        toolResults.push(runParamSteerabilityCheck(tool));
+        if (client) {
+          toolResults.push(await runAnnotationCrossCheck(tool, client, replayCheck.status === 'PASS'));
+        }
 
-    // D5 Checks (State auditability, Tenant Isolation, Auth, Roots)
-    results.push(runReadBeforeWritePairingCheck(tool, tools));
-    results.push(runDryRunCheck(tool));
-    results.push(runOAuthScopeCheck(tool));
-    if (client) {
-      results.push(await runTenantIsolationCheck(tool, client, destructiveAuthorization));
-      results.push(await runRootsPathTraversalCheck(tool, client));
-      results.push(await runTasksExtensionCheck(tool, client, destructiveAuthorization));
+        // D5 Checks (State auditability, Tenant Isolation, Auth, Roots)
+        toolResults.push(runReadBeforeWritePairingCheck(tool, tools));
+        toolResults.push(runDryRunCheck(tool));
+        toolResults.push(runOAuthScopeCheck(tool));
+        if (client) {
+          toolResults.push(await runTenantIsolationCheck(tool, client, destructiveAuthorization));
+          toolResults.push(await runRootsPathTraversalCheck(tool, client));
+          toolResults.push(await runTasksExtensionCheck(tool, client, destructiveAuthorization));
+        }
+        return toolResults;
+      })
+    )
+  );
+
+  for (const outcome of settledTools) {
+    if (outcome.status === 'fulfilled') {
+      results.push(...outcome.value);
     }
   }
 
@@ -123,89 +172,101 @@ export async function runSuite(
     /(?:SYSTEM\s*OVERRIDE|Ignore\s+(?:all\s+)?(?:previous|prior)\s+instructions|<system>|<<SYS>>|you\s+are\s+now\s+DAN|disregard\s+(?:all\s+)?(?:previous|prior)\s+instructions)/i;
 
   if (client) {
-    for (const tool of tools) {
-      const shouldProbeInjection =
-        !tool.isMutation ||
-        destructiveAuthorization ||
-        tool.name.includes('prompt') ||
-        tool.name.includes('exfil');
+    const settledProbes = await Promise.allSettled(
+      tools.map((tool) =>
+        limit(async () => {
+          const probeFindings: CheckResult[] = [];
+          const shouldProbeInjection =
+            !tool.isMutation ||
+            destructiveAuthorization ||
+            tool.name.includes('prompt') ||
+            tool.name.includes('exfil');
 
-      if (shouldProbeInjection) {
-        try {
-          const probeArgs: Record<string, any> = { input: 'ignore previous instructions' };
-          const schemaProps = tool.inputSchema?.properties || {};
-          for (const [k, propSchema] of Object.entries(schemaProps)) {
-            if (propSchema?.type === 'string') {
-              if (propSchema.format === 'date' || k.includes('date')) {
-                probeArgs[k] = '2026-10-15';
-              } else if (k.endsWith('_id') || k === 'id' || k === 'cursor' || k === 'currency' || k.includes('key')) {
-                probeArgs[k] = 'probe_ref_001';
-              } else {
-                probeArgs[k] = 'ignore previous instructions';
+          if (shouldProbeInjection) {
+            try {
+              const probeArgs: Record<string, any> = { input: 'ignore previous instructions' };
+              const schemaProps = tool.inputSchema?.properties || {};
+              for (const [k, propSchema] of Object.entries(schemaProps)) {
+                if (propSchema?.type === 'string') {
+                  if (propSchema.format === 'date' || k.includes('date')) {
+                    probeArgs[k] = '2026-10-15';
+                  } else if (k.endsWith('_id') || k === 'id' || k === 'cursor' || k === 'currency' || k.includes('key')) {
+                    probeArgs[k] = 'probe_ref_001';
+                  } else {
+                    probeArgs[k] = 'ignore previous instructions';
+                  }
+                } else if (propSchema?.type === 'number' || propSchema?.type === 'integer') {
+                  probeArgs[k] = 1;
+                } else if (propSchema?.type === 'boolean') {
+                  probeArgs[k] = true;
+                }
               }
-            } else if (propSchema?.type === 'number' || propSchema?.type === 'integer') {
-              probeArgs[k] = 1;
-            } else if (propSchema?.type === 'boolean') {
-              probeArgs[k] = true;
+
+              const resp = await client.callTool(tool.name, probeArgs);
+              const text = resp.content?.map((c) => c.text).join('') || '';
+              if (injectionResponsePattern.test(text)) {
+                probeFindings.push({
+                  checkId: 'TC-VETO-INJECT-001',
+                  dimension: 'D2',
+                  tool: tool.name,
+                  status: 'FAIL',
+                  severity: 'CRITICAL',
+                  vetoClass: 'VETO_INJECT',
+                  description: `VETO_INJECT: Indirect prompt injection vulnerability detected in tool response`,
+                  evidence: {
+                    evidenceQuality: 'VERIFIED',
+                    details: { leakedPattern: 'Prompt override directive detected in tool output' },
+                  },
+                  durationMs: 10,
+                });
+              }
+            } catch {
+              // ignore
             }
           }
 
-          const resp = await client.callTool(tool.name, probeArgs);
-          const text = resp.content?.map((c) => c.text).join('') || '';
-          if (injectionResponsePattern.test(text)) {
-            results.push({
-              checkId: 'TC-VETO-INJECT-001',
-              dimension: 'D2',
-              tool: tool.name,
-              status: 'FAIL',
-              severity: 'CRITICAL',
-              vetoClass: 'VETO_INJECT',
-              description: `VETO_INJECT: Indirect prompt injection vulnerability detected in tool response`,
-              evidence: {
-                evidenceQuality: 'VERIFIED',
-                details: { leakedPattern: 'Prompt override directive detected in tool output' },
-              },
-              durationMs: 10,
-            });
+          // Deterministic SSRF callback probe
+          const props = tool.inputSchema?.properties || {};
+          const callbackParam = Object.keys(props).find((k) =>
+            ['callback_url', 'webhook', 'webhook_url', 'url', 'target_url', 'notify_url'].includes(k.toLowerCase())
+          );
+          if (callbackParam) {
+            try {
+              const canaryUrl = 'http://canary-ssrf-probe.toolveto.internal/latest/meta-data/';
+              const resp = await client.callTool(tool.name, { [callbackParam]: canaryUrl });
+              const text = resp.content?.map((c) => c.text).join('') || '';
+              if (
+                text.includes('ami-id') ||
+                text.includes('security-credentials') ||
+                text.includes('canary-exfil-captured') ||
+                text.includes('canary-ssrf-probe')
+              ) {
+                probeFindings.push({
+                  checkId: 'TC-VETO-EXFIL-001',
+                  dimension: 'D5',
+                  tool: tool.name,
+                  status: 'FAIL',
+                  severity: 'CRITICAL',
+                  description: `VETO_EXFIL: SSRF / Exfiltration vulnerability detected in parameter '${callbackParam}'. Server egressed to internal cloud metadata endpoint.`,
+                  evidence: {
+                    evidenceQuality: 'VERIFIED',
+                    details: { canaryUrl },
+                  },
+                  durationMs: 10,
+                });
+              }
+            } catch {
+              // ignore
+            }
           }
-        } catch {
-          // ignore
-        }
-      }
+          return probeFindings;
+        })
+      )
+    );
 
-      // Deterministic SSRF callback probe
-      const props = tool.inputSchema?.properties || {};
-      const callbackParam = Object.keys(props).find((k) =>
-        ['callback_url', 'webhook', 'webhook_url', 'url', 'target_url', 'notify_url'].includes(k.toLowerCase())
-      );
-      if (callbackParam) {
-        try {
-          const canaryUrl = 'http://canary-ssrf-probe.toolveto.internal/latest/meta-data/';
-          const resp = await client.callTool(tool.name, { [callbackParam]: canaryUrl });
-          const text = resp.content?.map((c) => c.text).join('') || '';
-          if (
-            text.includes('ami-id') ||
-            text.includes('security-credentials') ||
-            text.includes('canary-exfil-captured') ||
-            text.includes('canary-ssrf-probe')
-          ) {
-            results.push({
-              checkId: 'TC-VETO-EXFIL-001',
-              dimension: 'D5',
-              tool: tool.name,
-              status: 'FAIL',
-              severity: 'CRITICAL',
-              description: `VETO_EXFIL: SSRF / Exfiltration vulnerability detected in parameter '${callbackParam}'. Server egressed to internal cloud metadata endpoint.`,
-              evidence: {
-                evidenceQuality: 'VERIFIED',
-                details: { canaryUrl },
-              },
-              durationMs: 10,
-            });
-          }
-        } catch {
-          // ignore
-        }
+    for (const outcome of settledProbes) {
+      if (outcome.status === 'fulfilled') {
+        results.push(...outcome.value);
       }
     }
   }
@@ -365,10 +426,10 @@ export async function runSuite(
     }
   }
 
-  // Statistical confidence calculations (n >= 30, B=1000 bootstrap CI, point ± CI, certified lower bound)
+  // Statistical confidence calculations (n >= 30, B=200 bootstrap CI, point ± CI, certified lower bound)
   const nRuns = 30;
   const pointEstimate = finalScore;
-  const B = 1000;
+  const B = options.bootstrapIterations ?? 200;
   let ciLow = pointEstimate;
   let ciHigh = pointEstimate;
 
@@ -380,21 +441,38 @@ export async function runSuite(
       return seed / 4294967296;
     };
 
+    const resLen = results.length;
     for (let b = 0; b < B; b++) {
-      const sample = Array.from({ length: results.length }, () => results[Math.floor(lcg() * results.length)]);
-      const bCalcDim = (dim: Dimension): number => {
-        const d = sample.filter((r) => r.dimension === dim);
-        if (d.length === 0) return 100;
-        const p = d.filter((r) => r.status === 'PASS').length;
-        const w = d.filter((r) => r.status === 'WARN').length;
-        return Math.round(((p + w * 0.5) / d.length) * 100);
-      };
+      let d1T = 0, d1P = 0;
+      let d2T = 0, d2P = 0;
+      let d3T = 0, d3P = 0;
+      let d4T = 0, d4P = 0;
+      let d5T = 0, d5P = 0;
+
+      for (let i = 0; i < resLen; i++) {
+        const r = results[Math.floor(lcg() * resLen)];
+        const val = r.status === 'PASS' ? 1 : r.status === 'WARN' ? 0.5 : 0;
+        switch (r.dimension) {
+          case 'D1': d1T++; d1P += val; break;
+          case 'D2': d2T++; d2P += val; break;
+          case 'D3': d3T++; d3P += val; break;
+          case 'D4': d4T++; d4P += val; break;
+          case 'D5': d5T++; d5P += val; break;
+        }
+      }
+
+      const bD1 = d1T === 0 ? 100 : Math.round((d1P / d1T) * 100);
+      const bD2 = d2T === 0 ? 100 : Math.round((d2P / d2T) * 100);
+      const bD3 = d3T === 0 ? 100 : Math.round((d3P / d3T) * 100);
+      const bD4 = d4T === 0 ? 100 : Math.round((d4P / d4T) * 100);
+      const bD5 = d5T === 0 ? 100 : Math.round((d5P / d5T) * 100);
+
       const bScore = Math.max(0, Math.min(100, Math.round(
-        (bCalcDim('D1') * 0.35 +
-         bCalcDim('D2') * 0.20 +
-         bCalcDim('D3') * 0.20 +
-         bCalcDim('D4') * 0.15 +
-         bCalcDim('D5') * 0.10) * phi
+        (bD1 * 0.35 +
+         bD2 * 0.20 +
+         bD3 * 0.20 +
+         bD4 * 0.15 +
+         bD5 * 0.10) * phi
       )));
       bootstrapScores.push(bScore);
     }

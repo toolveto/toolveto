@@ -12,12 +12,14 @@ export interface HttpMcpClientOptions {
   baseUrl: string;
   headers?: Record<string, string>;
   timeoutMs?: number;
+  keepAlive?: boolean;
 }
 
 export class HttpMcpClient implements McpClient {
   private baseUrl: string;
   private headers: Record<string, string>;
   private timeoutMs: number;
+  private keepAlive: boolean;
   private requestId = 1;
   private protocolVersion: string = LATEST_MCP_PROTOCOL_VERSION;
   private capabilities: McpServerCapabilities = {};
@@ -27,10 +29,12 @@ export class HttpMcpClient implements McpClient {
       this.baseUrl = options;
       this.headers = {};
       this.timeoutMs = 15000;
+      this.keepAlive = true;
     } else {
       this.baseUrl = options.baseUrl;
       this.headers = options.headers || {};
       this.timeoutMs = options.timeoutMs || 15000;
+      this.keepAlive = options.keepAlive !== false;
     }
   }
 
@@ -39,7 +43,7 @@ export class HttpMcpClient implements McpClient {
       const res = await this.jsonRpcRequest('server/discover', {
         protocolVersion: this.protocolVersion,
         capabilities: { tools: {}, tasks: { supported: true, inputRequired: true } },
-        clientInfo: { name: 'toolveto-harness', version: '0.1.0' },
+        clientInfo: { name: 'toolveto-harness', version: '0.2.0' },
         _meta: { protocolVersion: this.protocolVersion, client: 'toolveto-harness' },
       });
       if (res?.protocolVersion) {
@@ -55,7 +59,11 @@ export class HttpMcpClient implements McpClient {
         const timer = setTimeout(() => controller.abort(), this.timeoutMs);
         const res = await fetch(this.baseUrl, {
           method: 'GET',
-          headers: this.headers,
+          headers: {
+            Connection: this.keepAlive ? 'keep-alive' : 'close',
+            ...this.headers,
+          },
+          keepalive: this.keepAlive,
           signal: controller.signal,
         });
         clearTimeout(timer);
@@ -79,8 +87,10 @@ export class HttpMcpClient implements McpClient {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          Connection: this.keepAlive ? 'keep-alive' : 'close',
           ...this.headers,
         },
+        keepalive: this.keepAlive,
         body: JSON.stringify({
           jsonrpc: '2.0',
           id,
@@ -94,12 +104,16 @@ export class HttpMcpClient implements McpClient {
 
       if (!response.ok) {
         const text = await response.text();
-        throw new Error(`HTTP ${response.status}: ${text || response.statusText}`);
+        const httpErr: any = new Error(`HTTP ${response.status}: ${text || response.statusText}`);
+        httpErr.statusCode = response.status;
+        throw httpErr;
       }
 
       const json = (await response.json()) as any;
       if (json && json.error) {
-        throw new Error(`JSON-RPC Error [${json.error.code}]: ${json.error.message}`);
+        const rpcErr: any = new Error(`JSON-RPC Error [${json.error.code}]: ${json.error.message}`);
+        rpcErr.rpcCode = json.error.code;
+        throw rpcErr;
       }
 
       return json?.result;
@@ -157,8 +171,10 @@ export class HttpMcpClient implements McpClient {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          Connection: this.keepAlive ? 'keep-alive' : 'close',
           ...this.headers,
         },
+        keepalive: this.keepAlive,
         body: typeof rawJson === 'string' ? rawJson : JSON.stringify(rawJson),
         signal: controller.signal,
       });
@@ -206,8 +222,11 @@ export class HttpMcpClient implements McpClient {
     } catch (err: any) {
       const isConnectionDrop =
         err.name === 'AbortError' ||
+        err.name === 'TimeoutError' ||
+        err.code === 'ABORT_ERR' ||
         err.code === 'ECONNREFUSED' ||
         err.code === 'ECONNRESET' ||
+        err.message?.includes('aborted') ||
         err.message?.includes('fetch failed') ||
         err.message?.includes('dropped transport');
 

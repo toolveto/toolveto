@@ -928,8 +928,52 @@ describe('ToolVeto Shield Runtime Middleware', () => {
     // estimatedDollarsSaved = 1*50 + 1*4.5 + (2900/1000)*0.015 + 1*100 = 154.5435 -> 154.54
     assert.strictEqual(metricsViaFn.estimatedDollarsSaved, 154.54);
   });
+
+  it('should prevent false-dedup on un-keyed mutations via autoKeyUnkeyedMutations (auto_<uuid>) and expire short fingerprint windows', async () => {
+    const { MemoryShieldStorage, canonicalizeJson } = await import('../index.js');
+
+    // 1. autoKeyUnkeyedMutations generates unique auto_<uuid> so 10 distinct $100 charges all execute
+    const autoKeyMiddleware = new ShieldMiddleware({
+      idempotency: true,
+      autoKeyUnkeyedMutations: true,
+    });
+    let chargesExecuted = 0;
+    const seenKeys = new Set<string>();
+    for (let i = 0; i < 10; i++) {
+      const req = {
+        method: 'tools/call',
+        params: {
+          name: 'charge_card',
+          arguments: { amount: 100, currency: 'USD' },
+        },
+      };
+      await autoKeyMiddleware.intercept(req, async (r) => {
+        chargesExecuted++;
+        const k = r.params.arguments?.idempotency_key;
+        if (k) seenKeys.add(k);
+        return { content: [{ type: 'text', text: `charge_${chargesExecuted}` }] };
+      });
+    }
+    assert.strictEqual(chargesExecuted, 10, 'All 10 un-keyed mutations must execute when autoKeyUnkeyedMutations is enabled');
+    assert.strictEqual(seenKeys.size, 10, 'Each un-keyed mutation must receive a unique auto_<uuid> key');
+    for (const k of seenKeys) {
+      assert.ok(k.startsWith('auto_'), `Expected auto_ prefix, got ${k}`);
+    }
+
+    // 2. MemoryShieldStorage locks expire automatically after TTL so crashed operations never permanently deadlock
+    const store = new MemoryShieldStorage();
+    const locked1 = await store.acquireLock('deadlock_test_key', 20);
+    const locked2 = await store.acquireLock('deadlock_test_key', 20);
+    assert.strictEqual(locked1, true);
+    assert.strictEqual(locked2, false);
+    await new Promise((r) => setTimeout(r, 30));
+    const lockedAfterExpiry = await store.acquireLock('deadlock_test_key', 20);
+    assert.strictEqual(lockedAfterExpiry, true, 'Expired lock must be automatically reclaimed after TTL');
+
+    // 3. canonicalizeJson handles circular references without throwing Maximum call stack size exceeded
+    const cyclic: any = { a: 1, b: [2, 3] };
+    cyclic.self = cyclic;
+    const canonical = canonicalizeJson(cyclic);
+    assert.ok(canonical.includes('[CIRCULAR]'));
+  });
 });
-
-
-
-

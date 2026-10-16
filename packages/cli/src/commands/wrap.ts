@@ -12,10 +12,22 @@ export interface WrapCommandOptions {
 
 export interface WrapResult {
   configPath: string;
+  backupPath?: string;
   wrappedServers: string[];
   unwrappedServers: string[];
   collisions: string[];
   config: Record<string, any>;
+}
+
+function writeConfigWithBackupAndAtomicRename(configPath: string, serialized: string): string {
+  const backupPath = `${configPath}.bak`;
+  if (fs.existsSync(configPath)) {
+    fs.copyFileSync(configPath, backupPath);
+  }
+  const tmpPath = `${configPath}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(tmpPath, serialized, { encoding: 'utf-8', mode: 0o600 });
+  fs.renameSync(tmpPath, configPath);
+  return backupPath;
 }
 
 function resolveConfigFile(targetPath?: string, client: string = 'auto'): string | null {
@@ -102,6 +114,7 @@ export async function wrapCommand(
   const wrappedServers: string[] = [];
   const unwrappedServers: string[] = [];
   const collisions: string[] = [];
+  let backupPath: string | undefined;
 
   if (options.unwrap) {
     for (const [serverName, entry] of Object.entries(servers)) {
@@ -116,7 +129,7 @@ export async function wrapCommand(
     if (options.dryRun) {
       console.log(JSON.stringify(parsed, null, 2));
     } else {
-      fs.writeFileSync(configPath, JSON.stringify(parsed, null, 2) + '\n', 'utf-8');
+      backupPath = writeConfigWithBackupAndAtomicRename(configPath, JSON.stringify(parsed, null, 2) + '\n');
       console.log(`\n🔓 ToolVeto Unwrap Complete: Restored ${unwrappedServers.length} MCP server(s) in ${configPath}`);
       for (const name of unwrappedServers) {
         console.log(`   - ${name}`);
@@ -126,6 +139,7 @@ export async function wrapCommand(
 
     return {
       configPath,
+      backupPath,
       wrappedServers,
       unwrappedServers,
       collisions,
@@ -201,7 +215,7 @@ export async function wrapCommand(
   if (options.dryRun) {
     console.log(JSON.stringify(parsed, null, 2));
   } else {
-    fs.writeFileSync(configPath, JSON.stringify(parsed, null, 2) + '\n', 'utf-8');
+    backupPath = writeConfigWithBackupAndAtomicRename(configPath, JSON.stringify(parsed, null, 2) + '\n');
     console.log(`\n🛡️  ToolVeto Shield Wrapper Active (${configPath})`);
     console.log(`Wrapped ${wrappedServers.length} MCP server(s): ${wrappedServers.join(', ') || 'none (already wrapped)'}`);
     console.log(`Active @toolveto/shield Protections:`);
@@ -223,6 +237,7 @@ export async function wrapCommand(
 
   return {
     configPath,
+    backupPath,
     wrappedServers,
     unwrappedServers,
     collisions,

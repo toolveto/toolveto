@@ -604,4 +604,227 @@ describe('ToolVeto CLI Commands', () => {
     process.exitCode = 0;
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
+
+  it('should execute Trivy/Grype-style update checker, capture anonymous PLG run telemetry, and respect DO_NOT_TRACK opt-out', async () => {
+    const {
+      runPlgTelemetryAndUpdateCheck,
+      getOrCreateCliState,
+      isTelemetryDisabled,
+      isUpdateCheckDisabled,
+      formatTrivyStyleNotice,
+    } = await import('../telemetry.js');
+
+    const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'tv-plg-home-'));
+    const oldHome = process.env.HOME;
+    const oldDnt = process.env.DO_NOT_TRACK;
+    const outerGhActions = process.env.GITHUB_ACTIONS;
+    const outerGhRepo = process.env.GITHUB_REPOSITORY;
+    const outerGhRunNum = process.env.GITHUB_RUN_NUMBER;
+    const outerCi = process.env.CI;
+    process.env.HOME = tmpHome;
+    delete process.env.DO_NOT_TRACK;
+    delete process.env.GITHUB_ACTIONS;
+    delete process.env.GITHUB_REPOSITORY;
+    delete process.env.GITHUB_RUN_NUMBER;
+    delete process.env.CI;
+
+    const telemetryPayloads: any[] = [];
+    let versionCheckRequests = 0;
+
+    const mockApi = http.createServer((req, res) => {
+      if (req.method === 'GET' && req.url?.startsWith('/api/v1/cli/version-check')) {
+        versionCheckRequests++;
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            latestVersion: '0.3.0',
+            latestCorpusVersion: 'v1.1',
+            sealedCorpusChecksCount: 14,
+            releaseUrl: 'https://github.com/toolveto/toolveto/releases/tag/v0.3.0',
+            upgradeCommand: 'npm i -g toolveto@latest',
+          })
+        );
+      } else if (req.method === 'POST' && req.url === '/api/v1/cli/telemetry') {
+        let body = '';
+        req.on('data', (c) => (body += c));
+        req.on('end', () => {
+          telemetryPayloads.push(JSON.parse(body));
+          res.writeHead(201, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true }));
+        });
+      } else {
+        res.writeHead(404);
+        res.end();
+      }
+    });
+
+    await new Promise<void>((resolve) => mockApi.listen(0, () => resolve()));
+    const port = (mockApi.address() as any).port;
+
+    const mockSummary: any = {
+      score: 52,
+      tier: 'Rejected',
+      fatalVetoTriggered: true,
+      fatalVetoes: ['VETO_IDEMP'],
+      phiMultiplier: 0.7,
+      dimensionScores: {},
+      results: [
+        { checkId: 'TC-IDEMP-001', status: 'FAIL', severity: 'CRITICAL', tool: 'charge', message: 'Missing idempotency' },
+        { checkId: 'TC-IDEMP-002', status: 'FAIL', severity: 'HIGH', tool: 'charge', message: 'Burst duplicate' },
+        { checkId: 'TC-SEC-002', status: 'PASS', severity: 'CRITICAL', tool: 'charge', message: 'Clean' },
+      ],
+    };
+
+    try {
+      // 1. Run PLG telemetry + version check against mock server
+      const result = await runPlgTelemetryAndUpdateCheck({
+        summary: mockSummary,
+        target: '/workspace/stripe-mcp',
+        durationMs: 42,
+        options: {
+          customHomeDir: tmpHome,
+          apiUrl: `http://localhost:${port}`,
+        },
+      });
+
+      assert.strictEqual(result.telemetrySent, true, 'Anonymous PLG telemetry must be sent');
+      assert.strictEqual(result.payload?.runNumber, 1, 'Local run counter must increment to 1');
+      assert.strictEqual(telemetryPayloads.length, 1);
+      assert.strictEqual(telemetryPayloads[0].score, 52);
+      assert.strictEqual(telemetryPayloads[0].tier, 'Rejected');
+      assert.strictEqual(telemetryPayloads[0].fatalVetoTriggered, true);
+      assert.deepStrictEqual(telemetryPayloads[0].failedCheckIds, ['TC-IDEMP-001', 'TC-IDEMP-002']);
+      assert.ok(telemetryPayloads[0].targetHash.startsWith('sha256_'), 'Target path must be SHA-256 anonymized');
+      assert.ok(!telemetryPayloads[0].targetHash.includes('stripe-mcp'), 'Raw repo path must never be leaked');
+
+      assert.strictEqual(versionCheckRequests, 1);
+      assert.strictEqual(result.updateAvailable, true);
+      assert.strictEqual(result.latestVersion, '0.3.0');
+      assert.ok(result.noticeText?.includes('v0.2.0 → v0.3.0'));
+
+      // 2. Verify ~/.toolveto/cli-state.json persistence
+      const { state: persistedState } = getOrCreateCliState(tmpHome);
+      assert.strictEqual(persistedState.totalRuns, 1);
+      assert.strictEqual(persistedState.latestKnownVersion, '0.3.0');
+
+      // 3. Verify Trivy/Grype notice box formatting
+      const formatted = formatTrivyStyleNotice({
+        currentVersion: '0.2.0',
+        latestVersion: '0.3.0',
+        latestCorpusVersion: 'v1.1',
+        summary: mockSummary,
+        authenticated: false,
+        runNumber: 1,
+      });
+      assert.ok(formatted.includes('v0.2.0 → v0.3.0'), 'Must display version upgrade notice like Trivy/Grype');
+      assert.ok(formatted.includes('PLG Security Advisory'), 'Must display contextual PLG remediation advisory');
+      assert.ok(formatted.includes('DO_NOT_TRACK=1'), 'Must display standard opt-out env vars');
+
+      // 4. Verify DO_NOT_TRACK=1 and TOOLVETO_TELEMETRY_DISABLED=1 opt-outs disable telemetry
+      process.env.DO_NOT_TRACK = '1';
+      assert.strictEqual(isTelemetryDisabled(), true);
+      delete process.env.DO_NOT_TRACK;
+      process.env.TOOLVETO_TELEMETRY_DISABLED = '1';
+      assert.strictEqual(isTelemetryDisabled(), true);
+      delete process.env.TOOLVETO_TELEMETRY_DISABLED;
+      assert.strictEqual(isUpdateCheckDisabled({ skipUpdateCheck: true }), true);
+
+      // 4b. Verify offline/network failure resilience never throws
+      const offlineRes = await runPlgTelemetryAndUpdateCheck({
+        summary: mockSummary,
+        target: '/workspace/stripe-mcp',
+        durationMs: 15,
+        options: {
+          customHomeDir: tmpHome,
+          apiUrl: 'http://127.0.0.1:1',
+        },
+      });
+      assert.strictEqual(offlineRes.telemetrySent, false, 'Offline telemetry call must gracefully return telemetrySent: false');
+
+      // 5. Verify ephemeral CI containers derive deterministic installId & runNumber across wiped home dirs
+      delete process.env.DO_NOT_TRACK;
+      const oldGhActions = process.env.GITHUB_ACTIONS;
+      const oldGhRepo = process.env.GITHUB_REPOSITORY;
+      const oldGhRunNum = process.env.GITHUB_RUN_NUMBER;
+      process.env.GITHUB_ACTIONS = 'true';
+      process.env.GITHUB_REPOSITORY = 'acme-corp/payments-mcp';
+      process.env.GITHUB_RUN_NUMBER = '42';
+
+      const containerHome1 = fs.mkdtempSync(path.join(os.tmpdir(), 'tv-ci-container-1-'));
+      const containerHome2 = fs.mkdtempSync(path.join(os.tmpdir(), 'tv-ci-container-2-'));
+      try {
+        const state1 = getOrCreateCliState(containerHome1).state;
+        const state2 = getOrCreateCliState(containerHome2).state;
+        assert.ok(state1.installId.startsWith('tv_ci_'), 'CI container must use deterministic tv_ci_ prefix');
+        assert.strictEqual(
+          state1.installId,
+          state2.installId,
+          'Two separate ephemeral CI containers for the same repo must produce the exact same installId'
+        );
+        assert.strictEqual(state1.totalRuns + 1, 42, 'CI container runNumber must seed from GITHUB_RUN_NUMBER (42)');
+      } finally {
+        if (oldGhActions === undefined) delete process.env.GITHUB_ACTIONS;
+        else process.env.GITHUB_ACTIONS = oldGhActions;
+        if (oldGhRepo === undefined) delete process.env.GITHUB_REPOSITORY;
+        else process.env.GITHUB_REPOSITORY = oldGhRepo;
+        if (oldGhRunNum === undefined) delete process.env.GITHUB_RUN_NUMBER;
+        else process.env.GITHUB_RUN_NUMBER = oldGhRunNum;
+        fs.rmSync(containerHome1, { recursive: true, force: true });
+        fs.rmSync(containerHome2, { recursive: true, force: true });
+      }
+    } finally {
+      if (oldDnt === undefined) delete process.env.DO_NOT_TRACK;
+      else process.env.DO_NOT_TRACK = oldDnt;
+      if (outerGhActions === undefined) delete process.env.GITHUB_ACTIONS;
+      else process.env.GITHUB_ACTIONS = outerGhActions;
+      if (outerGhRepo === undefined) delete process.env.GITHUB_REPOSITORY;
+      else process.env.GITHUB_REPOSITORY = outerGhRepo;
+      if (outerGhRunNum === undefined) delete process.env.GITHUB_RUN_NUMBER;
+      else process.env.GITHUB_RUN_NUMBER = outerGhRunNum;
+      if (outerCi === undefined) delete process.env.CI;
+      else process.env.CI = outerCi;
+      delete process.env.TOOLVETO_TELEMETRY_DISABLED;
+      process.env.HOME = oldHome;
+      await new Promise<void>((resolve) => mockApi.close(() => resolve()));
+      fs.rmSync(tmpHome, { recursive: true, force: true });
+    }
+  });
+
+  it('should create a .bak backup before mutating config in toolveto wrap and block path traversal entrypoints in toolveto check', async () => {
+    const { wrapCommand } = await import('../commands/wrap.js');
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tv-sec-wrap-'));
+    const mcpJsonPath = path.join(tmpDir, 'mcp.json');
+    fs.writeFileSync(
+      mcpJsonPath,
+      JSON.stringify({
+        mcpServers: {
+          demo: { command: 'npx', args: ['-y', '@demo/mcp'] },
+        },
+      })
+    );
+
+    await wrapCommand(mcpJsonPath, { tokenBudget: 2000 });
+    assert.ok(fs.existsSync(`${mcpJsonPath}.bak`), 'wrapCommand must create a .bak backup file');
+
+    // Path traversal entrypoint in package.json must be rejected
+    const traverseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tv-traverse-'));
+    const outsideScript = path.join(tmpDir, 'outside-evil.js');
+    fs.writeFileSync(outsideScript, 'console.log("pwned");');
+    fs.writeFileSync(
+      path.join(traverseDir, 'package.json'),
+      JSON.stringify({
+        name: 'evil-pkg',
+        main: path.relative(traverseDir, outsideScript),
+      })
+    );
+
+    process.exitCode = 0;
+    const summary = await checkCommand(traverseDir, { json: true, allowExec: true });
+    assert.strictEqual(summary, undefined, 'Path-traversal package.json entrypoint must not be executed');
+    process.exitCode = 0;
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.rmSync(traverseDir, { recursive: true, force: true });
+  });
 });
+
