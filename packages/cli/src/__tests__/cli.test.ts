@@ -451,4 +451,157 @@ describe('ToolVeto CLI Commands', () => {
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
+
+  it('should wrap and unwrap MCP server configs cleanly via toolveto wrap and toolveto wrap --unwrap', async () => {
+    const { wrapCommand } = await import('../commands/wrap.js');
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tv-wrap-test-'));
+    const cursorDir = path.join(tmpDir, '.cursor');
+    fs.mkdirSync(cursorDir, { recursive: true });
+    const mcpJsonPath = path.join(cursorDir, 'mcp.json');
+
+    const initialConfig = {
+      mcpServers: {
+        stripe: {
+          command: 'npx',
+          args: ['-y', '@stripe/mcp', '--tools=all'],
+          env: { STRIPE_SECRET_KEY: 'sk_test_123' },
+        },
+        postgres: {
+          command: 'uvx',
+          args: ['mcp-server-postgres', 'postgresql://localhost/mydb'],
+        },
+      },
+    };
+    fs.writeFileSync(mcpJsonPath, JSON.stringify(initialConfig, null, 2));
+
+    // 1. Wrap servers with --token-budget 3500 and --strict
+    const wrapRes = await wrapCommand(mcpJsonPath, { tokenBudget: 3500, strict: true });
+    assert.ok(wrapRes, 'wrapCommand must return result');
+    assert.deepStrictEqual(wrapRes.wrappedServers, ['stripe', 'postgres']);
+
+    const wrappedOnDisk = JSON.parse(fs.readFileSync(mcpJsonPath, 'utf-8'));
+    assert.strictEqual(wrappedOnDisk.mcpServers.stripe.command, 'npx');
+    assert.deepStrictEqual(wrappedOnDisk.mcpServers.stripe.args, [
+      '-y',
+      'toolveto',
+      'proxy',
+      '--upstream',
+      'npx -y @stripe/mcp --tools=all',
+      '--token-budget',
+      '3500',
+      '--strict',
+    ]);
+    assert.deepStrictEqual(wrappedOnDisk.mcpServers.stripe._toolvetoOriginal, {
+      command: 'npx',
+      args: ['-y', '@stripe/mcp', '--tools=all'],
+    });
+
+    // 2. Re-running wrap skips already wrapped servers
+    const wrapAgain = await wrapCommand(mcpJsonPath, { tokenBudget: 3500 });
+    assert.deepStrictEqual(wrapAgain?.wrappedServers, []);
+
+    // 3. Unwrap restores exact original commands and removes _toolvetoOriginal
+    const unwrapRes = await wrapCommand(mcpJsonPath, { unwrap: true });
+    assert.deepStrictEqual(unwrapRes?.unwrappedServers, ['stripe', 'postgres']);
+
+    const restoredOnDisk = JSON.parse(fs.readFileSync(mcpJsonPath, 'utf-8'));
+    assert.strictEqual(restoredOnDisk.mcpServers.stripe.command, 'npx');
+    assert.deepStrictEqual(restoredOnDisk.mcpServers.stripe.args, ['-y', '@stripe/mcp', '--tools=all']);
+    assert.strictEqual(restoredOnDisk.mcpServers.stripe._toolvetoOriginal, undefined);
+    assert.strictEqual(restoredOnDisk.mcpServers.postgres.command, 'uvx');
+    assert.deepStrictEqual(restoredOnDisk.mcpServers.postgres.args, [
+      'mcp-server-postgres',
+      'postgresql://localhost/mydb',
+    ]);
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('should execute dynamic 14-check evaluation with VERIFIED runtime evidence via toolveto check --ephemeral-mock', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tv-ephemeral-mock-'));
+    const manifestPath = path.join(tmpDir, 'tools.json');
+
+    // 1. Vulnerable manifest lacking idempotency_key: --ephemeral-mock dynamically proves duplicate entity creation!
+    const vulnerableTools = [
+      {
+        name: 'charge_customer',
+        description: 'Charges customer credit card',
+        isMutation: true,
+        inputSchema: {
+          type: 'object',
+          properties: {
+            customer_id: { type: 'string' },
+            amount: { type: 'number' },
+            billing_date: { type: 'string', format: 'date' },
+          },
+          required: ['customer_id', 'amount'],
+          additionalProperties: false,
+        },
+      },
+    ];
+    fs.writeFileSync(manifestPath, JSON.stringify(vulnerableTools, null, 2));
+
+    process.exitCode = 0;
+    const vulnSummary = await checkCommand(manifestPath, { ephemeralMock: true, json: true });
+    assert.ok(vulnSummary, 'checkCommand with --ephemeral-mock must return SuiteSummary');
+    const replayCheck = vulnSummary.results.find((r) => r.checkId === 'TC-IDEMP-001');
+    const burstCheck = vulnSummary.results.find((r) => r.checkId === 'TC-IDEMP-002');
+    const crashCheck = vulnSummary.results.find((r) => r.checkId === 'TC-IDEMP-003');
+    const fuzzCheck = vulnSummary.results.find((r) => r.checkId === 'TC-FUZZ-001');
+
+    assert.strictEqual(replayCheck?.status, 'FAIL');
+    assert.strictEqual(replayCheck?.evidence?.evidenceQuality, 'VERIFIED');
+    assert.strictEqual(replayCheck?.evidence?.mutationsCreated, 5);
+    assert.strictEqual(burstCheck?.status, 'FAIL');
+    assert.strictEqual(burstCheck?.evidence?.evidenceQuality, 'VERIFIED');
+    assert.strictEqual(crashCheck?.status, 'FAIL');
+    assert.strictEqual(crashCheck?.evidence?.evidenceQuality, 'VERIFIED');
+    assert.strictEqual(fuzzCheck?.status, 'PASS');
+    assert.strictEqual(fuzzCheck?.evidence?.evidenceQuality, 'VERIFIED');
+
+    // 2. Compliant manifest with idempotency_key: --ephemeral-mock dynamically deduplicates and passes D1 checks with VERIFIED evidence
+    const compliantTools = [
+      {
+        name: 'charge_customer',
+        description: 'Charges customer credit card safely with idempotency protection (Requires OAuth 2.1 scope: write:charges)',
+        isMutation: true,
+        inputSchema: {
+          type: 'object',
+          properties: {
+            customer_id: { type: 'string', description: 'Unique customer identifier' },
+            amount: { type: 'number', description: 'Amount in cents' },
+            idempotency_key: { type: 'string', description: 'Unique key for idempotent deduplication' },
+            dry_run: { type: 'boolean', description: 'Simulate execution without committing state' },
+          },
+          required: ['customer_id', 'amount', 'idempotency_key'],
+          additionalProperties: false,
+        },
+      },
+      {
+        name: 'get_customer_charge',
+        description: 'Retrieves charge details by customer_id before or after mutation',
+        isMutation: false,
+        inputSchema: {
+          type: 'object',
+          properties: {
+            customer_id: { type: 'string', description: 'Unique customer identifier' },
+          },
+          required: ['customer_id'],
+          additionalProperties: false,
+        },
+      },
+    ];
+    fs.writeFileSync(manifestPath, JSON.stringify(compliantTools, null, 2));
+
+    process.exitCode = 0;
+    const goodSummary = await checkCommand(manifestPath, { ephemeralMock: true, json: true });
+    assert.ok(goodSummary);
+    const goodReplay = goodSummary.results.find((r) => r.checkId === 'TC-IDEMP-001' && r.tool === 'charge_customer');
+    assert.strictEqual(goodReplay?.status, 'PASS');
+    assert.strictEqual(goodReplay?.evidence?.evidenceQuality, 'VERIFIED');
+    assert.strictEqual(goodReplay?.evidence?.mutationsCreated, 1);
+
+    process.exitCode = 0;
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
 });

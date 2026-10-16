@@ -469,3 +469,23 @@ export async function runSuite(
     perToolScorecard,
   };
 }
+
+export interface EvaluateServerOptions extends RunSuiteOptions {
+  mode?: 'full' | 'static';
+  target?: string;
+}
+
+export async function evaluateServer(
+  client: McpClient,
+  options: EvaluateServerOptions = {}
+): Promise<SuiteSummary> {
+  await client.connect();
+  const tools = await client.listTools();
+  const target = options.target || 'ephemeral-mock-server';
+  const destructiveAuthorization = options.mode === 'full' ? true : options.destructiveAuthorization;
+  return runSuite(target, tools, {
+    ...options,
+    client,
+    destructiveAuthorization,
+  });
+}

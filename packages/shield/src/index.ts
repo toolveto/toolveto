@@ -9,6 +9,13 @@ export interface PromptInjectionScanOptions {
   scanOutput?: boolean; // default: true
 }
 
+export interface ShieldPolicyOptions {
+  requireDryRunForDestructive?: boolean;
+  elicitOnDestructive?: boolean;
+  blockedTools?: string[];
+  maxLimit?: number;
+}
+
 export interface ShieldOptions {
   idempotency?: boolean | { enabled?: boolean; ttlSeconds?: number; ttlMs?: number };
   idempotencyTtlMs?: number;
@@ -25,6 +32,7 @@ export interface ShieldOptions {
   };
   tokenBudget?: number | { maxResponseTokens?: number };
   promptInjectionScan?: PromptInjectionScanOptions;
+  policy?: ShieldPolicyOptions;
   storage?: ShieldStorage;
   failClosed?: boolean; // default: false (fail-open standard mode, true = strict fail-closed)
   onSpan?: (span: ShieldSpan) => void; // OpenTelemetry span emission hook
@@ -72,17 +80,24 @@ export interface McpCallResponse {
     promptInjectionDetected?: boolean;
     promptInjectionAction?: PromptInjectionAction;
     rugPullBlocked?: boolean;
+    policyBlocked?: boolean;
     timestamp?: number;
   };
 }
 
 export interface ShieldMetrics {
   totalCalls: number;
+  duplicatesBlocked: number;
   deduplicatedCalls: number;
   loopsBroken: number;
+  contextBombsTruncated: number;
   payloadsTruncated: number;
+  injectionsBlocked: number;
   promptInjectionsDetected: number;
   promptInjectionsBlocked: number;
+  policyBlocks: number;
+  tokensSaved: number;
+  estimatedDollarsSaved: number;
 }
 
 export interface ShieldStorage {
@@ -309,6 +324,7 @@ interface NormalizedShieldOptions {
   loopLimit?: { count: number; windowMs: number };
   tokenBudget?: number;
   promptInjectionScan?: PromptInjectionScanOptions;
+  policy?: ShieldPolicyOptions;
   storage?: ShieldStorage;
   failClosed?: boolean;
   onSpan?: (span: ShieldSpan) => void;
@@ -349,6 +365,7 @@ function normalizeShieldOptions(opts: ShieldOptions = {}): NormalizedShieldOptio
     loopLimit,
     tokenBudget,
     promptInjectionScan: opts.promptInjectionScan,
+    policy: opts.policy,
     storage: opts.storage,
     failClosed: opts.failClosed,
     onSpan: opts.onSpan,
@@ -372,6 +389,8 @@ interface CursorStoreEntry {
   createdAt: number;
 }
 
+const DESTRUCTIVE_TOOL_PATTERN = /(delete|drop|remove|destroy|purge|transfer|charge|refund|revoke|terminate)/i;
+
 export class ShieldMiddleware {
   private storage: ShieldStorage;
   private options: NormalizedShieldOptions;
@@ -381,16 +400,33 @@ export class ShieldMiddleware {
   private listChangedUnverified = false;
   private metrics: ShieldMetrics = {
     totalCalls: 0,
+    duplicatesBlocked: 0,
     deduplicatedCalls: 0,
     loopsBroken: 0,
+    contextBombsTruncated: 0,
     payloadsTruncated: 0,
+    injectionsBlocked: 0,
     promptInjectionsDetected: 0,
     promptInjectionsBlocked: 0,
+    policyBlocks: 0,
+    tokensSaved: 0,
+    estimatedDollarsSaved: 0,
   };
 
   constructor(rawOptions: ShieldOptions = {}) {
     this.options = normalizeShieldOptions(rawOptions);
     this.storage = this.options.storage || new MemoryShieldStorage();
+  }
+
+  private recalculateDollarsSaved(): void {
+    this.metrics.estimatedDollarsSaved = Number(
+      (
+        this.metrics.duplicatesBlocked * 50 +
+        this.metrics.loopsBroken * 4.5 +
+        (this.metrics.tokensSaved / 1000) * 0.015 +
+        this.metrics.injectionsBlocked * 100
+      ).toFixed(2)
+    );
   }
 
   private emitSpan(
@@ -471,7 +507,15 @@ export class ShieldMiddleware {
   }
 
   public getMetrics(): ShieldMetrics {
+    this.recalculateDollarsSaved();
     return { ...this.metrics };
+  }
+
+  public async interceptCall(
+    req: McpCallRequest,
+    next: (req: McpCallRequest) => Promise<McpCallResponse>
+  ): Promise<McpCallResponse> {
+    return this.intercept(req, next);
   }
 
   public async intercept(
@@ -502,6 +546,81 @@ export class ShieldMiddleware {
         };
         this.emitSpan(toolName, 'RUG_PULL_BLOCKED', now, true);
         return res;
+      }
+    }
+
+    // -0.75. Inline Policy Enforcement
+    if (this.options.policy && toolName) {
+      if (this.options.policy.blockedTools?.includes(toolName)) {
+        this.metrics.policyBlocks++;
+        this.recalculateDollarsSaved();
+        this.emitSpan(toolName, 'POLICY_BLOCKED', now, true, { reason: 'blocked_tool' });
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: `[ToolVeto Shield Policy] Tool '${toolName}' is blocked by active security policy.`,
+            },
+          ],
+          _shield: {
+            policyBlocked: true,
+            timestamp: now,
+          },
+        };
+      }
+
+      const isDestructive = DESTRUCTIVE_TOOL_PATTERN.test(toolName);
+      if (
+        this.options.policy.elicitOnDestructive &&
+        isDestructive &&
+        args?.dry_run !== true &&
+        req.params?._meta?.confirmed !== true &&
+        args?._meta?.confirmed !== true
+      ) {
+        this.metrics.policyBlocks++;
+        this.recalculateDollarsSaved();
+        this.emitSpan(toolName, 'POLICY_ELICIT', now, false, { reason: 'elicit_on_destructive' });
+        return {
+          resultType: 'input_required',
+          taskId: `task_confirm_${toolName}_${Date.now()}`,
+          content: [
+            {
+              type: 'text',
+              text: `[ToolVeto Shield Policy] Destructive tool '${toolName}' requires explicit human confirmation (_meta.confirmed: true) or simulation mode (dry_run: true) before execution.`,
+            },
+          ],
+          _shield: {
+            policyBlocked: true,
+            timestamp: now,
+          },
+        };
+      }
+
+      if (this.options.policy.requireDryRunForDestructive && isDestructive && args?.dry_run !== true) {
+        this.metrics.policyBlocks++;
+        this.recalculateDollarsSaved();
+        this.emitSpan(toolName, 'POLICY_BLOCKED', now, true, { reason: 'require_dry_run' });
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: `[ToolVeto Shield Policy] Destructive tool '${toolName}' must be called with 'dry_run: true' before executing live state mutations.`,
+            },
+          ],
+          _shield: {
+            policyBlocked: true,
+            timestamp: now,
+          },
+        };
+      }
+
+      if (this.options.policy.maxLimit !== undefined && typeof args?.limit === 'number' && args.limit > this.options.policy.maxLimit) {
+        args = { ...args, limit: this.options.policy.maxLimit };
+        if (req.params) {
+          req.params.arguments = args;
+        }
       }
     }
 
@@ -602,6 +721,8 @@ export class ShieldMiddleware {
 
         if (action === 'block') {
           this.metrics.promptInjectionsBlocked++;
+          this.metrics.injectionsBlocked++;
+          this.recalculateDollarsSaved();
           this.emitSpan(toolName, 'INJECTION_BLOCKED', now, true, { direction: 'input' });
           return {
             isError: true,
@@ -641,6 +762,8 @@ export class ShieldMiddleware {
 
       if (recentCallCount > this.options.loopLimit.count) {
         this.metrics.loopsBroken++;
+        this.metrics.tokensSaved += 2000;
+        this.recalculateDollarsSaved();
         this.emitSpan(toolName, 'LOOP_BROKEN', now, true, { recentCallCount });
         return {
           isError: true,
@@ -679,12 +802,235 @@ export class ShieldMiddleware {
       isFingerprintFallback = true;
     }
 
+    const executeDownstream = async (): Promise<{ response: McpCallResponse; postAction?: string; nextCursor?: string }> => {
+      const response = await next(req);
+
+      // 4. Prompt Injection Scan on downstream output (cross-tool indirect injection defense)
+      if (this.options.promptInjectionScan && this.options.promptInjectionScan.scanOutput !== false && response.content) {
+        const action = this.options.promptInjectionScan.action || 'block';
+        const patterns = [
+          ...DEFAULT_PROMPT_INJECTION_PATTERNS,
+          ...(this.options.promptInjectionScan.customPatterns || []),
+        ];
+
+        for (const item of response.content) {
+          if (item.type === 'text' && item.text) {
+            const outCheck = detectInjectionInString(item.text, patterns);
+            if (outCheck.detected) {
+              this.metrics.promptInjectionsDetected++;
+
+              if (action === 'block') {
+                this.metrics.promptInjectionsBlocked++;
+                this.metrics.injectionsBlocked++;
+                this.recalculateDollarsSaved();
+                return {
+                  postAction: 'INJECTION_BLOCKED',
+                  response: {
+                    isError: true,
+                    content: [
+                      {
+                        type: 'text',
+                        text: `[ToolVeto Shield Veto] Indirect prompt injection detected in output from tool '${toolName}': "${outCheck.match}". Downstream payload blocked to prevent agent hijacking.`,
+                      },
+                    ],
+                    _shield: {
+                      promptInjectionDetected: true,
+                      promptInjectionAction: 'block',
+                      timestamp: now,
+                    },
+                  },
+                };
+              } else if (action === 'sanitize') {
+                item.text = sanitizeText(item.text, patterns);
+                response._shield = {
+                  ...response._shield,
+                  promptInjectionDetected: true,
+                  promptInjectionAction: 'sanitize',
+                };
+              } else if (action === 'flag') {
+                response._shield = {
+                  ...response._shield,
+                  promptInjectionDetected: true,
+                  promptInjectionAction: 'flag',
+                };
+              }
+            }
+          }
+        }
+      }
+
+      // 5. Cumulative Token Budget / Context Bomb Truncation across all content items
+      if (this.options.tokenBudget && response.content && Array.isArray(response.content)) {
+        const maxChars = this.options.tokenBudget * 4;
+        const totalOriginalChars = response.content.reduce(
+          (sum, it) => sum + (it.type === 'text' && typeof it.text === 'string' ? it.text.length : 0),
+          0
+        );
+        const originalTokens = Math.ceil(totalOriginalChars / 4);
+        let cumulativeChars = 0;
+        let truncatedOccurred = false;
+        let generatedCursor: string | undefined;
+        const budgetCappedContent: Array<{ type: string; text?: string; [key: string]: any }> = [];
+
+        for (let i = 0; i < response.content.length; i++) {
+          const item = response.content[i];
+          if (item.type === 'text' && typeof item.text === 'string') {
+            const itemLen = item.text.length;
+            if (cumulativeChars + itemLen <= maxChars) {
+              cumulativeChars += itemLen;
+              budgetCappedContent.push(item);
+            } else {
+              const allowedForThisItem = Math.max(0, maxChars - cumulativeChars);
+              this.metrics.payloadsTruncated++;
+              truncatedOccurred = true;
+
+              // Inspect if content is structured JSON (records / items array)
+              let structuredHandled = false;
+              try {
+                const parsed = JSON.parse(item.text);
+                if (Array.isArray(parsed)) {
+                  const totalRecords = parsed.length;
+                  const sampleItemChars = Math.max(1, Math.round(itemLen / totalRecords));
+                  const itemsToKeep = Math.max(1, Math.min(totalRecords - 1, Math.floor(allowedForThisItem / sampleItemChars)));
+                  const slicedItems = parsed.slice(0, itemsToKeep);
+
+                  const cursorPayload = { tName: toolName, o: itemsToKeep, t: totalRecords };
+                  const encodedPayload = Buffer.from(JSON.stringify(cursorPayload)).toString('base64url');
+                  generatedCursor = `cur_${encodedPayload}`;
+                  this.cursorStore.set(generatedCursor, {
+                    toolName: toolName || 'unknown',
+                    offset: itemsToKeep,
+                    total: totalRecords,
+                    pageSize: itemsToKeep,
+                    records: parsed,
+                    createdAt: now,
+                  });
+
+                  const structuredEnvelope = {
+                    truncated: true,
+                    total_records: totalRecords,
+                    items_returned: slicedItems.length,
+                    next_cursor: generatedCursor,
+                    records: slicedItems,
+                    note: `[ToolVeto Shield: Truncated to prevent context exhaustion. Budget of ${this.options.tokenBudget} tokens (${maxChars} chars) reached. Subsequent items discarded.]`,
+                  };
+                  budgetCappedContent.push({
+                    ...item,
+                    text: JSON.stringify(structuredEnvelope, null, 2),
+                  });
+                  structuredHandled = true;
+                } else if (parsed && typeof parsed === 'object') {
+                  const arrayKey = Object.keys(parsed).find((k) => Array.isArray(parsed[k]));
+                  if (arrayKey) {
+                    const arr = parsed[arrayKey];
+                    const totalRecords = arr.length;
+                    const sampleItemChars = Math.max(1, Math.round(itemLen / totalRecords));
+                    const itemsToKeep = Math.max(1, Math.min(totalRecords - 1, Math.floor(allowedForThisItem / sampleItemChars)));
+                    const slicedItems = arr.slice(0, itemsToKeep);
+
+                    const cursorPayload = { tName: toolName, o: itemsToKeep, t: totalRecords };
+                    const encodedPayload = Buffer.from(JSON.stringify(cursorPayload)).toString('base64url');
+                    generatedCursor = `cur_${encodedPayload}`;
+                    const envelopeBase = { ...parsed };
+                    delete envelopeBase[arrayKey];
+                    this.cursorStore.set(generatedCursor, {
+                      toolName: toolName || 'unknown',
+                      offset: itemsToKeep,
+                      total: totalRecords,
+                      pageSize: itemsToKeep,
+                      records: arr,
+                      arrayKey,
+                      envelopeBase,
+                      createdAt: now,
+                    });
+
+                    const structuredEnvelope = {
+                      ...parsed,
+                      [arrayKey]: slicedItems,
+                      truncated: true,
+                      total_records: totalRecords,
+                      items_returned: slicedItems.length,
+                      next_cursor: generatedCursor,
+                      note: `[ToolVeto Shield: Truncated to prevent context exhaustion. Budget of ${this.options.tokenBudget} tokens (${maxChars} chars) reached. Subsequent items discarded.]`,
+                    };
+                    budgetCappedContent.push({
+                      ...item,
+                      text: JSON.stringify(structuredEnvelope, null, 2),
+                    });
+                    structuredHandled = true;
+                  }
+                }
+              } catch {
+                // Not structured JSON
+              }
+
+              if (!structuredHandled) {
+                const noticeHeader = `\n\n[ToolVeto Shield: Truncated to prevent context exhaustion. Budget of ${this.options.tokenBudget} tokens (${maxChars} chars) reached.]\n`;
+                const roughNoticeLen = noticeHeader.length + 180;
+                const textSliceLen = Math.max(1, allowedForThisItem > roughNoticeLen ? allowedForThisItem - roughNoticeLen : Math.floor(allowedForThisItem / 2));
+
+                const charPayload = { tName: toolName, c: textSliceLen, tc: itemLen };
+                const encodedCharPayload = Buffer.from(JSON.stringify(charPayload)).toString('base64url');
+                generatedCursor = `cur_${encodedCharPayload}`;
+                this.cursorStore.set(generatedCursor, {
+                  toolName: toolName || 'unknown',
+                  charOffset: textSliceLen,
+                  totalChars: itemLen,
+                  charPageSize: textSliceLen,
+                  fullText: item.text,
+                  createdAt: now,
+                });
+
+                const envelopeMetadata = {
+                  truncated: true,
+                  total_characters: itemLen,
+                  characters_returned: textSliceLen,
+                  next_cursor: generatedCursor,
+                };
+                const notice = `${noticeHeader}${JSON.stringify(envelopeMetadata)}`;
+                budgetCappedContent.push({
+                  ...item,
+                  text: item.text.slice(0, textSliceLen) + notice,
+                });
+              }
+
+              cumulativeChars = maxChars;
+              break;
+            }
+          } else {
+            budgetCappedContent.push(item);
+          }
+        }
+
+        if (truncatedOccurred) {
+          this.metrics.contextBombsTruncated++;
+          this.metrics.tokensSaved += Math.max(0, originalTokens - this.options.tokenBudget);
+          this.recalculateDollarsSaved();
+          response.content = budgetCappedContent as Array<{ type: string; text: string }>;
+          response._shield = {
+            ...response._shield,
+            truncated: true,
+            nextCursor: generatedCursor,
+          };
+          return {
+            response,
+            postAction: 'BUDGET_TRUNCATED',
+            nextCursor: generatedCursor,
+          };
+        }
+      }
+
+      return { response };
+    };
+
     if (this.options.idempotency && idempKey && toolName) {
       const cacheKey = `idemp:${toolName}:${idempKey}`;
       const cachedResponse = await this.storage.get(cacheKey);
 
       if (cachedResponse) {
         this.metrics.deduplicatedCalls++;
+        this.metrics.duplicatesBlocked++;
+        this.recalculateDollarsSaved();
         this.emitSpan(toolName, 'DEDUPLICATED', now, false, { cached: true, idempotencyKey: String(idempKey) });
         return {
           ...cachedResponse,
@@ -700,6 +1046,8 @@ export class ShieldMiddleware {
 
       if (this.inFlightRequests.has(cacheKey)) {
         this.metrics.deduplicatedCalls++;
+        this.metrics.duplicatesBlocked++;
+        this.recalculateDollarsSaved();
         const inFlightRes = await this.inFlightRequests.get(cacheKey)!;
         this.emitSpan(toolName, 'DEDUPLICATED', now, false, { singleflight: true, idempotencyKey: String(idempKey) });
         return {
@@ -756,7 +1104,12 @@ export class ShieldMiddleware {
             }
           }
 
-          const res = await next(req);
+          const { response: res, postAction, nextCursor } = await executeDownstream();
+          if (postAction === 'INJECTION_BLOCKED') {
+            this.emitSpan(toolName, 'INJECTION_BLOCKED', now, true, { direction: 'output' });
+          } else if (postAction === 'BUDGET_TRUNCATED') {
+            this.emitSpan(toolName, 'BUDGET_TRUNCATED', now, false, { nextCursor: nextCursor || '' });
+          }
           // Never cache error responses or intermediate 'input_required' task responses for 24h
           const isInputRequired = res.resultType === 'input_required';
           if (!res.isError && !isInputRequired) {
@@ -783,206 +1136,14 @@ export class ShieldMiddleware {
     }
 
     // 3. Fallthrough execution to upstream MCP server
-    const response = await next(req);
-
-    // 4. Prompt Injection Scan on downstream output (cross-tool indirect injection defense)
-    if (this.options.promptInjectionScan && this.options.promptInjectionScan.scanOutput !== false && response.content) {
-      const action = this.options.promptInjectionScan.action || 'block';
-      const patterns = [
-        ...DEFAULT_PROMPT_INJECTION_PATTERNS,
-        ...(this.options.promptInjectionScan.customPatterns || []),
-      ];
-
-      for (const item of response.content) {
-        if (item.type === 'text' && item.text) {
-          const outCheck = detectInjectionInString(item.text, patterns);
-          if (outCheck.detected) {
-            this.metrics.promptInjectionsDetected++;
-
-            if (action === 'block') {
-              this.metrics.promptInjectionsBlocked++;
-              this.emitSpan(toolName, 'INJECTION_BLOCKED', now, true, { direction: 'output' });
-              return {
-                isError: true,
-                content: [
-                  {
-                    type: 'text',
-                    text: `[ToolVeto Shield Veto] Indirect prompt injection detected in output from tool '${toolName}': "${outCheck.match}". Downstream payload blocked to prevent agent hijacking.`,
-                  },
-                ],
-                _shield: {
-                  promptInjectionDetected: true,
-                  promptInjectionAction: 'block',
-                  timestamp: now,
-                },
-              };
-            } else if (action === 'sanitize') {
-              item.text = sanitizeText(item.text, patterns);
-              response._shield = {
-                ...response._shield,
-                promptInjectionDetected: true,
-                promptInjectionAction: 'sanitize',
-              };
-            } else if (action === 'flag') {
-              response._shield = {
-                ...response._shield,
-                promptInjectionDetected: true,
-                promptInjectionAction: 'flag',
-              };
-            }
-          }
-        }
-      }
+    const { response, postAction, nextCursor } = await executeDownstream();
+    if (postAction === 'INJECTION_BLOCKED') {
+      this.emitSpan(toolName, 'INJECTION_BLOCKED', now, true, { direction: 'output' });
+      return response;
     }
-
-    // 5. Cumulative Token Budget / Context Bomb Truncation across all content items
-    if (this.options.tokenBudget && response.content && Array.isArray(response.content)) {
-      const maxChars = this.options.tokenBudget * 4;
-      let cumulativeChars = 0;
-      let truncatedOccurred = false;
-      let generatedCursor: string | undefined;
-      const budgetCappedContent: Array<{ type: string; text?: string; [key: string]: any }> = [];
-
-      for (let i = 0; i < response.content.length; i++) {
-        const item = response.content[i];
-        if (item.type === 'text' && typeof item.text === 'string') {
-          const itemLen = item.text.length;
-          if (cumulativeChars + itemLen <= maxChars) {
-            cumulativeChars += itemLen;
-            budgetCappedContent.push(item);
-          } else {
-            const allowedForThisItem = Math.max(0, maxChars - cumulativeChars);
-            this.metrics.payloadsTruncated++;
-            truncatedOccurred = true;
-
-            // Inspect if content is structured JSON (records / items array)
-            let structuredHandled = false;
-            try {
-              const parsed = JSON.parse(item.text);
-              if (Array.isArray(parsed)) {
-                const totalRecords = parsed.length;
-                const sampleItemChars = Math.max(1, Math.round(itemLen / totalRecords));
-                const itemsToKeep = Math.max(1, Math.min(totalRecords - 1, Math.floor(allowedForThisItem / sampleItemChars)));
-                const slicedItems = parsed.slice(0, itemsToKeep);
-
-                const cursorPayload = { tName: toolName, o: itemsToKeep, t: totalRecords };
-                const encodedPayload = Buffer.from(JSON.stringify(cursorPayload)).toString('base64url');
-                generatedCursor = `cur_${encodedPayload}`;
-                this.cursorStore.set(generatedCursor, {
-                  toolName: toolName || 'unknown',
-                  offset: itemsToKeep,
-                  total: totalRecords,
-                  pageSize: itemsToKeep,
-                  records: parsed,
-                  createdAt: now,
-                });
-
-                const structuredEnvelope = {
-                  truncated: true,
-                  total_records: totalRecords,
-                  items_returned: slicedItems.length,
-                  next_cursor: generatedCursor,
-                  records: slicedItems,
-                  note: `[ToolVeto Shield: Truncated to prevent context exhaustion. Budget of ${this.options.tokenBudget} tokens (${maxChars} chars) reached. Subsequent items discarded.]`,
-                };
-                budgetCappedContent.push({
-                  ...item,
-                  text: JSON.stringify(structuredEnvelope, null, 2),
-                });
-                structuredHandled = true;
-              } else if (parsed && typeof parsed === 'object') {
-                const arrayKey = Object.keys(parsed).find((k) => Array.isArray(parsed[k]));
-                if (arrayKey) {
-                  const arr = parsed[arrayKey];
-                  const totalRecords = arr.length;
-                  const sampleItemChars = Math.max(1, Math.round(itemLen / totalRecords));
-                  const itemsToKeep = Math.max(1, Math.min(totalRecords - 1, Math.floor(allowedForThisItem / sampleItemChars)));
-                  const slicedItems = arr.slice(0, itemsToKeep);
-
-                  const cursorPayload = { tName: toolName, o: itemsToKeep, t: totalRecords };
-                  const encodedPayload = Buffer.from(JSON.stringify(cursorPayload)).toString('base64url');
-                  generatedCursor = `cur_${encodedPayload}`;
-                  const envelopeBase = { ...parsed };
-                  delete envelopeBase[arrayKey];
-                  this.cursorStore.set(generatedCursor, {
-                    toolName: toolName || 'unknown',
-                    offset: itemsToKeep,
-                    total: totalRecords,
-                    pageSize: itemsToKeep,
-                    records: arr,
-                    arrayKey,
-                    envelopeBase,
-                    createdAt: now,
-                  });
-
-                  const structuredEnvelope = {
-                    ...parsed,
-                    [arrayKey]: slicedItems,
-                    truncated: true,
-                    total_records: totalRecords,
-                    items_returned: slicedItems.length,
-                    next_cursor: generatedCursor,
-                    note: `[ToolVeto Shield: Truncated to prevent context exhaustion. Budget of ${this.options.tokenBudget} tokens (${maxChars} chars) reached. Subsequent items discarded.]`,
-                  };
-                  budgetCappedContent.push({
-                    ...item,
-                    text: JSON.stringify(structuredEnvelope, null, 2),
-                  });
-                  structuredHandled = true;
-                }
-              }
-            } catch {
-              // Not structured JSON
-            }
-
-            if (!structuredHandled) {
-              const noticeHeader = `\n\n[ToolVeto Shield: Truncated to prevent context exhaustion. Budget of ${this.options.tokenBudget} tokens (${maxChars} chars) reached.]\n`;
-              const roughNoticeLen = noticeHeader.length + 180;
-              const textSliceLen = Math.max(1, allowedForThisItem > roughNoticeLen ? allowedForThisItem - roughNoticeLen : Math.floor(allowedForThisItem / 2));
-
-              const charPayload = { tName: toolName, c: textSliceLen, tc: itemLen };
-              const encodedCharPayload = Buffer.from(JSON.stringify(charPayload)).toString('base64url');
-              generatedCursor = `cur_${encodedCharPayload}`;
-              this.cursorStore.set(generatedCursor, {
-                toolName: toolName || 'unknown',
-                charOffset: textSliceLen,
-                totalChars: itemLen,
-                charPageSize: textSliceLen,
-                fullText: item.text,
-                createdAt: now,
-              });
-
-              const envelopeMetadata = {
-                truncated: true,
-                total_characters: itemLen,
-                characters_returned: textSliceLen,
-                next_cursor: generatedCursor,
-              };
-              const notice = `${noticeHeader}${JSON.stringify(envelopeMetadata)}`;
-              budgetCappedContent.push({
-                ...item,
-                text: item.text.slice(0, textSliceLen) + notice,
-              });
-            }
-
-            cumulativeChars = maxChars;
-            break;
-          }
-        } else {
-          budgetCappedContent.push(item);
-        }
-      }
-
-      if (truncatedOccurred) {
-        response.content = budgetCappedContent as Array<{ type: string; text: string }>;
-        response._shield = {
-          ...response._shield,
-          truncated: true,
-          nextCursor: generatedCursor,
-        };
-        this.emitSpan(toolName, 'BUDGET_TRUNCATED', now, false, { nextCursor: generatedCursor || '' });
-        return response;
-      }
+    if (postAction === 'BUDGET_TRUNCATED') {
+      this.emitSpan(toolName, 'BUDGET_TRUNCATED', now, false, { nextCursor: nextCursor || '' });
+      return response;
     }
 
     this.emitSpan(toolName, 'PASS', now, Boolean(response.isError));
@@ -990,12 +1151,20 @@ export class ShieldMiddleware {
   }
 }
 
-export function shield<T extends object>(server: T, options: ShieldOptions): T {
+export { ShieldMiddleware as ToolVetoShield };
+
+export function shield<T extends object>(server: T, options: ShieldOptions = {}): T {
   const middleware = new ShieldMiddleware(options);
   return new Proxy(server, {
     get(target, prop, receiver) {
       if (prop === '__shieldMiddleware') {
         return middleware;
+      }
+      if (prop === '__shieldMetrics') {
+        return middleware.getMetrics();
+      }
+      if (prop === 'getShieldMetrics' || prop === 'getMetrics') {
+        return () => middleware.getMetrics();
       }
       const orig = Reflect.get(target, prop, receiver);
       if (typeof orig === 'function') {
