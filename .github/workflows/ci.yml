@@ -6,6 +6,13 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-and-test:
     name: Build, Lint & Test
@@ -40,11 +47,24 @@ jobs:
       - name: Build Monorepo Packages
         run: pnpm run build
 
+      - name: Lint
+        run: pnpm run lint
+
       - name: Typecheck
         run: pnpm run typecheck
 
       - name: Run Tests
         run: pnpm run test
 
+      - name: Verify Bad Server Gate Rejects (fixtures/bad-server --threshold 101)
+        run: |
+          node packages/cli/dist/bin/toolveto.js check fixtures/good-server --allow-exec --skip-update-check --no-telemetry
+          if node packages/cli/dist/bin/toolveto.js check fixtures/bad-server --threshold 101 --allow-exec --skip-update-check --no-telemetry ; then
+            echo "❌ Expected fixtures/bad-server --threshold 101 to exit non-zero!"
+            exit 1
+          fi
+          echo "✔ fixtures/bad-server --threshold 101 exited non-zero as expected."
+
       - name: Run Latency Micro-Benchmark
         run: pnpm run bench
+

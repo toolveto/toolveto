@@ -12,6 +12,7 @@ import {
   McpClient,
   SuiteSummary,
 } from '@toolveto/core';
+import { runPlgTelemetryAndUpdateCheck } from '../telemetry.js';
 
 export interface CheckCommandOptions {
   withLlm?: boolean;
@@ -19,10 +20,13 @@ export interface CheckCommandOptions {
   format?: string;
   timeoutMs?: number;
   allowDestructive?: boolean;
+  allowExec?: boolean;
   demo?: boolean;
   ephemeralMock?: boolean;
   threshold?: string | number;
   failOnSeverity?: string;
+  skipUpdateCheck?: boolean;
+  noTelemetry?: boolean;
 }
 
 export function createEphemeralMockClient(tools: McpToolDefinition[]): InMemoryMcpClient {
@@ -318,11 +322,34 @@ export async function checkCommand(
           }
 
           if (tools.length === 0) {
+            const realTargetDir = fs.realpathSync(resolvedTarget);
+            const ALLOWED_EXEC_EXTENSIONS = new Set(['.js', '.mjs', '.cjs', '.py']);
+            const isSafeEntrypoint = (candidatePath: string): string | null => {
+              if (!fs.existsSync(candidatePath) || !fs.statSync(candidatePath).isFile()) return null;
+              const realCandidate = fs.realpathSync(candidatePath);
+              const rel = path.relative(realTargetDir, realCandidate);
+              if (rel.startsWith('..') || path.isAbsolute(rel)) {
+                throw new Error(
+                  `[ToolVeto CLI Security] Blocked path-traversal entrypoint '${candidatePath}' escaping target directory '${realTargetDir}'.`
+                );
+              }
+              const ext = path.extname(realCandidate).toLowerCase();
+              if (!ALLOWED_EXEC_EXTENSIONS.has(ext)) {
+                return null;
+              }
+              return realCandidate;
+            };
+
             let entrypoint: string | null = null;
             const pkgJsonPath = path.join(resolvedTarget, 'package.json');
             if (fs.existsSync(pkgJsonPath)) {
+              let pkg: any;
               try {
-                const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf-8'));
+                pkg = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf-8'));
+              } catch {
+                pkg = null;
+              }
+              if (pkg) {
                 const mainCandidate = typeof pkg.main === 'string'
                   ? pkg.main
                   : typeof pkg.bin === 'string'
@@ -332,12 +359,14 @@ export async function checkCommand(
                       : null;
                 if (mainCandidate) {
                   const resolvedMain = path.resolve(resolvedTarget, mainCandidate);
-                  if (fs.existsSync(resolvedMain) && fs.statSync(resolvedMain).isFile()) {
-                    entrypoint = resolvedMain;
+                  const relMain = path.relative(resolvedTarget, resolvedMain);
+                  if (relMain.startsWith('..') || path.isAbsolute(relMain)) {
+                    throw new Error(
+                      `[ToolVeto CLI Security] Blocked untrusted package.json entrypoint '${mainCandidate}' escaping target directory '${resolvedTarget}'.`
+                    );
                   }
+                  entrypoint = isSafeEntrypoint(resolvedMain);
                 }
-              } catch {
-                // Ignore malformed package.json
               }
             }
 
@@ -351,14 +380,18 @@ export async function checkCommand(
                 path.join(resolvedTarget, 'main.py'),
               ];
               for (const sc of scriptCandidates) {
-                if (fs.existsSync(sc) && fs.statSync(sc).isFile()) {
-                  entrypoint = sc;
+                const safeSc = isSafeEntrypoint(sc);
+                if (safeSc) {
+                  entrypoint = safeSc;
                   break;
                 }
               }
             }
 
-            if (entrypoint) {
+            const execDisallowed =
+              options.allowExec === false || process.env.TOOLVETO_DISALLOW_AUTO_EXEC === '1';
+
+            if (entrypoint && !execDisallowed) {
               const command = entrypoint.endsWith('.py') ? 'python3' : process.execPath;
               const stdioClient = new StdioMcpClient({
                 command,
@@ -429,6 +462,7 @@ export async function checkCommand(
       client = createEphemeralMockClient(tools);
     }
 
+    const checkStartMs = Date.now();
     const summary =
       options.ephemeralMock && client
         ? await evaluateServer(client, {
@@ -444,6 +478,7 @@ export async function checkCommand(
             destructiveAuthorization: options.allowDestructive,
             targetDir: targetPath && !targetPath.startsWith('http') ? targetPath : '.',
           });
+    const durationMs = Date.now() - checkStartMs;
 
     // Optional Cloud Telemetry Upload when TOOLVETO_TOKEN is configured
     if (process.env.TOOLVETO_TOKEN) {
@@ -475,6 +510,19 @@ export async function checkCommand(
     } else {
       console.log(formatTerminalReport(summary));
     }
+
+    // PLG Free CLI Run Telemetry + Trivy/Grype-style Version & Tier Update Checker
+    await runPlgTelemetryAndUpdateCheck({
+      summary,
+      target: targetDisplay,
+      durationMs,
+      options: {
+        json: options.json,
+        format: options.format,
+        noTelemetry: options.noTelemetry,
+        skipUpdateCheck: options.skipUpdateCheck,
+      },
+    });
 
     // Automatically append rich PR comment to GitHub Step Summary if running in GitHub Actions
     if (process.env.GITHUB_STEP_SUMMARY) {

@@ -123,42 +123,90 @@ export function getShieldOptionsForPolicy(policy: GatewayPolicy = 'standard'): S
 
 export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.Server {
   const loadedConfig = { ...loadGatewayConfig(), ...config };
-  
-  // Maintain a dedicated ShieldMiddleware per policy / upstream
+  const ALLOWED_ORIGINS = new Set(['https://toolveto.ai', 'http://localhost:3000', 'http://localhost:8080']);
+
+  interface CompiledUpstreamRoute {
+    key: string;
+    upstream: UpstreamRouteConfig;
+    middleware: ShieldMiddleware;
+    pathPrefix?: string;
+    toolPrefix?: string;
+  }
+
+  // Precompile dedicated ShieldMiddleware and route tables once at gateway startup
   const middlewares: Map<string, ShieldMiddleware> = new Map();
+  const compiledRoutes: CompiledUpstreamRoute[] = [];
+  const pathPrefixRoutes: CompiledUpstreamRoute[] = [];
+  const toolPrefixRoutes: CompiledUpstreamRoute[] = [];
+  const toolExactMap: Map<string, CompiledUpstreamRoute> = new Map();
+
   for (const [key, upstream] of Object.entries(loadedConfig.upstreams)) {
     const policy = upstream.policy || loadedConfig.defaultPolicy || 'standard';
     const baseOpts = getShieldOptionsForPolicy(policy);
     const customBudget = upstream.tokenBudget ?? loadedConfig.tokenBudget;
-    middlewares.set(
-      key,
-      new ShieldMiddleware(customBudget !== undefined ? { ...baseOpts, tokenBudget: customBudget } : baseOpts)
+    const mw = new ShieldMiddleware(
+      customBudget !== undefined ? { ...baseOpts, tokenBudget: customBudget } : baseOpts
     );
+    middlewares.set(key, mw);
+
+    const route: CompiledUpstreamRoute = {
+      key,
+      upstream,
+      middleware: mw,
+      pathPrefix: upstream.pathPrefix,
+      toolPrefix: upstream.toolPrefix,
+    };
+    compiledRoutes.push(route);
+    if (upstream.pathPrefix) {
+      pathPrefixRoutes.push(route);
+    }
+    if (upstream.toolPrefix) {
+      toolPrefixRoutes.push(route);
+    }
+    if (Array.isArray((upstream as any).tools)) {
+      for (const t of (upstream as any).tools) {
+        const tName = typeof t === 'string' ? t : t?.name;
+        if (tName) {
+          toolExactMap.set(tName, route);
+        }
+      }
+    }
   }
 
-  function resolveUpstream(urlPath: string, toolName?: string): { upstream: UpstreamRouteConfig; middleware: ShieldMiddleware } {
+  const defaultRoute: CompiledUpstreamRoute =
+    compiledRoutes.find((r) => r.key === 'default') ||
+    compiledRoutes[0] || {
+      key: 'default',
+      upstream: { name: 'default', url: 'http://localhost:3000/mcp', policy: 'standard' },
+      middleware: new ShieldMiddleware(getShieldOptionsForPolicy('standard')),
+    };
+
+  function resolveUpstream(urlPath: string, toolName?: string): CompiledUpstreamRoute {
     // 1. Match by URL path prefix (e.g. /stripe/mcp -> stripe)
-    for (const [key, upstream] of Object.entries(loadedConfig.upstreams)) {
-      if (upstream.pathPrefix && urlPath.startsWith(upstream.pathPrefix)) {
-        return { upstream, middleware: middlewares.get(key)! };
+    for (let i = 0; i < pathPrefixRoutes.length; i++) {
+      const r = pathPrefixRoutes[i];
+      if (r.pathPrefix && urlPath.startsWith(r.pathPrefix)) {
+        return r;
       }
     }
 
-    // 2. Match by tool name prefix (e.g. stripe_charge -> stripe)
+    // 2. Match by O(1) indexed tool Map or tool name prefix (e.g. stripe_charge -> stripe)
     if (toolName) {
-      for (const [key, upstream] of Object.entries(loadedConfig.upstreams)) {
-        if (upstream.toolPrefix && toolName.startsWith(upstream.toolPrefix)) {
-          return { upstream, middleware: middlewares.get(key)! };
+      const exactMatch = toolExactMap.get(toolName);
+      if (exactMatch) {
+        return exactMatch;
+      }
+      for (let i = 0; i < toolPrefixRoutes.length; i++) {
+        const r = toolPrefixRoutes[i];
+        if (r.toolPrefix && toolName.startsWith(r.toolPrefix)) {
+          toolExactMap.set(toolName, r);
+          return r;
         }
       }
     }
 
-    // 3. Fallback to default or first upstream
-    const defaultKey = loadedConfig.upstreams['default'] ? 'default' : Object.keys(loadedConfig.upstreams)[0];
-    return {
-      upstream: loadedConfig.upstreams[defaultKey],
-      middleware: middlewares.get(defaultKey) || new ShieldMiddleware(getShieldOptionsForPolicy('standard')),
-    };
+    // 3. Fallback to precompiled default route
+    return defaultRoute;
   }
 
   const server = http.createServer(async (req, res) => {
@@ -173,7 +221,6 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
 
     // CORS Allowlist & ToolVeto Shield Header
     res.setHeader('X-ToolVeto-Shield', 'active');
-    const ALLOWED_ORIGINS = new Set(['https://toolveto.ai', 'http://localhost:3000', 'http://localhost:8080']);
     const origin = req.headers.origin as string;
     if (origin && ALLOWED_ORIGINS.has(origin)) {
       res.setHeader('Access-Control-Allow-Origin', origin);

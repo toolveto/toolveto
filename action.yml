@@ -60,7 +60,7 @@ runs:
         if [ -f "${{ github.action_path }}/packages/cli/dist/bin/toolveto.js" ]; then
           CLI_CMD="node ${{ github.action_path }}/packages/cli/dist/bin/toolveto.js"
         else
-          CLI_CMD="npx --yes toolveto@0.1.0"
+          CLI_CMD="npx --yes toolveto@0.2.0"
         fi
 
         REPORT_JSON=$($CLI_CMD check "${ARGS[@]}" 2>&1)

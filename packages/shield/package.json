@@ -12,6 +12,7 @@
   "scripts": {
     "build": "tsc -b",
     "clean": "rm -rf dist tsconfig.tsbuildinfo",
+    "lint": "tsc --noEmit",
     "test": "node --test dist/**/*.test.js",
     "typecheck": "tsc --noEmit"
   },

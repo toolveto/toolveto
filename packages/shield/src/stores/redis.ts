@@ -1,4 +1,13 @@
+import { LRUCache } from 'lru-cache';
 import { ShieldStorage, McpCallResponse } from '../index.js';
+
+export interface RedisPipelineLike {
+  zremrangebyscore(key: string, min: number | string, max: number | string): this;
+  zadd(key: string, score: number, member: string): this;
+  zcard(key: string): this;
+  expire(key: string, seconds: number): this;
+  exec(): Promise<Array<[Error | null, unknown]> | unknown[] | null>;
+}
 
 export interface RedisClientLike {
   get(key: string): Promise<string | null>;
@@ -6,6 +15,8 @@ export interface RedisClientLike {
   del?(key: string): Promise<number>;
   eval?(script: string, numkeys: number, ...args: (string | number)[]): Promise<unknown>;
   evalsha?(sha: string, numkeys: number, ...args: (string | number)[]): Promise<unknown>;
+  multi?(): RedisPipelineLike;
+  pipeline?(): RedisPipelineLike;
   zremrangebyscore?(key: string, min: number | string, max: number | string): Promise<number>;
   zadd?(key: string, score: number, member: string): Promise<number>;
   zcard?(key: string): Promise<number>;
@@ -18,7 +29,10 @@ export interface RedisShieldStorageOptions {
 }
 
 export class RedisShieldStorage implements ShieldStorage {
-  private fallbackSlidingWindows = new Map<string, number[]>();
+  private fallbackSlidingWindows = new LRUCache<string, number[]>({
+    max: 10000,
+    ttl: 10 * 60 * 1000,
+  });
 
   constructor(
     private redis: RedisClientLike,
@@ -77,7 +91,39 @@ export class RedisShieldStorage implements ShieldStorage {
       }
     }
 
-    // 2. Multi-step ZSET fallback if zremrangebyscore/zadd/zcard exist
+    // 2. Atomic MULTI/EXEC or pipeline fallback if supported on Redis client
+    const txFactory =
+      typeof this.redis.multi === 'function'
+        ? () => this.redis.multi!()
+        : typeof this.redis.pipeline === 'function'
+          ? () => this.redis.pipeline!()
+          : null;
+    if (txFactory) {
+      try {
+        const tx = txFactory();
+        tx.zremrangebyscore(redisKey, 0, windowStart);
+        tx.zadd(redisKey, timestamp, member);
+        tx.zcard(redisKey);
+        tx.expire(redisKey, expireSec);
+        const execRes = await tx.exec();
+        if (Array.isArray(execRes) && execRes.length >= 3) {
+          const zcardEntry = execRes[2];
+          const countVal = Array.isArray(zcardEntry) ? zcardEntry[1] : zcardEntry;
+          if (typeof countVal === 'number') {
+            return countVal;
+          }
+        }
+      } catch (err) {
+        if (this.options.mode === 'strict') {
+          throw new Error(`[ToolVeto Shield Strict] Redis pipeline sliding window failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        if (this.options.onDegraded) {
+          this.options.onDegraded('SHIELD_DEDUP_DEGRADED', err);
+        }
+      }
+    }
+
+    // 3. Multi-step ZSET fallback if zremrangebyscore/zadd/zcard exist
     if (this.redis.zremrangebyscore && this.redis.zadd && this.redis.zcard) {
       await this.redis.zremrangebyscore(redisKey, 0, windowStart);
       await this.redis.zadd(redisKey, timestamp, member);
@@ -88,18 +134,46 @@ export class RedisShieldStorage implements ShieldStorage {
       return count;
     }
 
-    // 3. Guaranteed sliding-window in-memory fallback (replaces inaccurate fixed-window INCR)
-    const history = this.fallbackSlidingWindows.get(redisKey) || [];
-    const valid = history.filter((t) => t > windowStart);
-    valid.push(timestamp);
-    this.fallbackSlidingWindows.set(redisKey, valid);
-    return valid.length;
+    // 4. Guaranteed bounded sliding-window in-memory fallback with amortized O(1) front pruning
+    let history = this.fallbackSlidingWindows.get(redisKey);
+    if (!history) {
+      history = [timestamp];
+      this.fallbackSlidingWindows.set(redisKey, history, { ttl: windowMs * 2 });
+      return 1;
+    }
+    let firstValid = 0;
+    while (firstValid < history.length && history[firstValid] <= windowStart) {
+      firstValid++;
+    }
+    if (firstValid > 0) {
+      history.splice(0, firstValid);
+    }
+    history.push(timestamp);
+    this.fallbackSlidingWindows.set(redisKey, history, { ttl: windowMs * 2 });
+    return history.length;
   }
 
   async acquireLock(key: string, ttlMs = 5000): Promise<boolean> {
     const lockKey = `shield:lock:${key}`;
     const isStrict = this.options.mode === 'strict';
     try {
+      if (typeof (this.redis as any).eval === 'function') {
+        const luaLock = `
+          if redis.call('SET', KEYS[1], 'locked', 'PX', tonumber(ARGV[1]), 'NX') then
+            return 1
+          end
+          return 0
+        `;
+        const res = await (this.redis as any).eval(luaLock, 1, lockKey, ttlMs);
+        const acquired = res === 1 || res === true || res === 'OK';
+        if (!acquired && isStrict) {
+          const err: any = new Error(`[ToolVeto Shield Strict] Failed to acquire distributed lock for key '${key}'`);
+          err.code = -32001;
+          err.status = 503;
+          throw err;
+        }
+        return acquired;
+      }
       if (typeof (this.redis as any).set === 'function') {
         const res = await (this.redis as any).set(lockKey, 'locked', 'PX', ttlMs, 'NX');
         const acquired = res === 'OK' || res === true || res === 1;

@@ -1,4 +1,9 @@
 # ToolVeto Gateway Multi-Upstream Configuration
+# Secret Rotation & Key Rollover Procedure (P2 Ops):
+# 1. Generate a new 256-bit secret via `openssl rand -hex 32`.
+# 2. Update `TOOLVETO_GATEWAY_SECRET` and upstream API keys (`STRIPE_API_KEY`) in Kubernetes Secrets / Vault.
+# 3. During key rotation, support dual-key verification (`TOOLVETO_GATEWAY_SECRET_PREV`) for a 24h grace window.
+# 4. Trigger a rolling restart (`kubectl rollout restart deployment/toolveto-gateway`) and verify `/healthz`.
 version: '1'
 port: 8080
 defaultPolicy: standard
@@ -28,5 +33,5 @@ upstreams:
     policy: standard
 
   default:
-    url: "http://localhost:3000"
+    url: "http://127.0.0.1:3000"
     policy: standard
