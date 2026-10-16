@@ -44,61 +44,75 @@ export async function runDogfoodBenchmark(): Promise<void> {
   console.log(` 🛡️  TOOLVETO DOGFOOD BENCHMARK: Auditing ${targetFiles.length} Popular Open-Source MCP Servers`);
   console.log(`================================================================================\n`);
 
+  const CONCURRENCY = 4;
   const audits: DogfoodAuditSummary[] = [];
 
-  for (const file of targetFiles) {
-    const raw = fs.readFileSync(path.join(targetsDir, file), 'utf-8');
-    const target: TargetConfig = JSON.parse(raw);
+  for (let i = 0; i < targetFiles.length; i += CONCURRENCY) {
+    const batch = targetFiles.slice(i, i + CONCURRENCY);
+    const settled = await Promise.allSettled(
+      batch.map(async (file) => {
+        const raw = fs.readFileSync(path.join(targetsDir, file), 'utf-8');
+        const target: TargetConfig = JSON.parse(raw);
 
-    console.log(`Scanning: ${target.repo.padEnd(35)} (${target.name}) [${target.stars.toLocaleString()} stars]...`);
-    const summary = await runSuite(target.repo, target.tools, { withLlm: false });
+        console.log(`Scanning: ${target.repo.padEnd(35)} (${target.name}) [${target.stars.toLocaleString()} stars]...`);
+        const summary = await runSuite(target.repo, target.tools, { withLlm: false });
 
-    const slug = target.repo.replace('/', '__');
+        const slug = target.repo.replace('/', '__');
 
-    // 1. Generate SHA-256 Lockfile
-    const toolEntries: Record<string, { sha256: string; descriptionLength: number; isMutation: boolean }> = {};
-    for (const tool of target.tools) {
-      toolEntries[tool.name] = {
-        sha256: computeToolDefinitionHash(tool),
-        descriptionLength: (tool.description || '').length,
-        isMutation: Boolean(tool.isMutation),
-      };
-    }
-    const manifestHash =
-      'sha256:' + crypto.createHash('sha256').update(canonicalizeJson(toolEntries)).digest('hex');
+        // 1. Generate SHA-256 Lockfile
+        const toolEntries: Record<string, { sha256: string; descriptionLength: number; isMutation: boolean }> = {};
+        for (const tool of target.tools) {
+          toolEntries[tool.name] = {
+            sha256: computeToolDefinitionHash(tool),
+            descriptionLength: (tool.description || '').length,
+            isMutation: Boolean(tool.isMutation),
+          };
+        }
+        const manifestHash =
+          'sha256:' + crypto.createHash('sha256').update(canonicalizeJson(toolEntries)).digest('hex');
 
-    const lockfile = {
-      version: '1.0',
-      generatedAt: new Date().toISOString(),
-      target: target.repo,
-      manifestHash,
-      tools: toolEntries,
-    };
-    fs.writeFileSync(path.join(locksDir, `${slug}.lock.json`), JSON.stringify(lockfile, null, 2));
+        const lockfile = {
+          version: '1.0',
+          generatedAt: new Date().toISOString(),
+          target: target.repo,
+          manifestHash,
+          tools: toolEntries,
+        };
+        fs.writeFileSync(path.join(locksDir, `${slug}.lock.json`), JSON.stringify(lockfile, null, 2));
 
-    // 2. Generate Least-Privilege AWS Cedar & OPA Rego Policies
-    const cedarPolicy = generateCedarPolicy(target.tools);
-    const opaPolicy = generateOpaRegoPolicy(target.tools);
-    fs.writeFileSync(path.join(policiesDir, `${slug}.cedar`), cedarPolicy);
-    fs.writeFileSync(path.join(policiesDir, `${slug}.rego`), opaPolicy);
+        // 2. Generate Least-Privilege AWS Cedar & OPA Rego Policies
+        const cedarPolicy = generateCedarPolicy(target.tools);
+        const opaPolicy = generateOpaRegoPolicy(target.tools);
+        fs.writeFileSync(path.join(policiesDir, `${slug}.cedar`), cedarPolicy);
+        fs.writeFileSync(path.join(policiesDir, `${slug}.rego`), opaPolicy);
 
-    audits.push({
-      repo: target.repo,
-      name: target.name,
-      stars: target.stars,
-      summary,
-      manifestHash,
-    });
+        fs.writeFileSync(
+          path.join(resultsDir, `${slug}.json`),
+          JSON.stringify(summary, null, 2)
+        );
 
-    fs.writeFileSync(
-      path.join(resultsDir, `${slug}.json`),
-      JSON.stringify(summary, null, 2)
+        // 3. Generate specific draft PR description with diffs
+        const failedChecks = summary.results.filter((r: any) => r.status === 'FAIL');
+        const prMarkdown = generatePrDraft(target, summary, failedChecks);
+        fs.writeFileSync(path.join(prsDir, `${slug}__PR.md`), prMarkdown);
+
+        return {
+          repo: target.repo,
+          name: target.name,
+          stars: target.stars,
+          summary,
+          manifestHash,
+        } satisfies DogfoodAuditSummary;
+      })
     );
 
-    // 3. Generate specific draft PR description with diffs
-    const failedChecks = summary.results.filter((r: any) => r.status === 'FAIL');
-    const prMarkdown = generatePrDraft(target, summary, failedChecks);
-    fs.writeFileSync(path.join(prsDir, `${slug}__PR.md`), prMarkdown);
+    for (const outcome of settled) {
+      if (outcome.status === 'fulfilled') {
+        audits.push(outcome.value);
+      } else {
+        throw outcome.reason;
+      }
+    }
   }
 
   // Generate aggregate report

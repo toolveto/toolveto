@@ -1,5 +1,6 @@
 import http from 'http';
 import crypto from 'node:crypto';
+import dns from 'node:dns';
 import { ShieldMiddleware, ShieldOptions } from '@toolveto/shield';
 import { GatewayYamlConfig, UpstreamRouteConfig, GatewayPolicy, loadGatewayConfig } from './config.js';
 
@@ -9,31 +10,109 @@ export const BLOCKED_PRIVATE_HOSTNAMES = new Set([
   'localhost',
   '127.0.0.1',
   '::1',
+  '[::1]',
   '0.0.0.0',
+  '::',
+  '[::]',
   '169.254.169.254', // AWS/GCP/Azure instance metadata
   'metadata.google.internal',
   'instance-data',
 ]);
 
-export function isPrivateIpOrBlockedHost(hostname: string): boolean {
-  const host = hostname.toLowerCase().trim();
-  if (BLOCKED_PRIVATE_HOSTNAMES.has(host)) return true;
-  if (host.endsWith('.localhost') || host.endsWith('.internal') || host.endsWith('.local')) return true;
+function isPrivateIpv4Octets(oct1: number, oct2: number): boolean {
+  if (oct1 === 0 || oct1 === 10 || oct1 === 127) return true;
+  if (oct1 === 169 && oct2 === 254) return true;
+  if (oct1 === 192 && oct2 === 168) return true;
+  if (oct1 === 172 && oct2 >= 16 && oct2 <= 31) return true;
+  if (oct1 === 100 && oct2 >= 64 && oct2 <= 127) return true; // RFC 6598 CGNAT 100.64.0.0/10
+  if (oct1 >= 224) return true; // Multicast & reserved
+  return false;
+}
 
-  // IPv4 CIDR checks
-  const ipv4Match = host.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
-  if (ipv4Match) {
-    const oct1 = parseInt(ipv4Match[1], 10);
-    const oct2 = parseInt(ipv4Match[2], 10);
-    if (oct1 === 0 || oct1 === 10 || oct1 === 127) return true;
-    if (oct1 === 169 && oct2 === 254) return true;
-    if (oct1 === 192 && oct2 === 168) return true;
-    if (oct1 === 172 && oct2 >= 16 && oct2 <= 31) return true;
-    if (oct1 === 100 && oct2 >= 64 && oct2 <= 127) return true;
+function parseNonStandardOrStandardIpv4(rawHost: string): [number, number, number, number] | null {
+  // Single integer IPv4 (decimal, hex, or octal), e.g., 2130706433, 0x7f000001
+  if (/^(0x[0-9a-f]+|0[0-7]+|\d+)$/i.test(rawHost)) {
+    let val: number;
+    if (rawHost.toLowerCase().startsWith('0x')) {
+      val = parseInt(rawHost, 16);
+    } else if (rawHost.startsWith('0') && rawHost.length > 1) {
+      val = parseInt(rawHost, 8);
+    } else {
+      val = parseInt(rawHost, 10);
+    }
+    if (!Number.isNaN(val) && val >= 0 && val <= 0xffffffff) {
+      return [(val >>> 24) & 0xff, (val >>> 16) & 0xff, (val >>> 8) & 0xff, val & 0xff];
+    }
   }
 
-  // IPv6 unique local and link-local checks
-  if (host === '::1' || host.startsWith('fc') || host.startsWith('fd') || host.startsWith('fe80')) {
+  // Dotted IPv4 (supports decimal, octal 0177.0.0.1, hex 0x7f.0.0.1, or 2/3-part shorthand)
+  const parts = rawHost.split('.');
+  if (parts.length >= 2 && parts.length <= 4 && parts.every((p) => /^(0x[0-9a-f]+|0[0-7]*|\d+)$/i.test(p))) {
+    const nums = parts.map((p) => {
+      if (p.toLowerCase().startsWith('0x')) return parseInt(p, 16);
+      if (p.startsWith('0') && p.length > 1 && /^[0-7]+$/.test(p)) return parseInt(p, 8);
+      return parseInt(p, 10);
+    });
+    if (nums.some((n) => Number.isNaN(n) || n < 0)) return null;
+    if (parts.length === 4 && nums.every((n) => n <= 255)) {
+      return [nums[0], nums[1], nums[2], nums[3]];
+    }
+    if (parts.length === 3 && nums[0] <= 255 && nums[1] <= 255 && nums[2] <= 0xffff) {
+      return [nums[0], nums[1], (nums[2] >>> 8) & 0xff, nums[2] & 0xff];
+    }
+    if (parts.length === 2 && nums[0] <= 255 && nums[1] <= 0xffffff) {
+      return [nums[0], (nums[1] >>> 16) & 0xff, (nums[1] >>> 8) & 0xff, nums[1] & 0xff];
+    }
+  }
+
+  return null;
+}
+
+export function isPrivateIpOrBlockedHost(hostname: string): boolean {
+  const raw = hostname.toLowerCase().trim();
+  const host = raw.startsWith('[') && raw.endsWith(']') ? raw.slice(1, -1) : raw;
+
+  if (BLOCKED_PRIVATE_HOSTNAMES.has(raw) || BLOCKED_PRIVATE_HOSTNAMES.has(host)) return true;
+  if (host.endsWith('.localhost') || host.endsWith('.internal') || host.endsWith('.local')) return true;
+
+  // Reject any non-standard octal/hex dotted IPv4 representation immediately, or check decoded IPv4 octets
+  if (/^(0x[0-9a-f]+|0[0-7]+)(\.(0x[0-9a-f]+|0[0-7]*|\d+))*$/i.test(host)) {
+    return true;
+  }
+
+  const ipv4Octets = parseNonStandardOrStandardIpv4(host);
+  if (ipv4Octets) {
+    return isPrivateIpv4Octets(ipv4Octets[0], ipv4Octets[1]);
+  }
+
+  // IPv6 loopback, unspecified, unique local (fc00::/7 -> fc.. / fd..), and link-local (fe80::/10 -> fe8.. / fe9.. / fea.. / feb..)
+  if (
+    host === '::1' ||
+    host === '::' ||
+    host === '0:0:0:0:0:0:0:1' ||
+    host === '0:0:0:0:0:0:0:0' ||
+    host.startsWith('fc') ||
+    host.startsWith('fd') ||
+    /^fe[89ab][0-9a-f]:/i.test(host) ||
+    host.startsWith('fe80')
+  ) {
+    return true;
+  }
+
+  // IPv4-mapped IPv6 addresses: ::ffff:127.0.0.1 or ::ffff:7f00:1 (normalized by WhatWG URL)
+  if (host.startsWith('::ffff:')) {
+    const mappedPart = host.slice('::ffff:'.length);
+    const mappedV4 = parseNonStandardOrStandardIpv4(mappedPart);
+    if (mappedV4) {
+      return isPrivateIpv4Octets(mappedV4[0], mappedV4[1]);
+    }
+    const hexMatch = mappedPart.match(/^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
+    if (hexMatch) {
+      const hi = parseInt(hexMatch[1], 16);
+      const oct1 = (hi >>> 8) & 0xff;
+      const oct2 = hi & 0xff;
+      return isPrivateIpv4Octets(oct1, oct2);
+    }
     return true;
   }
 
@@ -41,7 +120,29 @@ export function isPrivateIpOrBlockedHost(hostname: string): boolean {
 }
 
 export function validateUpstreamUrl(urlStr: string, allowLocal = false): void {
+  // Check raw string for octal/hex/decimal IP tricks before URL normalization
+  const rawHostMatch = urlStr.match(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/(?:[^/@]*@)?([^/:?#]+)/);
+  if (rawHostMatch) {
+    const rawHost = rawHostMatch[1].toLowerCase();
+    // Reject octal (0177.0.0.1), hex (0x7f.0.0.1), or single-integer decimal (2130706433) IP encodings unconditionally
+    if (
+      /^(0x[0-9a-f]+|0[0-7]+|\d+)$/i.test(rawHost) ||
+      rawHost.split('.').some((part) => /^0x[0-9a-f]+$/i.test(part) || (/^0[0-7]+$/.test(part) && part.length > 1))
+    ) {
+      throw new Error(`[ToolVeto Gateway Security] SSRF blocked: Non-standard decimal, octal, or hex IP encoding in '${urlStr}' is forbidden.`);
+    }
+  }
+
   const parsed = new URL(urlStr);
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(`[ToolVeto Gateway Security] SSRF blocked: Unsupported protocol '${parsed.protocol}'.`);
+  }
+
+  // Block embedded credentials in upstream URL (e.g. http://user@evil.com)
+  if (parsed.username || parsed.password) {
+    throw new Error(`[ToolVeto Gateway Security] SSRF blocked: Embedded credentials in upstream URL '${urlStr}' are forbidden.`);
+  }
+
   const host = parsed.hostname.toLowerCase();
 
   // Cloud metadata endpoint is strictly forbidden under all circumstances
@@ -57,9 +158,44 @@ export function validateUpstreamUrl(urlStr: string, allowLocal = false): void {
       throw new Error(`[ToolVeto Gateway Security] SSRF blocked: Upstream URL '${urlStr}' targets private subnet or internal host in production environment.`);
     }
   } else if (!isExplicitlyAllowed) {
-    const isLoopback = host === 'localhost' || host === '127.0.0.1' || host === '::1';
-    if (!isLoopback && isPrivateIpOrBlockedHost(host)) {
+    const isStandardLoopback = host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]';
+    if (!isStandardLoopback && isPrivateIpOrBlockedHost(host)) {
       throw new Error(`[ToolVeto Gateway Security] SSRF blocked: Upstream URL '${urlStr}' targets private network address.`);
+    }
+  }
+}
+
+export async function validateUpstreamDns(hostname: string, allowLocal = false): Promise<void> {
+  const isExplicitlyAllowed = allowLocal || process.env.TOOLVETO_ALLOW_LOCAL_UPSTREAMS === 'true';
+  if (isExplicitlyAllowed) return;
+
+  const cleanHost = hostname.toLowerCase().trim().replace(/^\[|\]$/g, '');
+  const isProduction = process.env.NODE_ENV === 'production';
+  const isStandardLoopback = cleanHost === 'localhost' || cleanHost === '127.0.0.1' || cleanHost === '::1';
+
+  if (!isProduction && isStandardLoopback) {
+    return;
+  }
+
+  if (isPrivateIpOrBlockedHost(cleanHost)) {
+    throw new Error(`[ToolVeto Gateway Security] SSRF DNS check blocked: Host '${hostname}' is a private or reserved address.`);
+  }
+
+  // If it's already an IP literal, no DNS lookup needed beyond isPrivateIpOrBlockedHost
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(cleanHost) || cleanHost.includes(':')) {
+    return;
+  }
+
+  const records = await dns.promises.lookup(cleanHost, { all: true });
+  if (!records || records.length === 0) {
+    throw new Error(`[ToolVeto Gateway Security] SSRF DNS check failed: Unable to resolve host '${hostname}'.`);
+  }
+
+  for (const record of records) {
+    if (isPrivateIpOrBlockedHost(record.address)) {
+      throw new Error(
+        `[ToolVeto Gateway Security] SSRF DNS rebinding blocked: Host '${hostname}' resolved to private/internal IP '${record.address}'.`
+      );
     }
   }
 }
@@ -394,6 +530,7 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
                 // Forward to actual upstream server via HTTP POST
                 if (upstream.url && upstream.url.startsWith('http')) {
                   validateUpstreamUrl(upstream.url, upstream.allowLocal);
+                  await validateUpstreamDns(new URL(upstream.url).hostname, upstream.allowLocal);
                   const headers: Record<string, string> = {
                     'Content-Type': 'application/json',
                     'X-ToolVeto-Egress-Canary': crypto.randomUUID(),
@@ -485,6 +622,7 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
           // Forward all other non-mutation methods (e.g. tools/list, initialize) directly to upstream
           if (upstream.url && upstream.url.startsWith('http')) {
             validateUpstreamUrl(upstream.url, upstream.allowLocal);
+            await validateUpstreamDns(new URL(upstream.url).hostname, upstream.allowLocal);
             const headers: Record<string, string> = {
               'Content-Type': 'application/json',
               'X-ToolVeto-Egress-Canary': crypto.randomUUID(),
