@@ -158,9 +158,8 @@ export class MemoryShieldStorage implements ShieldStorage {
       return false;
     }
     if (this.locks.size > 10000) {
-      for (const [k, exp] of this.locks.entries()) {
-        if (exp <= now) this.locks.delete(k);
-      }
+      const oldest = this.locks.keys().next().value;
+      if (oldest !== undefined) this.locks.delete(oldest);
     }
     this.locks.set(key, now + ttlMs);
     return true;

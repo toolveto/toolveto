@@ -11,6 +11,12 @@ export async function proxyCommand(options: ProxyOptions = {}): Promise<any> {
   const upstreamUrl = options.upstream || 'http://localhost:3000/mcp';
   const tokenBudget = Number(options.tokenBudget) || 4000;
 
+  if (!/^https?:\/\//i.test(upstreamUrl)) {
+    console.error('\n❌ --upstream must be an HTTP(S) URL. Stdio command wrapping is not supported.\n');
+    process.exitCode = 1;
+    return;
+  }
+
   console.log(`\n🛡️ Starting ToolVeto Shield Runtime Gateway`);
   console.log(`Port:        ${port}`);
   console.log(`Upstream:    ${upstreamUrl}`);

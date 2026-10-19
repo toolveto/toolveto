@@ -576,9 +576,10 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
                   return data.result || data;
                 }
 
-                // In-process mock or fallback
+                // Non-reachable or non-HTTP upstream: fail closed and never fabricate
                 return {
-                  content: [{ type: 'text', text: `Upstream response from ${upstream.name} for ${rpcReq.params?.name}` }],
+                  isError: true,
+                  content: [{ type: 'text', text: `[ToolVeto Gateway] No reachable HTTP upstream for '${upstream.name}'. Refusing to fabricate a response.` }],
                 };
               } finally {
                 upstreamTimeMs = performance.now() - upStart;

@@ -188,6 +188,11 @@ export async function wrapCommand(
       continue;
     }
 
+    if (entry.command && !/^https?:\/\//i.test(entry.url ?? '')) {
+      console.warn(`⚠️ Skipping '${serverName}': stdio servers cannot be wrapped.`);
+      continue;
+    }
+
     const origCommand = entry.command || '';
     const origArgs: string[] = Array.isArray(entry.args) ? entry.args : [];
     const originalCommandString = [origCommand, ...origArgs].filter(Boolean).join(' ').trim() || entry.url || serverName;
