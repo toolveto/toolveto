@@ -692,8 +692,29 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
             return;
           }
 
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ jsonrpc: '2.0', id: jsonRpc.id, result: { status: 'forwarded', upstream: upstream.name } }));
+          if (upstream.url && /^https?:\/\//i.test(upstream.url)) {
+            const upstreamRes = await fetch(upstream.url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(jsonRpc),
+            });
+            const upstreamBody = await upstreamRes.text();
+            res.writeHead(upstreamRes.status, { 'Content-Type': 'application/json' });
+            res.end(upstreamBody);
+            return;
+          }
+
+          res.writeHead(502, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              id: jsonRpc.id ?? null,
+              error: {
+                code: -32603,
+                message: `[ToolVeto Gateway] No reachable HTTP upstream for '${upstream.name}'. Refusing to fabricate a response.`,
+              },
+            })
+          );
         } catch (err: any) {
           res.writeHead(500, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32603, message: err.message } }));

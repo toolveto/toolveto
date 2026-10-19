@@ -74,7 +74,7 @@ export function createProgram(): Command {
   program
     .command('badge')
     .description('Generate an official ToolVeto SVG badge for README markdown')
-    .option('-s, --score <score>', 'Evaluated score (0-100)', '100')
+    .option('-s, --score <score>', 'Evaluated score (0-100)')
     .option('-t, --tier <tier>', 'Certification tier (Platinum, Gold, Silver, Bronze, Rejected)')
     .option('-o, --output <path>', 'Output SVG file path', 'toolveto-badge.svg')
     .action(async (options) => {
@@ -129,7 +129,7 @@ export function createProgram(): Command {
     .command('login')
     .description('Authenticate CLI with ToolVeto Cloud using your license token')
     .argument('[token]', 'Your ToolVeto license token (tv_live_...)')
-    .option('--api-url <url>', 'ToolVeto Cloud API URL', 'http://localhost:3001')
+    .option('--api-url <url>', 'ToolVeto Cloud API URL', 'https://api.toolveto.ai')
     .action(async (token, options) => {
       await loginCommand(token, options);
     });

@@ -490,7 +490,7 @@ export async function checkCommand(
 
     // Optional Cloud Telemetry Upload when TOOLVETO_TOKEN is configured
     if (process.env.TOOLVETO_TOKEN) {
-      const apiUrl = (process.env.TOOLVETO_API_URL || 'http://localhost:3001').replace(/\/+$/, '');
+      const apiUrl = (process.env.TOOLVETO_API_URL || 'https://api.toolveto.ai').replace(/\/+$/, '');
       try {
         await fetch(`${apiUrl}/api/v1/audits`, {
           method: 'POST',
