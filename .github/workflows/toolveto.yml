@@ -30,8 +30,6 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: 11.12.0
 
       - name: Install & Build Local Monorepo
         run: |
