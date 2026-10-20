@@ -89,6 +89,41 @@ describe('ToolVeto CLI Commands', () => {
     }
   });
 
+  it('should synthesize both Tier-1 Zod schema contracts and Tier-2 handler body guards when --with-llm is passed', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tv-llm-fix-test-'));
+    const originalCwd = process.cwd();
+    process.chdir(tmpDir);
+    const srcFile = path.join(tmpDir, 'charge.ts');
+    fs.writeFileSync(
+      srcFile,
+      [
+        `import { z } from 'zod';`,
+        `export const ChargeInput = z.object({`,
+        `  amount: z.number(),`,
+        `});`,
+        `export const chargeHandler = async (args: Record<string, unknown>) => {`,
+        `  return { charged: args.amount };`,
+        `};`,
+      ].join('\n'),
+      'utf8'
+    );
+
+    try {
+      await fixCommand(srcFile, {
+        apply: true,
+        withLlm: true,
+      });
+
+      const updated = fs.readFileSync(srcFile, 'utf8');
+      assert.ok(updated.includes('idempotencyKey: z.string().uuid()'), 'Tier-1 schema field must be injected');
+      assert.ok(updated.includes('__toolvetoIdempotencyCache'), 'Tier-2 imperative idempotency cache guard must be woven into handler');
+      assert.ok(updated.includes('DRY_RUN_VALIDATED'), 'Tier-2 dry_run simulation guard must be woven into handler');
+    } finally {
+      process.chdir(originalCwd);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   it('should verify cryptographically signed RFC 7515 JWS tokens (toolveto verify)', async () => {
     const secret = 'test-verification-secret-2026-secure-32chars';
     const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT', kid: 'test-key' })).toString('base64url');
@@ -720,13 +755,17 @@ describe('ToolVeto CLI Commands', () => {
       assert.ok(formatted.includes('PLG Security Advisory'), 'Must display contextual PLG remediation advisory');
       assert.ok(formatted.includes('DO_NOT_TRACK=1'), 'Must display standard opt-out env vars');
 
-      // 4. Verify DO_NOT_TRACK=1 and TOOLVETO_TELEMETRY_DISABLED=1 opt-outs disable telemetry
+      // 4. Verify DO_NOT_TRACK=1, TOOLVETO_NO_TELEMETRY=1, and TOOLVETO_TELEMETRY_DISABLED=1 opt-outs disable telemetry
       process.env.DO_NOT_TRACK = '1';
       assert.strictEqual(isTelemetryDisabled(), true);
       delete process.env.DO_NOT_TRACK;
+      process.env.TOOLVETO_NO_TELEMETRY = '1';
+      assert.strictEqual(isTelemetryDisabled(), true);
+      delete process.env.TOOLVETO_NO_TELEMETRY;
       process.env.TOOLVETO_TELEMETRY_DISABLED = '1';
       assert.strictEqual(isTelemetryDisabled(), true);
       delete process.env.TOOLVETO_TELEMETRY_DISABLED;
+      assert.strictEqual(isTelemetryDisabled({ noTelemetry: true }), true);
       assert.strictEqual(isUpdateCheckDisabled({ skipUpdateCheck: true }), true);
 
       // 4b. Verify offline/network failure resilience never throws

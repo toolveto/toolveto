@@ -52,11 +52,14 @@ export function createProgram(): Command {
 
   program
     .command('fix')
-    .description('Auto-apply schema fixes or generate standard git patch for failed checks')
+    .description('Auto-apply deterministic AST schema fixes + optional LLM handler code synthesis (--with-llm)')
     .argument('[target]', 'Path to schema file or server directory')
     .option('--apply', 'Directly modify local JSON schema or source code files on disk')
     .option('--suggest', 'Print multi-language AST diffs and generate toolveto-remediation.patch')
     .option('-c, --check <checkId>', 'Target a specific check ID for remediation (e.g., TC-IDEMP-001)')
+    .option('--with-llm', 'Enable Tier-2 LLM code patch synthesis for imperative tool handler bodies (uses ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY)')
+    .option('--llm-provider <provider>', 'LLM provider for handler synthesis: anthropic | openai | gemini | auto', 'auto')
+    .option('--model <model>', 'Override LLM model identifier for handler code synthesis')
     .action(async (target, options) => {
       await fixCommand(target, options);
     });

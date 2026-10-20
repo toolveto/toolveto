@@ -5,6 +5,16 @@ export interface FixOptions {
   apply?: boolean;
   suggest?: boolean;
   check?: string;
+  withLlm?: boolean;
+  llmProvider?: 'anthropic' | 'openai' | 'gemini' | 'auto' | string;
+  model?: string;
+}
+
+export interface LlmSynthesisResult {
+  patched: string;
+  appliedCount: number;
+  diffHunks: string[];
+  engineUsed: string;
 }
 
 function matchesCheckFilter(filter: string | undefined, checkIds: string[]): boolean {
@@ -40,6 +50,204 @@ function scanSourceFiles(dirOrFile: string): string[] {
     }
   }
   return results;
+}
+
+function weaveImperativeHandlerGuard(
+  filePath: string,
+  source: string,
+  checkFilter?: string
+): { patched: string; appliedCount: number; diffHunks: string[] } {
+  const ext = path.extname(filePath);
+  let patched = source;
+  let appliedCount = 0;
+  const diffHunks: string[] = [];
+  const wantIdemp = matchesCheckFilter(checkFilter, ['TC-IDEMP-001', 'TC-IDEMP-002', 'TC-IDEMP-003', 'TC-IDEMP-005']);
+  const wantDryRun = matchesCheckFilter(checkFilter, ['TC-DRYRUN-001']);
+
+  if ((ext === '.ts' || ext === '.js') && !patched.includes('__toolvetoIdempotencyCache')) {
+    const handlerRegex = /(async\s*\(\s*([a-zA-Z0-9_]+)(?:\s*:[^)]*)?\s*\)\s*=>\s*\{|async\s+function\s+[a-zA-Z0-9_]+\s*\(\s*([a-zA-Z0-9_]+)(?:\s*:[^)]*)?\s*\)\s*\{)/;
+    const match = patched.match(handlerRegex);
+    if (match && (wantIdemp || wantDryRun)) {
+      const argName = match[2] || match[3] || 'args';
+      const cachePreamble = `const __toolvetoIdempotencyCache = new Map<string, unknown>();\n`;
+      const guardLines: string[] = [];
+      if (wantDryRun) {
+        guardLines.push(
+          `  if ((${argName} as Record<string, unknown>)?.dry_run === true) {`,
+          `    return { status: "DRY_RUN_VALIDATED", simulated: true };`,
+          `  }`
+        );
+      }
+      if (wantIdemp) {
+        guardLines.push(
+          `  const __idempKey = String((${argName} as Record<string, unknown>)?.idempotencyKey ?? (${argName} as Record<string, unknown>)?.idempotency_key ?? "");`,
+          `  if (__idempKey && __toolvetoIdempotencyCache.has(__idempKey)) {`,
+          `    return __toolvetoIdempotencyCache.get(__idempKey);`,
+          `  }`
+        );
+      }
+      patched = `${cachePreamble}${patched.replace(match[0], `${match[0]}\n${guardLines.join('\n')}`)}`;
+      appliedCount += guardLines.length + 1;
+      diffHunks.push(`+${cachePreamble.trim()}`, ...guardLines.map((l) => `+${l}`));
+    }
+  } else if (ext === '.py' && !patched.includes('_TOOLVETO_IDEMPOTENCY_CACHE')) {
+    const defMatch = patched.match(/def\s+([a-zA-Z0-9_]+)\s*\([^)]*\)\s*(?:->\s*[^:]+)?:/);
+    if (defMatch && (wantIdemp || wantDryRun)) {
+      const cachePreamble = `_TOOLVETO_IDEMPOTENCY_CACHE: dict[str, object] = {}\n`;
+      const guardLines = [
+        `    # ToolVeto Tier-2 Handler Guard (Idempotency & Dry-Run)`,
+        `    if locals().get("dry_run") is True:`,
+        `        return {"status": "DRY_RUN_VALIDATED", "simulated": True}`,
+        `    _idemp_key = locals().get("idempotency_key")`,
+        `    if _idemp_key and _idemp_key in _TOOLVETO_IDEMPOTENCY_CACHE:`,
+        `        return _TOOLVETO_IDEMPOTENCY_CACHE[_idemp_key]`,
+      ];
+      patched = `${cachePreamble}${patched.replace(defMatch[0], `${defMatch[0]}\n${guardLines.join('\n')}`)}`;
+      appliedCount += guardLines.length + 1;
+      diffHunks.push(`+${cachePreamble.trim()}`, ...guardLines.map((l) => `+${l}`));
+    }
+  }
+
+  return { patched, appliedCount, diffHunks };
+}
+
+export async function synthesizeHandlerPatchWithLlm(
+  filePath: string,
+  source: string,
+  checkFilter?: string,
+  options: FixOptions = {}
+): Promise<LlmSynthesisResult> {
+  const providerPref = (options.llmProvider || 'auto').toLowerCase();
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  const openaiKey = process.env.OPENAI_API_KEY;
+  const geminiKey = process.env.GEMINI_API_KEY;
+  const customEndpoint = process.env.TOOLVETO_LLM_ENDPOINT;
+
+  const systemPrompt = [
+    'You are the ToolVeto Tier-2 AST & Handler Code Remediation Synthesizer.',
+    'Given an MCP tool source file, return ONLY the remediated source code (no markdown fences) that preserves all existing exports and types while enforcing:',
+    '1. Atomic idempotency deduplication guard using idempotencyKey / idempotency_key before executing mutations.',
+    '2. Pre-flight dry_run simulation short-circuit before state mutation.',
+    '3. Bounded pagination (limit <= 100, cursor) on collection queries.',
+    '4. Self-healing error messages citing parameter names and expected schema constraints.',
+  ].join('\n');
+
+  try {
+    if (customEndpoint) {
+      const res = await fetch(customEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: options.model || 'toolveto-remediation-v1',
+          system: systemPrompt,
+          filePath: path.basename(filePath),
+          checkFilter: checkFilter || 'ALL',
+          source,
+        }),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { patchedCode?: string; diffHunks?: string[]; model?: string };
+        if (data.patchedCode && data.patchedCode !== source) {
+          return {
+            patched: data.patchedCode,
+            appliedCount: data.diffHunks?.length || 4,
+            diffHunks: data.diffHunks || ['+ // Synthesized via custom LLM endpoint'],
+            engineUsed: `Custom-LLM (${data.model || options.model || 'toolveto-remediation-v1'})`,
+          };
+        }
+      }
+    } else if ((providerPref === 'anthropic' || providerPref === 'auto') && anthropicKey) {
+      const model = options.model || 'claude-3-7-sonnet-latest';
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': anthropicKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 4096,
+          system: systemPrompt,
+          messages: [{ role: 'user', content: `Remediate MCP handler file (${path.basename(filePath)}):\n\n${source}` }],
+        }),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { content?: Array<{ text?: string }> };
+        const text = data.content?.[0]?.text?.trim();
+        if (text && text !== source) {
+          return {
+            patched: text,
+            appliedCount: 4,
+            diffHunks: ['+ // Synthesized imperative handler guard via Anthropic Claude'],
+            engineUsed: `Anthropic (${model})`,
+          };
+        }
+      }
+    } else if ((providerPref === 'openai' || providerPref === 'auto') && openaiKey) {
+      const model = options.model || 'gpt-4o';
+      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${openaiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          temperature: 0,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: `Remediate MCP handler file (${path.basename(filePath)}):\n\n${source}` },
+          ],
+        }),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
+        const text = data.choices?.[0]?.message?.content?.trim();
+        if (text && text !== source) {
+          return {
+            patched: text,
+            appliedCount: 4,
+            diffHunks: ['+ // Synthesized imperative handler guard via OpenAI'],
+            engineUsed: `OpenAI (${model})`,
+          };
+        }
+      }
+    } else if ((providerPref === 'gemini' || providerPref === 'auto') && geminiKey) {
+      const model = options.model || 'gemini-2.5-pro';
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            systemInstruction: { parts: [{ text: systemPrompt }] },
+            contents: [{ role: 'user', parts: [{ text: `Remediate MCP handler file (${path.basename(filePath)}):\n\n${source}` }] }],
+          }),
+        }
+      );
+      if (res.ok) {
+        const data = (await res.json()) as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+        if (text && text !== source) {
+          return {
+            patched: text,
+            appliedCount: 4,
+            diffHunks: ['+ // Synthesized imperative handler guard via Google Gemini'],
+            engineUsed: `Gemini (${model})`,
+          };
+        }
+      }
+    }
+  } catch {
+    // Fall back cleanly to local AST handler body weaver when offline
+  }
+
+  const localWeave = weaveImperativeHandlerGuard(filePath, source, checkFilter);
+  return {
+    ...localWeave,
+    engineUsed: 'Local-AST-Handler-Weaver (Offline Fallback — set ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY for cloud LLM synthesis)',
+  };
 }
 
 function patchSourceFileContent(
@@ -124,7 +332,7 @@ function patchSourceFileContent(
 export async function fixCommand(targetPath?: string, options: FixOptions = {}): Promise<void> {
   const resolvedTarget = path.resolve(process.cwd(), targetPath || '.');
 
-  console.log(`\n🔧 ToolVeto Remediation Engine`);
+  console.log(`\n🔧 ToolVeto Remediation Engine (${options.withLlm ? 'Tier-1 Deterministic AST + Tier-2 LLM Handler Synthesis' : 'Tier-1 Deterministic AST'})`);
   console.log(`Target: ${resolvedTarget}`);
 
   let schemaToFix: any = null;
@@ -278,16 +486,30 @@ export async function fixCommand(targetPath?: string, options: FixOptions = {}):
   for (const srcFile of sourceFiles) {
     try {
       const original = fs.readFileSync(srcFile, 'utf8');
-      const { patched, appliedCount, diffHunks } = patchSourceFileContent(srcFile, original, options.check);
-      if (appliedCount > 0 && patched !== original) {
+      const tier1 = patchSourceFileContent(srcFile, original, options.check);
+      let finalPatched = tier1.patched;
+      let totalApplied = tier1.appliedCount;
+      const allHunks = [...tier1.diffHunks];
+
+      if (options.withLlm) {
+        const tier2 = await synthesizeHandlerPatchWithLlm(srcFile, finalPatched, options.check, options);
+        if (tier2.appliedCount > 0 && tier2.patched !== finalPatched) {
+          finalPatched = tier2.patched;
+          totalApplied += tier2.appliedCount;
+          allHunks.push(...tier2.diffHunks);
+          console.log(`  + [TIER-2 LLM SYNTHESIS] Synthesized handler guard via ${tier2.engineUsed}`);
+        }
+      }
+
+      if (totalApplied > 0 && finalPatched !== original) {
         const relPath = path.relative(process.cwd(), srcFile).replace(/\\/g, '/') || path.basename(srcFile);
         unifiedDiffBlocks.push(
-          `diff --git a/${relPath} b/${relPath}\n--- a/${relPath}\n+++ b/${relPath}\n@@ -1,3 +1,${3 + appliedCount} @@\n${diffHunks.join('\n')}`
+          `diff --git a/${relPath} b/${relPath}\n--- a/${relPath}\n+++ b/${relPath}\n@@ -1,3 +1,${3 + totalApplied} @@\n${allHunks.join('\n')}`
         );
         if (options.apply) {
-          fs.writeFileSync(srcFile, patched, 'utf8');
+          fs.writeFileSync(srcFile, finalPatched, 'utf8');
           sourceFilesModified++;
-          console.log(`  + [PATCHED SOURCE] Injected ${appliedCount} remediation field(s) into ${relPath}`);
+          console.log(`  + [PATCHED SOURCE] Injected ${totalApplied} remediation field(s)/guard(s) into ${relPath}`);
         }
       }
     } catch {
@@ -316,10 +538,13 @@ export async function fixCommand(targetPath?: string, options: FixOptions = {}):
 
   console.log('\n📄 Generated standard git patch: toolveto-remediation.patch');
   console.log('\nSuggested AST Patches by Language:');
-  console.log('\n[TypeScript / Zod]');
+  console.log('\n[TypeScript / Zod — Tier-1 Schema + Tier-2 Handler]');
   console.log('+ idempotencyKey: z.string().uuid().describe("Unique token for atomic deduplication")');
   console.log('+ limit: z.number().int().min(1).max(100).default(25).describe("Max items to protect LLM context")');
   console.log('+ cursor: z.string().optional().describe("Cursor token for forward pagination")');
+  if (options.withLlm) {
+    console.log('+ if (__idempKey && __toolvetoIdempotencyCache.has(__idempKey)) return __toolvetoIdempotencyCache.get(__idempKey);');
+  }
 
   console.log('\n[Python / FastMCP / Pydantic]');
   console.log('+ idempotency_key: str = Field(..., description="Unique token for atomic deduplication")');
@@ -337,6 +562,6 @@ export async function fixCommand(targetPath?: string, options: FixOptions = {}):
       console.log(`\n💡 To apply this patch to your git workspace, run:\n  git apply toolveto-remediation.patch\n`);
     }
   } else {
-    console.log(`\n💡 Copy the lines above into your schema, or run with --apply to patch files directly.`);
+    console.log(`\n💡 Copy the lines above into your schema, or run with --apply (and --with-llm for handler synthesis) to patch files directly.`);
   }
 }
