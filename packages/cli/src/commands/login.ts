@@ -9,7 +9,7 @@ export interface LoginOptions {
 
 export async function loginCommand(tokenArg?: string, options: LoginOptions = {}): Promise<void> {
   const token = tokenArg || options.token || process.env.TOOLVETO_TOKEN;
-  const apiUrl = options.apiUrl || process.env.TOOLVETO_API_URL || 'http://localhost:3001';
+  const apiUrl = options.apiUrl || process.env.TOOLVETO_API_URL || 'https://api.toolveto.ai';
 
   if (!token) {
     console.error('\n❌ Error: Please provide your ToolVeto License Token.');

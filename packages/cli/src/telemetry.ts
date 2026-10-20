@@ -5,7 +5,7 @@ import * as crypto from 'node:crypto';
 import type { SuiteSummary } from '@toolveto/core';
 
 export const CLI_VERSION = '0.2.0';
-export const DEFAULT_CLOUD_API_URL = 'http://localhost:3001';
+export const DEFAULT_CLOUD_API_URL = process.env.TOOLVETO_API_URL || 'https://api.toolveto.ai';
 
 export interface CliLocalState {
   installId: string;

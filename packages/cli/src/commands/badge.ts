@@ -59,8 +59,13 @@ export function generateBadgeSvg(score: number, tier: string, rawLabel = 'ToolVe
 }
 
 export async function badgeCommand(options: BadgeOptions = {}): Promise<void> {
-  const score = Math.max(0, Math.min(100, Math.round(Number(options.score) || 100)));
-  const tier = (options.tier || (score >= 90 ? 'PLATINUM' : score >= 80 ? 'GOLD' : score >= 70 ? 'SILVER' : 'REJECTED')).toUpperCase();
+  const hasExplicitScore = options.score !== undefined;
+  const score = hasExplicitScore ? Math.max(0, Math.min(100, Math.round(Number(options.score) || 0))) : 0;
+  const tier = options.tier
+    ? options.tier.toUpperCase()
+    : hasExplicitScore
+    ? score >= 90 ? 'PLATINUM' : score >= 80 ? 'GOLD' : score >= 70 ? 'SILVER' : 'REJECTED'
+    : 'UNVERIFIED';
   const outputPath = options.output ? path.resolve(process.cwd(), options.output) : path.resolve(process.cwd(), 'toolveto-badge.svg');
 
   const svg = generateBadgeSvg(score, tier);

@@ -284,6 +284,14 @@ export async function checkCommand(
         }
         // 3. Executable Server script (Node / Python)
         else if (stat.isFile()) {
+          const ext = path.extname(resolvedTarget).toLowerCase();
+          if (!new Set(['.js', '.mjs', '.cjs', '.py', '.json']).has(ext)) {
+            throw new Error(`Refusing to auto-exec '${ext}'`);
+          }
+          if (options.allowExec === false || process.env.TOOLVETO_DISALLOW_AUTO_EXEC === '1') {
+            throw new Error('auto-exec disabled');
+          }
+
           let command = process.execPath;
           const args: string[] = [resolvedTarget];
 
@@ -482,7 +490,7 @@ export async function checkCommand(
 
     // Optional Cloud Telemetry Upload when TOOLVETO_TOKEN is configured
     if (process.env.TOOLVETO_TOKEN) {
-      const apiUrl = (process.env.TOOLVETO_API_URL || 'http://localhost:3001').replace(/\/+$/, '');
+      const apiUrl = (process.env.TOOLVETO_API_URL || 'https://api.toolveto.ai').replace(/\/+$/, '');
       try {
         await fetch(`${apiUrl}/api/v1/audits`, {
           method: 'POST',

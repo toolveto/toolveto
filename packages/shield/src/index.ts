@@ -158,9 +158,8 @@ export class MemoryShieldStorage implements ShieldStorage {
       return false;
     }
     if (this.locks.size > 10000) {
-      for (const [k, exp] of this.locks.entries()) {
-        if (exp <= now) this.locks.delete(k);
-      }
+      const oldest = this.locks.keys().next().value;
+      if (oldest !== undefined) this.locks.delete(oldest);
     }
     this.locks.set(key, now + ttlMs);
     return true;
@@ -442,7 +441,13 @@ export class ShieldMiddleware {
   private options: NormalizedShieldOptions;
   private inFlightRequests: Map<string, Promise<McpCallResponse>> = new Map();
   private cursorStore: LRUCache<string, CursorStoreEntry> = new LRUCache({
-    max: 5000,
+    max: 500,
+    maxSize: 50 * 1024 * 1024, // 50 MB total cap
+    sizeCalculation: (entry) => {
+      if (entry.fullText) return Math.max(1, entry.fullText.length);
+      if (entry.records) return Math.max(1, entry.records.length * 256);
+      return 1024;
+    },
     ttl: 15 * 60 * 1000,
   });
   private rugPulledTools: Set<string> = new Set();
@@ -954,12 +959,13 @@ export class ShieldMiddleware {
                   const cursorPayload = { tName: toolName, o: itemsToKeep, t: totalRecords };
                   const encodedPayload = Buffer.from(JSON.stringify(cursorPayload)).toString('base64url');
                   generatedCursor = `cur_${encodedPayload}`;
+                  const maxStoredRecords = Math.min(parsed.length, 1000);
                   this.cursorStore.set(generatedCursor, {
                     toolName: toolName || 'unknown',
                     offset: itemsToKeep,
                     total: totalRecords,
                     pageSize: itemsToKeep,
-                    records: parsed,
+                    records: parsed.slice(0, maxStoredRecords),
                     createdAt: now,
                   });
 
@@ -990,12 +996,13 @@ export class ShieldMiddleware {
                     generatedCursor = `cur_${encodedPayload}`;
                     const envelopeBase = { ...parsed };
                     delete envelopeBase[arrayKey];
+                    const maxStoredRecords = Math.min(arr.length, 1000);
                     this.cursorStore.set(generatedCursor, {
                       toolName: toolName || 'unknown',
                       offset: itemsToKeep,
                       total: totalRecords,
                       pageSize: itemsToKeep,
-                      records: arr,
+                      records: arr.slice(0, maxStoredRecords),
                       arrayKey,
                       envelopeBase,
                       createdAt: now,
@@ -1029,12 +1036,13 @@ export class ShieldMiddleware {
                 const charPayload = { tName: toolName, c: textSliceLen, tc: itemLen };
                 const encodedCharPayload = Buffer.from(JSON.stringify(charPayload)).toString('base64url');
                 generatedCursor = `cur_${encodedCharPayload}`;
+                const maxStoredChars = Math.min(item.text.length, 262144);
                 this.cursorStore.set(generatedCursor, {
                   toolName: toolName || 'unknown',
                   charOffset: textSliceLen,
                   totalChars: itemLen,
                   charPageSize: textSliceLen,
-                  fullText: item.text,
+                  fullText: item.text.slice(0, maxStoredChars),
                   createdAt: now,
                 });
 

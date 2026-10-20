@@ -52,11 +52,14 @@ export function createProgram(): Command {
 
   program
     .command('fix')
-    .description('Auto-apply schema fixes or generate standard git patch for failed checks')
+    .description('Auto-apply deterministic AST schema fixes + optional LLM handler code synthesis (--with-llm)')
     .argument('[target]', 'Path to schema file or server directory')
     .option('--apply', 'Directly modify local JSON schema or source code files on disk')
     .option('--suggest', 'Print multi-language AST diffs and generate toolveto-remediation.patch')
     .option('-c, --check <checkId>', 'Target a specific check ID for remediation (e.g., TC-IDEMP-001)')
+    .option('--with-llm', 'Enable Tier-2 LLM code patch synthesis for imperative tool handler bodies (uses ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY)')
+    .option('--llm-provider <provider>', 'LLM provider for handler synthesis: anthropic | openai | gemini | auto', 'auto')
+    .option('--model <model>', 'Override LLM model identifier for handler code synthesis')
     .action(async (target, options) => {
       await fixCommand(target, options);
     });
@@ -74,7 +77,7 @@ export function createProgram(): Command {
   program
     .command('badge')
     .description('Generate an official ToolVeto SVG badge for README markdown')
-    .option('-s, --score <score>', 'Evaluated score (0-100)', '100')
+    .option('-s, --score <score>', 'Evaluated score (0-100)')
     .option('-t, --tier <tier>', 'Certification tier (Platinum, Gold, Silver, Bronze, Rejected)')
     .option('-o, --output <path>', 'Output SVG file path', 'toolveto-badge.svg')
     .action(async (options) => {
@@ -129,7 +132,7 @@ export function createProgram(): Command {
     .command('login')
     .description('Authenticate CLI with ToolVeto Cloud using your license token')
     .argument('[token]', 'Your ToolVeto license token (tv_live_...)')
-    .option('--api-url <url>', 'ToolVeto Cloud API URL', 'http://localhost:3001')
+    .option('--api-url <url>', 'ToolVeto Cloud API URL', 'https://api.toolveto.ai')
     .action(async (token, options) => {
       await loginCommand(token, options);
     });

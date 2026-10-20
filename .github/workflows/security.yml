@@ -1,0 +1,50 @@
+name: Security & Secret Scan
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gitleaks:
+    name: Gitleaks Secret Scanner
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        run: |
+          GITLEAKS_VERSION="8.24.2"
+          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -o /tmp/gitleaks.tar.gz
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          chmod +x /tmp/gitleaks
+          /tmp/gitleaks dir . --no-banner --redact
+
+  uptime-sentinel:
+    name: Control Plane Uptime Sentinel
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Probe API Readiness Probe
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://api.toolveto.ai/readyz || echo "000")
+          if [ "$STATUS" != "200" ]; then
+            echo "::error::API Sentinel check failed! Status: $STATUS"
+            if [ -n "${{ secrets.SLACK_WEBHOOK_CRITICAL }}" ]; then
+              curl -s -X POST -H 'Content-type: application/json' \
+                --data "{\"text\":\"🚨 [CRITICAL ALERT] api.toolveto.ai/readyz probe failed with HTTP status: $STATUS\"}" \
+                "${{ secrets.SLACK_WEBHOOK_CRITICAL }}" || true
+            fi
+            exit 1
+          fi
+          echo "✔ api.toolveto.ai/readyz healthy (200 OK)"
