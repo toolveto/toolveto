@@ -42,7 +42,7 @@ jobs:
         id: toolveto
         continue-on-error: true
         run: |
-          echo "Executing ToolVeto 12-Check Battery on Fixture Server..."
+          echo "Executing ToolVeto 14-Check Battery on Fixture Server..."
           node packages/cli/dist/bin/toolveto.js check fixtures/good-server/index.js --format github-pr
 
       - name: Generate Actionable AST Patch (If Failed)
