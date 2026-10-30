@@ -865,5 +865,104 @@ describe('ToolVeto CLI Commands', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
     fs.rmSync(traverseDir, { recursive: true, force: true });
   });
+
+  it('should audit IDE configs for floating @latest packages and plaintext secrets and remediate via toolveto doctor --fix', async () => {
+    const { doctorCommand } = await import('../commands/doctor.js');
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tv-doctor-test-'));
+    const cursorDir = path.join(tmpDir, '.cursor');
+    fs.mkdirSync(cursorDir, { recursive: true });
+    const mcpJsonPath = path.join(cursorDir, 'mcp.json');
+
+    fs.writeFileSync(
+      mcpJsonPath,
+      JSON.stringify(
+        {
+          mcpServers: {
+            github: {
+              command: 'npx',
+              args: ['-y', '@modelcontextprotocol/server-github@latest'],
+              env: {
+                GITHUB_PERSONAL_ACCESS_TOKEN: 'ghp_1234567890abcdefghijklmnopqrstuv',
+              },
+            },
+          },
+        },
+        null,
+        2
+      )
+    );
+
+    process.exitCode = 0;
+    const reportBefore = await doctorCommand(mcpJsonPath, { json: true });
+    assert.ok(reportBefore, 'doctorCommand must return report');
+    assert.strictEqual(process.exitCode, 1, 'High/Critical IDE findings must set exitCode 1');
+    assert.ok(reportBefore.findings.some((f) => f.category === 'FLOATING_PACKAGE'));
+    assert.ok(reportBefore.findings.some((f) => f.category === 'PLAINTEXT_SECRET'));
+
+    process.exitCode = 0;
+    const reportFixed = await doctorCommand(mcpJsonPath, { fix: true, json: true });
+    assert.ok(reportFixed, 'doctorCommand --fix must return report');
+    assert.strictEqual(reportFixed.fixedCount, 2, 'Both floating package and plaintext secret must be fixed');
+
+    const fixedConfig = JSON.parse(fs.readFileSync(mcpJsonPath, 'utf-8'));
+    assert.strictEqual(
+      fixedConfig.mcpServers.github.args[1],
+      '@modelcontextprotocol/server-github@1.0.0',
+      '@latest must be pinned to deterministic semver'
+    );
+    assert.strictEqual(
+      fixedConfig.mcpServers.github.env.GITHUB_PERSONAL_ACCESS_TOKEN,
+      '${ENV:GITHUB_PERSONAL_ACCESS_TOKEN}',
+      'Plaintext secret must be replaced with env var reference'
+    );
+    assert.ok(fs.existsSync(path.join(cursorDir, 'toolveto-ide.lock.json')), 'toolveto-ide.lock.json must be emitted');
+
+    process.exitCode = 0;
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('should patch Python @mcp.tool() function signatures and export WeaveProof Genome SHA-256 manifests', async () => {
+    const { exportPolicyCommand } = await import('../commands/export-policy.js');
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tv-py-wp-test-'));
+    const pyFile = path.join(tmpDir, 'fastmcp_server.py');
+
+    fs.writeFileSync(
+      pyFile,
+      `@mcp.tool()\ndef charge_invoice(amount_cents: int):\n    return {"status": "ok"}\n`,
+      'utf-8'
+    );
+
+    await fixCommand(tmpDir, { apply: true, lang: 'python', withLlm: true });
+    const patchedPy = fs.readFileSync(pyFile, 'utf-8');
+    assert.ok(patchedPy.includes('idempotency_key: str = ""'), 'FastMCP @mcp.tool() signature must be patched');
+    assert.ok(patchedPy.includes('_TOOLVETO_IDEMPOTENCY_CACHE'), 'Python Tier-2 handler guard must be woven');
+
+    const toolsJsonPath = path.join(tmpDir, 'tools.json');
+    fs.writeFileSync(
+      toolsJsonPath,
+      JSON.stringify([
+        {
+          name: 'charge_invoice',
+          description: 'Charges an invoice safely with idempotency key',
+          isMutation: true,
+          inputSchema: {
+            type: 'object',
+            properties: { amount_cents: { type: 'number' }, idempotency_key: { type: 'string' } },
+          },
+        },
+      ])
+    );
+
+    const genomeOut = path.join(tmpDir, 'weaveproof.genome.json');
+    await exportPolicyCommand(toolsJsonPath, { format: 'weaveproof-genome', output: genomeOut });
+    assert.ok(fs.existsSync(genomeOut), 'WeaveProof Genome manifest must be written');
+    const genomeData = JSON.parse(fs.readFileSync(genomeOut, 'utf-8'));
+    assert.strictEqual(genomeData.schemaVersion, 'weaveproof-genome/v1');
+    assert.strictEqual(genomeData.pinnedTools[0].toolName, 'charge_invoice');
+    assert.ok(genomeData.pinnedTools[0].canonicalSha256.startsWith('sha256:'));
+    assert.strictEqual(genomeData.pinnedTools[0].failureCodeOnMismatch, -32004);
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
 });
 

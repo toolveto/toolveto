@@ -418,6 +418,16 @@ export function formatTrivyStyleNotice(params: {
       lines.push(
         `│      👉 https://toolveto.ai/pricing?utm_source=npx_toolveto&utm_medium=cli   │`
       );
+      lines.push('├──────────────────────────────────────────────────────────────────────────────┤');
+      lines.push(
+        `│ 🏛️  Enterprise Runtime & Audit (WeaveProof): Need cross-MCP taint blocking,  │`
+      );
+      lines.push(
+        `│    CRM @clamp dollar caps, 2-of-2 SOX Slack HITL & SOC2/ISO42001 binders?    │`
+      );
+      lines.push(
+        `│    👉 Run \`npx toolveto export-policy --format weaveproof\`                   │`
+      );
     } else {
       lines.push(
         `│ ✨ Passed local public corpus (Score: ${params.summary.score}/100 • Run #${params.runNumber}).`.padEnd(79) + '│'

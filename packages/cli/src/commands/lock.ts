@@ -8,6 +8,7 @@ export interface LockCommandOptions {
   output?: string;
   verify?: boolean;
   demo?: boolean;
+  weaveproof?: boolean;
 }
 
 export interface ToolVetoLockfile {
@@ -131,5 +132,14 @@ export async function lockCommand(targetPath?: string, options: LockCommandOptio
   fs.writeFileSync(lockfilePath, JSON.stringify(lockData, null, 2), 'utf-8');
   console.log(`\n🔒 Generated Rug-Pull Lockfile: ${lockfilePath}`);
   console.log(`   Pinned Tools:  ${Object.keys(toolEntries).length}`);
-  console.log(`   Manifest Hash: ${manifestHash}\n`);
+  console.log(`   Manifest Hash: ${manifestHash}`);
+  if (options.weaveproof || Object.values(toolEntries).some((t) => t.isMutation)) {
+    console.log(
+      `   🛡️  WeaveProof Enterprise Ready: Run \`weaveproof-cli genome import --from-toolveto ${path.basename(
+        lockfilePath
+      )}\` to enforce inline SHA-256 tool pinning, @clamp dollar ceilings, and PAT-27 L3/L4 wire equivalence.\n`
+    );
+  } else {
+    console.log('');
+  }
 }

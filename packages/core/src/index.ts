@@ -26,6 +26,8 @@ export * from './checks/delayed-replay.js';
 export * from './checks/envelope-fuzz.js';
 export * from './checks/tasks-extension.js';
 export * from './checks/tool-poisoning.js';
+export * from './checks/sampling-chaos.js';
+export * from './checks/output-schema.js';
 export * from './config.js';
 export * from './reporters/terminal.js';
 export * from './reporters/github-pr-comment.js';
