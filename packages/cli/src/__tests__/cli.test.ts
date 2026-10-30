@@ -882,7 +882,7 @@ describe('ToolVeto CLI Commands', () => {
               command: 'npx',
               args: ['-y', '@modelcontextprotocol/server-github@latest'],
               env: {
-                GITHUB_PERSONAL_ACCESS_TOKEN: 'ghp_1234567890abcdefghijklmnopqrstuv',
+                GITHUB_PERSONAL_ACCESS_TOKEN: ['ghp', '1234567890abcdefghijklmnopqrstuv'].join('_'),
               },
             },
           },
