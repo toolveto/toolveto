@@ -1,9 +1,10 @@
+import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { McpToolDefinition } from '@toolveto/core';
 
 export interface ExportPolicyOptions {
-  format?: 'cedar' | 'opa' | string;
+  format?: 'cedar' | 'opa' | 'weaveproof' | 'weaveproof-genome' | string;
   output?: string;
   demo?: boolean;
 }
@@ -160,6 +161,104 @@ allow if {
 `;
 }
 
+export function generateWeaveProofCedarPolicy(tools: McpToolDefinition[]): string {
+  const blocks: string[] = [
+    '// ============================================================================',
+    '// ToolVeto x WeaveProof Enterprise Runtime Governance Policy Pack',
+    '// Upgrades static ToolVeto D1-D5 checks with CRM @clamp ceilings,',
+    '// 2-of-2 SOX Dual-Quorum HITL approvals, and Cross-MCP Taint Blocking',
+    '// ============================================================================',
+  ];
+
+  for (const tool of tools) {
+    const destructive = isDestructiveTool(tool);
+    const readOnly = isReadOnlyTool(tool);
+    const lower = tool.name.toLowerCase();
+    const isFinancial = ['payment', 'refund', 'credit', 'invoice', 'transfer', 'charge', 'journal'].some((k) =>
+      lower.includes(k)
+    );
+
+    if (destructive) {
+      blocks.push(`
+// Tool '${tool.name}' (Destructive Mutation — 2-of-2 Dual-Quorum SOX/SOC2 HITL)
+@id("tv-wp-quorum-${lower.replace(/[^a-z0-9]/g, '-')}")
+@approval(quorum=2, roles=["security_admin", "controller"], min_dwell_ms=800)
+permit (
+  principal,
+  action == Action::"tools/call",
+  resource == Tool::"${tool.name}"
+) when {
+  context.humanApproved == true
+};`);
+    } else if (isFinancial || !readOnly) {
+      blocks.push(`
+// Tool '${tool.name}' (Financial / State Mutation — CRM-Hydrated @clamp + Idempotency)
+@id("tv-wp-clamp-${lower.replace(/[^a-z0-9]/g, '-')}")
+@clamp(field="amount", limit=250000, currency="USD")
+permit (
+  principal,
+  action == Action::"tools/call",
+  resource == Tool::"${tool.name}"
+) when {
+  context.hasIdempotencyKey == true && !context.session_taint.contains("UNTRUSTED_EXTERNAL_INGEST")
+};`);
+    } else {
+      blocks.push(`
+// Tool '${tool.name}' (Read-Only Query — Dynamic Tool Slicer Permitted)
+@id("tv-wp-readonly-${lower.replace(/[^a-z0-9]/g, '-')}")
+permit (
+  principal,
+  action == Action::"tools/call",
+  resource == Tool::"${tool.name}"
+);`);
+    }
+  }
+
+  return blocks.join('\n') + '\n';
+}
+
+export function generateWeaveProofGenomeManifest(tools: McpToolDefinition[]): string {
+  const toolEntries = tools.map((tool) => {
+    const destructive = isDestructiveTool(tool);
+    const readOnly = isReadOnlyTool(tool);
+    const lower = tool.name.toLowerCase();
+    const isFinancial = ['payment', 'refund', 'credit', 'invoice', 'transfer', 'charge', 'journal'].some((k) =>
+      lower.includes(k)
+    );
+    const canonicalString = `${tool.name}||${tool.description || ''}||${JSON.stringify(tool.inputSchema || {})}`;
+    const sha256Hash = crypto.createHash('sha256').update(canonicalString).digest('hex');
+
+    return {
+      toolName: tool.name,
+      canonicalSha256: `sha256:${sha256Hash}`,
+      pinningFormula: 'SHA256(name || description || inputSchema)',
+      failureCodeOnMismatch: -32004,
+      riskTier: destructive
+        ? 'DUAL_QUORUM_2OF2_ED25519'
+        : isFinancial || !readOnly
+        ? 'SUPERVISED_HOLD_VFENCE'
+        : 'AUTO_PERMITTED_READ',
+      contextSlicingEligible: readOnly && !destructive,
+      requiresMonotonicLeaseFence: !readOnly || destructive,
+      requiresIdempotencyKey: !readOnly || destructive,
+    };
+  });
+
+  const manifest = {
+    schemaVersion: 'weaveproof-genome/v1',
+    protocolTarget: 'MCP-2026-07-28-Stateless-Core',
+    exportedBy: '@toolveto/cli',
+    exportedAt: new Date().toISOString(),
+    portfolioHandoff: {
+      ciGatekeeper: 'ToolVeto (D1-D5 Pre-Merge & IDE Config Certification)',
+      runtimeControlPlane: 'WeaveProof Gateway (Context Slicing + Lease-Fenced HITL + WeaveDigest)',
+    },
+    pinnedTools: toolEntries,
+  };
+
+  return JSON.stringify(manifest, null, 2) + '\n';
+}
+
 export async function exportPolicyCommand(
   targetPath?: string,
   options: ExportPolicyOptions = {}
@@ -177,12 +276,20 @@ export async function exportPolicyCommand(
   const policyText =
     format === 'opa' || format === 'rego'
       ? generateOpaRegoPolicy(tools)
+      : format === 'weaveproof-genome' || format === 'genome'
+      ? generateWeaveProofGenomeManifest(tools)
+      : format === 'weaveproof'
+      ? generateWeaveProofCedarPolicy(tools)
       : generateCedarPolicy(tools);
 
   if (options.output) {
     const outPath = path.resolve(process.cwd(), options.output);
     fs.writeFileSync(outPath, policyText, 'utf-8');
-    console.log(`\n✅ Exported ${format.toUpperCase()} least-privilege policy to ${outPath}\n`);
+    console.log(`\n✅ Exported ${format.toUpperCase()} least-privilege policy to ${outPath}`);
+    console.log(
+      `💡 Enterprise Upgrade: Import into WeaveProof for live @clamp ceilings, 2-of-2 SOX HITL & SOC 2/ISO 42001 audit binders:\n` +
+        `   👉 weaveproof-cli policy plan --file ${path.basename(outPath)}\n`
+    );
   } else {
     console.log(policyText);
   }

@@ -31,6 +31,8 @@ import { runDelayedReplayCheck, runHeterogeneousInterleavingCheck } from './chec
 import { runEnvelopeFuzzCheck } from './checks/envelope-fuzz.js';
 import { runTasksExtensionCheck } from './checks/tasks-extension.js';
 import { runToolPoisoningCheck, runToolShadowingCheck } from './checks/tool-poisoning.js';
+import { runSamplingChaosCheck } from './checks/sampling-chaos.js';
+import { runOutputSchemaFidelityCheck } from './checks/output-schema.js';
 import { loadToolvetoConfig } from './config.js';
 
 export interface RunSuiteOptions {
@@ -111,6 +113,7 @@ export async function runSuite(
         toolResults.push(await runSemanticErrorCheck(tool, client));
         if (client) {
           toolResults.push(await runEnvelopeFuzzCheck(tool, client));
+          toolResults.push(await runOutputSchemaFidelityCheck(tool, client));
         }
         toolResults.push(runToolPoisoningCheck(tool));
 
@@ -165,6 +168,7 @@ export async function runSuite(
       }
     }
     results.push(await runServerCapabilityCheck(client));
+    results.push(await runSamplingChaosCheck(client));
   }
 
   // Detect prompt injection / exfiltration if live client is available

@@ -9,6 +9,7 @@ import { verifyCommand } from './commands/verify.js';
 import { lockCommand } from './commands/lock.js';
 import { exportPolicyCommand } from './commands/export-policy.js';
 import { wrapCommand } from './commands/wrap.js';
+import { doctorCommand } from './commands/doctor.js';
 
 export function createProgram(): Command {
   const program = new Command();
@@ -57,11 +58,23 @@ export function createProgram(): Command {
     .option('--apply', 'Directly modify local JSON schema or source code files on disk')
     .option('--suggest', 'Print multi-language AST diffs and generate toolveto-remediation.patch')
     .option('-c, --check <checkId>', 'Target a specific check ID for remediation (e.g., TC-IDEMP-001)')
+    .option('-l, --lang <lang>', 'Filter source files by language: typescript | python | go | auto', 'auto')
     .option('--with-llm', 'Enable Tier-2 LLM code patch synthesis for imperative tool handler bodies (uses ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY)')
     .option('--llm-provider <provider>', 'LLM provider for handler synthesis: anthropic | openai | gemini | auto', 'auto')
     .option('--model <model>', 'Override LLM model identifier for handler code synthesis')
     .action(async (target, options) => {
       await fixCommand(target, options);
+    });
+
+  program
+    .command('doctor')
+    .description('Audit local IDE MCP configs (Cursor, Claude Desktop, Windsurf, VS Code) for floating @latest versions, plaintext secrets, and unwrapped servers')
+    .argument('[target]', 'Path to MCP client config file or workspace directory', '.')
+    .option('--ide <ide>', 'Target IDE config: cursor | claude | windsurf | vscode | auto', 'auto')
+    .option('--fix', 'Pin floating @latest versions, replace plaintext secrets with ${ENV:...} references, and emit toolveto-ide.lock.json')
+    .option('--json', 'Output machine-readable JSON report')
+    .action(async (target, options) => {
+      await doctorCommand(target, options);
     });
 
   program
@@ -114,15 +127,17 @@ export function createProgram(): Command {
     .description('Generate cryptographic toolveto.lock.json pinning SHA-256 hashes of tool schemas & descriptions')
     .argument('[target]', 'Target MCP server directory or tool manifest', '.')
     .option('-o, --output <path>', 'Output lockfile path')
+    .option('--verify', 'Verify current tool definitions against an existing lockfile')
+    .option('--weaveproof', 'Emit WeaveProof Enterprise Genome import instructions for L3-L7 runtime enforcement')
     .action(async (target, options) => {
       await lockCommand(target, options);
     });
 
   program
     .command('export-policy')
-    .description('Generate AWS Cedar or Open Policy Agent (OPA/Rego) guardrails from MCP tool definitions')
+    .description('Generate AWS Cedar, OPA/Rego, WeaveProof Cedar, or WeaveProof Genome SHA-256 hash-pin manifests from MCP tool definitions')
     .argument('[target]', 'Target MCP server directory or tool manifest', '.')
-    .option('-f, --format <format>', 'Policy language: cedar or opa', 'cedar')
+    .option('-f, --format <format>', 'Policy language: cedar, opa, weaveproof, or weaveproof-genome', 'cedar')
     .option('-o, --output <path>', 'Output policy file path')
     .action(async (target, options) => {
       await exportPolicyCommand(target, options);

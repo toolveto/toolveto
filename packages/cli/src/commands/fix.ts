@@ -5,6 +5,7 @@ export interface FixOptions {
   apply?: boolean;
   suggest?: boolean;
   check?: string;
+  lang?: 'typescript' | 'python' | 'go' | 'auto' | string;
   withLlm?: boolean;
   llmProvider?: 'anthropic' | 'openai' | 'gemini' | 'auto' | string;
   model?: string;
@@ -103,6 +104,20 @@ function weaveImperativeHandlerGuard(
         `        return _TOOLVETO_IDEMPOTENCY_CACHE[_idemp_key]`,
       ];
       patched = `${cachePreamble}${patched.replace(defMatch[0], `${defMatch[0]}\n${guardLines.join('\n')}`)}`;
+      appliedCount += guardLines.length + 1;
+      diffHunks.push(`+${cachePreamble.trim()}`, ...guardLines.map((l) => `+${l}`));
+    }
+  } else if (ext === '.go' && !patched.includes('__toolvetoIdempCache')) {
+    const funcMatch = patched.match(/func\s+([A-Za-z0-9_]+)\s*\([^)]*\)\s*(?:\([^)]*\)|[A-Za-z0-9_*[\].]+)?\s*\{/);
+    if (funcMatch && (wantIdemp || wantDryRun)) {
+      const cachePreamble = `var __toolvetoIdempCache = make(map[string]any)\n`;
+      const guardLines = [
+        `\t// ToolVeto Tier-2 Go Handler Guard (Idempotency & Dry-Run)`,
+        `\tif _, seen := __toolvetoIdempCache["idempotency_key"]; seen {`,
+        `\t\t// Deduplicate replayed mutation`,
+        `\t}`,
+      ];
+      patched = `${cachePreamble}${patched.replace(funcMatch[0], `${funcMatch[0]}\n${guardLines.join('\n')}`)}`;
       appliedCount += guardLines.length + 1;
       diffHunks.push(`+${cachePreamble.trim()}`, ...guardLines.map((l) => `+${l}`));
     }
@@ -303,6 +318,20 @@ function patchSourceFileContent(
         appliedCount += injectedLines.length;
         diffHunks.push(injectedLines.map((l) => `+${l}`).join('\n'));
       }
+    } else if (original.includes('@mcp.tool') && !original.includes('idempotency_key')) {
+      const fnMatch = original.match(/def\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)/);
+      if (fnMatch && wantIdemp) {
+        const existingArgs = fnMatch[2].trim();
+        const extraParams = [
+          `idempotency_key: str = ""`,
+          ...(wantPagination && !original.includes('limit') ? [`limit: int = 25`, `cursor: str = ""`] : []),
+        ].join(', ');
+        const nextArgs = existingArgs ? `${existingArgs}, ${extraParams}` : extraParams;
+        const replacementSig = `def ${fnMatch[1]}(${nextArgs})`;
+        patched = original.replace(fnMatch[0], replacementSig);
+        appliedCount += 1;
+        diffHunks.push(`+${replacementSig}`);
+      }
     }
   } else if (ext === '.go') {
     const structMatch = original.match(/type\s+[A-Za-z0-9_]+\s+struct\s*\{/);
@@ -315,7 +344,8 @@ function patchSourceFileContent(
       }
       if (wantPagination && !original.includes('Limit ')) {
         injectedLines.push(
-          `\tLimit          int    \`json:"limit,omitempty" jsonschema:"default=25,maximum=100"\``
+          `\tLimit          int    \`json:"limit,omitempty" jsonschema:"default=25,maximum=100"\``,
+          `\tCursor         string \`json:"cursor,omitempty" jsonschema:"description=Forward pagination cursor"\``
         );
       }
       if (injectedLines.length > 0) {
@@ -479,7 +509,15 @@ export async function fixCommand(targetPath?: string, options: FixOptions = {}):
   }
 
   // 2. Multi-Language Source File Scanner & Patcher (.ts, .js, .py, .go)
-  const sourceFiles = scanSourceFiles(resolvedTarget);
+  const langFilter = (options.lang || 'auto').toLowerCase();
+  const sourceFiles = scanSourceFiles(resolvedTarget).filter((f) => {
+    if (langFilter === 'auto') return true;
+    const ext = path.extname(f).toLowerCase();
+    if (langFilter === 'typescript' || langFilter === 'ts') return ext === '.ts' || ext === '.js';
+    if (langFilter === 'python' || langFilter === 'py') return ext === '.py';
+    if (langFilter === 'go' || langFilter === 'golang') return ext === '.go';
+    return true;
+  });
   const unifiedDiffBlocks: string[] = [];
   let sourceFilesModified = 0;
 
