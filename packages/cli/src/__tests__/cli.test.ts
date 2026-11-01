@@ -962,6 +962,15 @@ describe('ToolVeto CLI Commands', () => {
     assert.ok(genomeData.pinnedTools[0].canonicalSha256.startsWith('sha256:'));
     assert.strictEqual(genomeData.pinnedTools[0].failureCodeOnMismatch, -32004);
 
+    const regoNestedOut = path.join(tmpDir, 'policies', 'toolveto.rego');
+    await exportPolicyCommand(toolsJsonPath, { format: 'rego', output: regoNestedOut });
+    assert.ok(fs.existsSync(regoNestedOut), 'Nested policies/toolveto.rego must be created');
+
+    const { initCommand } = await import('../commands/init.js');
+    await initCommand(tmpDir, { ci: 'github-actions' });
+    const wfPath = path.join(tmpDir, '.github', 'workflows', 'toolveto.yml');
+    assert.ok(fs.existsSync(wfPath), 'initCommand must scaffold .github/workflows/toolveto.yml');
+
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 });

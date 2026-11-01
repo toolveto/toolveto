@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   runSuite,
@@ -488,22 +489,45 @@ export async function checkCommand(
           });
     const durationMs = Date.now() - checkStartMs;
 
-    // Optional Cloud Telemetry Upload when TOOLVETO_TOKEN is configured
-    if (process.env.TOOLVETO_TOKEN) {
-      const apiUrl = (process.env.TOOLVETO_API_URL || 'https://api.toolveto.ai').replace(/\/+$/, '');
+    // Optional Cloud Telemetry Upload when TOOLVETO_TOKEN or ~/.toolveto/config.json is configured
+    let cloudToken = process.env.TOOLVETO_TOKEN || process.env.TOOLVETO_LICENSE_KEY || '';
+    let cloudApiUrl = process.env.TOOLVETO_API_URL || '';
+    if (!cloudToken) {
+      try {
+        const configPath = path.join(os.homedir(), '.toolveto', 'config.json');
+        if (fs.existsSync(configPath)) {
+          const savedCfg = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+          if (savedCfg && typeof savedCfg.token === 'string' && savedCfg.token.trim()) {
+            cloudToken = savedCfg.token.trim();
+          }
+          if (!cloudApiUrl && savedCfg && typeof savedCfg.apiUrl === 'string' && savedCfg.apiUrl.trim()) {
+            cloudApiUrl = savedCfg.apiUrl.trim();
+          }
+        }
+      } catch {
+        // Ignore config read errors
+      }
+    }
+    if (cloudToken) {
+      const apiUrl = (cloudApiUrl || 'https://api.toolveto.ai').replace(/\/+$/, '');
       try {
         await fetch(`${apiUrl}/api/v1/audits`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${process.env.TOOLVETO_TOKEN}`,
+            Authorization: `Bearer ${cloudToken}`,
+            'X-ToolVeto-License': cloudToken,
           },
           body: JSON.stringify({
+            repo: summary.target,
             serverName: summary.target,
+            commitSha: process.env.GITHUB_SHA || process.env.CI_COMMIT_SHA || 'local',
             score: summary.score,
             tier: summary.tier,
+            vetoTriggered: Boolean(summary.fatalVetoTriggered),
             phi: summary.phi,
             results: summary.results,
+            summary,
           }),
         });
       } catch {

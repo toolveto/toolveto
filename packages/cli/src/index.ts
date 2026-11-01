@@ -10,6 +10,7 @@ import { lockCommand } from './commands/lock.js';
 import { exportPolicyCommand } from './commands/export-policy.js';
 import { wrapCommand } from './commands/wrap.js';
 import { doctorCommand } from './commands/doctor.js';
+import { initCommand } from './commands/init.js';
 
 export function createProgram(): Command {
   const program = new Command();
@@ -18,6 +19,17 @@ export function createProgram(): Command {
     .name('toolveto')
     .description('Deterministic Chaos Testing, CI Blocking Gates & Auto-Remediation for MCP Servers')
     .version('0.2.0');
+
+  program
+    .command('init')
+    .description('Initialize ToolVeto GitHub Actions / GitLab CI reliability gate workflow')
+    .argument('[target]', 'Target repository root directory', '.')
+    .option('--ci <provider>', 'CI provider: github-actions | gitlab', 'github-actions')
+    .option('-o, --output <path>', 'Custom output path for CI workflow file')
+    .option('-f, --force', 'Overwrite existing CI workflow file')
+    .action(async (target, options) => {
+      await initCommand(target, options);
+    });
 
   program
     .command('check')

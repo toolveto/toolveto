@@ -284,6 +284,7 @@ export async function exportPolicyCommand(
 
   if (options.output) {
     const outPath = path.resolve(process.cwd(), options.output);
+    fs.mkdirSync(path.dirname(outPath), { recursive: true });
     fs.writeFileSync(outPath, policyText, 'utf-8');
     console.log(`\n✅ Exported ${format.toUpperCase()} least-privilege policy to ${outPath}`);
     console.log(
