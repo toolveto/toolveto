@@ -737,6 +737,14 @@ const defaultLoaded = loadGatewayConfig();
 const server = createGatewayServer(defaultLoaded);
 
 if (process.env.RUN_STANDALONE === 'true') {
+  process.on('uncaughtException', (err) => {
+    console.error(`[ToolVeto Gateway Fatal] Uncaught exception: ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
+  });
+  process.on('unhandledRejection', (reason) => {
+    console.error(`[ToolVeto Gateway Fatal] Unhandled rejection: ${reason instanceof Error ? reason.message : String(reason)}`);
+    process.exit(1);
+  });
   const port = defaultLoaded.port || 8080;
   server.listen(port, () => {
     console.log(`🛡️ ToolVeto Gateway listening on port ${port} with ${Object.keys(defaultLoaded.upstreams).length} upstreams configured`);

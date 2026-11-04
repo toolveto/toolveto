@@ -318,8 +318,8 @@ code, pre {
   justify-content: center;
   gap: 8px;
   background: linear-gradient(135deg, var(--accent-orange), #ff5500);
-  color: #fff;
-  font-weight: 600;
+  color: #000000;
+  font-weight: 700;
   font-size: 0.9rem;
   padding: 9px 18px;
   border-radius: var(--radius-sm);
@@ -943,7 +943,7 @@ code, pre {
   gap: 8px;
   padding: 10px 20px;
   background: linear-gradient(135deg, var(--accent-orange), var(--accent-red));
-  color: #fff;
+  color: #000000;
   font-weight: 700;
   font-size: 0.875rem;
   border-radius: var(--radius-sm);
