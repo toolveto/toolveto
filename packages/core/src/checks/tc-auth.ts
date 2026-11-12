@@ -94,7 +94,7 @@ export async function runTenantIsolationCheck(
     severity: 'INFO',
     description: `Tenant isolation verified: tool '${tool.name}' maintains tenant context separation.`,
     evidence: {
-      evidenceQuality: client ? 'VERIFIED' : 'STATIC-ONLY',
+      evidenceQuality: client && tenantParam && destructiveAuthorization ? 'VERIFIED' : 'STATIC-ONLY',
     },
     durationMs: Date.now() - startTime,
   };
@@ -152,7 +152,8 @@ export function runOAuthScopeCheck(tool: McpToolDefinition): CheckResult {
  */
 export async function runRootsPathTraversalCheck(
   tool: McpToolDefinition,
-  client?: McpClient
+  client?: McpClient,
+  destructiveAuthorization = false
 ): Promise<CheckResult> {
   const startTime = Date.now();
   const props = tool.inputSchema?.properties || {};
@@ -161,8 +162,9 @@ export async function runRootsPathTraversalCheck(
   const pathParam = Object.keys(props).find((k) =>
     ['path', 'file_path', 'filepath', 'filename', 'file', 'uri', 'url', 'dir', 'directory'].includes(k.toLowerCase())
   );
+  const canInvoke = Boolean(client && pathParam && (!tool.isMutation || destructiveAuthorization));
 
-  if (client && pathParam) {
+  if (client && pathParam && canInvoke) {
     const traversalPayloads = [
       '../../../../../../etc/passwd',
       '..%2F..%2F..%2F..%2Fetc%2Fpasswd',
@@ -212,7 +214,7 @@ export async function runRootsPathTraversalCheck(
     status: 'PASS',
     severity: 'INFO',
     description: `Roots path traversal check passed for tool '${tool.name}'.`,
-    evidence: { evidenceQuality: client && pathParam ? 'VERIFIED' : 'STATIC-ONLY' },
+    evidence: { evidenceQuality: canInvoke ? 'VERIFIED' : 'STATIC-ONLY' },
     durationMs: Date.now() - startTime,
   };
 }

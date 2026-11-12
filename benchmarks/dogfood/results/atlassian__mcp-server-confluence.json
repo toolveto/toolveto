@@ -5,11 +5,11 @@
   "failed": 9,
   "warned": 12,
   "fatalVetoTriggered": true,
-  "fatalVetoCode": "VETO_NONE",
+  "fatalVetoCode": "VETO_IDEMP",
   "phi": 1,
   "score": 75,
-  "tier": "Bronze",
-  "durationMs": 12,
+  "tier": "Failed",
+  "durationMs": 11,
   "llmTokensUsed": 0,
   "dimensionalScores": {
     "D1": {
@@ -151,7 +151,7 @@
       "evidence": {
         "evidenceQuality": "STATIC-ONLY"
       },
-      "durationMs": 0
+      "durationMs": 1
     },
     {
       "checkId": "TC-FUZZ-002",
@@ -349,11 +349,8 @@
       "tool": "get_page",
       "status": "PASS",
       "severity": "CRITICAL",
-      "description": "Idempotency key parameter found on 'get_page'",
+      "description": "Read-only tool 'get_page' requires no mutation replay deduplication",
       "evidence": {
-        "requestsSent": 5,
-        "mutationsCreated": 1,
-        "expectedMutations": 1,
         "evidenceQuality": "STATIC-ONLY"
       },
       "durationMs": 0
@@ -884,11 +881,8 @@
       "tool": "search_content",
       "status": "PASS",
       "severity": "CRITICAL",
-      "description": "Idempotency key parameter found on 'search_content'",
+      "description": "Read-only tool 'search_content' requires no mutation replay deduplication",
       "evidence": {
-        "requestsSent": 5,
-        "mutationsCreated": 1,
-        "expectedMutations": 1,
         "evidenceQuality": "STATIC-ONLY"
       },
       "durationMs": 0
@@ -1140,13 +1134,13 @@
     }
   ],
   "statisticalConfidence": {
-    "n": 30,
+    "n": 69,
     "pointEstimate": 75,
     "confidenceInterval95": [
-      64,
+      65,
       84
     ],
-    "certifiedLowerBound": 64
+    "certifiedLowerBound": 0
   },
   "aiuc1Compliance": {
     "AIUC-1 §4.2 Idempotency": "FAIL",
@@ -1161,9 +1155,10 @@
     "protocolVersion": "2025-03-26",
     "nodeVersion": "v26.5.0",
     "platform": "darwin",
-    "destructiveAuthorization": "false"
+    "destructiveAuthorization": "false",
+    "llmJudge": "disabled"
   },
-  "expiresAt": "2027-01-12T03:51:50.719Z",
+  "expiresAt": "2027-02-09T05:05:51.425Z",
   "perToolScorecard": {
     "create_page": {
       "score": 53,

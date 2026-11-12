@@ -23,12 +23,13 @@ export async function runCancellationCheck(
     }
 
     try {
-      // Launch tool call asynchronously
+      // Launch tool call asynchronously and capture actual JSON-RPC wire request ID
       const callPromise = client.callTool(tool.name, samplePayload);
+      const wireRequestId = client.getLastRequestId?.() ?? cancelRequestId;
 
-      // Immediately issue cancellation notification
+      // Immediately issue cancellation notification referencing the in-flight wire request ID
       await client.sendNotification('notifications/cancelled', {
-        requestId: cancelRequestId,
+        requestId: wireRequestId,
         reason: 'Client agent aborted workflow mid-flight',
       });
 
@@ -48,7 +49,7 @@ export async function runCancellationCheck(
           description: `Cancellation resilience failure: Operation on '${tool.name}' completed and committed mutation despite receiving 'notifications/cancelled'.`,
           evidence: {
             evidenceQuality: 'VERIFIED',
-            details: { cancelRequestId, committed: true },
+            details: { cancelRequestId: wireRequestId, committed: true },
           },
           fix: {
             summary: 'Implement cancellation token monitoring to halt mid-flight mutations on notifications/cancelled',
@@ -67,14 +68,17 @@ export async function runCancellationCheck(
     }
   }
 
+  const wasActivelyTested = Boolean(client && tool.isMutation && destructiveAuthorization && client.sendNotification);
   return {
     checkId: 'TC-CANCEL-001',
     dimension: 'D1',
     tool: tool.name,
     status: 'PASS',
     severity: 'INFO',
-    description: `Cancellation responsiveness verified for tool '${tool.name}'.`,
-    evidence: { evidenceQuality: client && tool.isMutation ? 'VERIFIED' : 'STATIC-ONLY' },
+    description: wasActivelyTested
+      ? `Cancellation responsiveness verified for tool '${tool.name}'.`
+      : `Cancellation check evaluated statically for tool '${tool.name}'.`,
+    evidence: { evidenceQuality: wasActivelyTested ? 'VERIFIED' : 'STATIC-ONLY' },
     durationMs: Date.now() - startTime,
   };
 }

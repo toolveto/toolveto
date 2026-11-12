@@ -3,11 +3,13 @@ import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import type { McpToolDefinition } from '@toolveto/core';
 import { computeToolDefinitionHash, canonicalizeJson } from '@toolveto/shield';
+import { discoverToolsFromTarget } from '../discovery.js';
 
 export interface LockCommandOptions {
   output?: string;
   verify?: boolean;
   demo?: boolean;
+  allowExec?: boolean;
   weaveproof?: boolean;
 }
 
@@ -26,52 +28,57 @@ export interface ToolVetoLockfile {
   >;
 }
 
-function loadToolsFromTarget(resolvedTarget: string, demo = false): McpToolDefinition[] {
-  let tools: McpToolDefinition[] = [];
-  if (fs.existsSync(resolvedTarget)) {
-    const stat = fs.statSync(resolvedTarget);
-    if (stat.isFile() && resolvedTarget.endsWith('.json')) {
-      const parsed = JSON.parse(fs.readFileSync(resolvedTarget, 'utf-8'));
-      tools = Array.isArray(parsed) ? parsed : parsed.tools || [];
-    } else if (stat.isDirectory()) {
-      for (const candidate of ['tools.json', 'mcp.json', 'schema.json']) {
-        const full = path.join(resolvedTarget, candidate);
-        if (fs.existsSync(full)) {
-          const parsed = JSON.parse(fs.readFileSync(full, 'utf-8'));
-          tools = Array.isArray(parsed) ? parsed : parsed.tools || [];
-          break;
-        }
-      }
+const DEMO_LOCK_TOOLS: McpToolDefinition[] = [
+  {
+    name: 'create_payment',
+    description: 'Creates a financial payment transaction with idempotency protection',
+    isMutation: true,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        amount: { type: 'number' },
+        idempotency_key: { type: 'string' },
+      },
+      required: ['amount', 'idempotency_key'],
+    },
+  },
+];
+
+function resolveLockfileOutputPath(explicitOutput: string | undefined, verifyMode: boolean): string {
+  if (explicitOutput) {
+    return path.resolve(process.cwd(), explicitOutput);
+  }
+  const primary = path.resolve(process.cwd(), 'toolveto.lock.json');
+  if (verifyMode && !fs.existsSync(primary)) {
+    const legacy = path.resolve(process.cwd(), 'toolveto.lock');
+    if (fs.existsSync(legacy)) {
+      return legacy;
     }
   }
-
-  if (tools.length === 0 && demo) {
-    tools = [
-      {
-        name: 'create_payment',
-        description: 'Creates a financial payment transaction with idempotency protection',
-        isMutation: true,
-        inputSchema: {
-          type: 'object',
-          properties: {
-            amount: { type: 'number' },
-            idempotency_key: { type: 'string' },
-          },
-          required: ['amount', 'idempotency_key'],
-        },
-      },
-    ];
-  }
-  return tools;
+  return primary;
 }
 
 export async function lockCommand(targetPath?: string, options: LockCommandOptions = {}): Promise<void> {
-  const resolvedTarget = path.resolve(process.cwd(), targetPath || '.');
-  const lockfilePath = path.resolve(process.cwd(), options.output || 'toolveto.lock');
-  const tools = loadToolsFromTarget(resolvedTarget, options.demo);
+  const target = targetPath || '.';
+  const lockfilePath = resolveLockfileOutputPath(options.output, Boolean(options.verify));
+
+  let tools: McpToolDefinition[] = [];
+  try {
+    const discovered = await discoverToolsFromTarget(target, {
+      demo: options.demo,
+      allowExec: options.allowExec,
+      demoFallbackTools: DEMO_LOCK_TOOLS,
+      keepClientOpen: false,
+    });
+    tools = discovered.tools;
+  } catch (err: any) {
+    console.error(`\n❌ Error discovering tools at '${target}': ${err.message}`);
+    process.exitCode = 1;
+    return;
+  }
 
   if (tools.length === 0) {
-    console.error(`\n❌ Error: No tools discovered at '${targetPath || '.'}' to lock.`);
+    console.error(`\n❌ Error: No tools discovered at '${target}' to lock.`);
     process.exitCode = 1;
     return;
   }
@@ -124,11 +131,12 @@ export async function lockCommand(targetPath?: string, options: LockCommandOptio
   const lockData: ToolVetoLockfile = {
     version: '1.0',
     generatedAt: new Date().toISOString(),
-    target: targetPath || '.',
+    target,
     manifestHash,
     tools: toolEntries,
   };
 
+  fs.mkdirSync(path.dirname(lockfilePath), { recursive: true });
   fs.writeFileSync(lockfilePath, JSON.stringify(lockData, null, 2), 'utf-8');
   console.log(`\n🔒 Generated Rug-Pull Lockfile: ${lockfilePath}`);
   console.log(`   Pinned Tools:  ${Object.keys(toolEntries).length}`);

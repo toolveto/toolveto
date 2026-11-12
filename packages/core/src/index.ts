@@ -117,8 +117,24 @@ export function runSuiteOnTools(
 
   const finalScore = Math.max(0, Math.min(100, Math.round(rawWeightedScore * phi)));
 
+  const passed = results.filter((r) => r.status === 'PASS').length;
+  const failed = results.filter((r) => r.status === 'FAIL').length;
+  const warned = results.filter((r) => r.status === 'WARN').length;
+  const criticalFailures = results.filter((r) => r.status === 'FAIL' && r.severity === 'CRITICAL');
+  const fatalVetoTriggered = phi < 1.0 || criticalFailures.length > 0;
+  if (fatalVetoTriggered && fatalVetoCode === 'VETO_NONE') {
+    const firstCrit = criticalFailures[0];
+    if (firstCrit?.vetoClass && firstCrit.vetoClass !== 'VETO_NONE') {
+      fatalVetoCode = firstCrit.vetoClass;
+    } else if (firstCrit?.dimension === 'D1') {
+      fatalVetoCode = 'VETO_IDEMP';
+    } else if (firstCrit?.dimension === 'D3') {
+      fatalVetoCode = 'VETO_DATALOSS';
+    }
+  }
+
   let tier: CertificationTier = 'Failed';
-  if (phi === 1.0) {
+  if (!fatalVetoTriggered && phi === 1.0) {
     if (finalScore >= 92 && d1Score >= 90 && d2Score >= 90) {
       tier = 'Platinum';
     } else if (finalScore >= 80 && d1Score >= 75 && d2Score >= 75) {
@@ -129,11 +145,6 @@ export function runSuiteOnTools(
       tier = 'Bronze';
     }
   }
-
-  const passed = results.filter((r) => r.status === 'PASS').length;
-  const failed = results.filter((r) => r.status === 'FAIL').length;
-  const warned = results.filter((r) => r.status === 'WARN').length;
-  const fatalVetoTriggered = phi < 1.0 || results.some((r) => r.status === 'FAIL' && r.severity === 'CRITICAL');
 
   return {
     target,

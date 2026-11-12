@@ -18,6 +18,7 @@ export function createProgram(): Command {
   program
     .name('toolveto')
     .description('Deterministic Chaos Testing, CI Blocking Gates & Auto-Remediation for MCP Servers')
+    .enablePositionalOptions()
     .version('0.2.0');
 
   program
@@ -40,23 +41,25 @@ export function createProgram(): Command {
     .option('--allow-exec', 'Authorize spawning local server entrypoint scripts discovered inside target directory')
     .option('--ephemeral-mock', 'Zero-setup ephemeral mock evaluation on static manifests with live VERIFIED runtime evidence')
     .option('--json', 'Output machine-readable JSON report')
-    .option('-f, --format <format>', 'Output format: terminal, json, or github-pr', 'terminal')
+    .option('-f, --format <format>', 'Output format: terminal, json, github-pr, or sarif', 'terminal')
     .option('-t, --threshold <score>', 'Minimum certification score threshold (0-100)')
     .option('--fail-on-severity <severity>', 'Fail with exit code 1 if any failed check meets or exceeds severity (LOW, MEDIUM, HIGH, CRITICAL)')
     .option('--demo', 'Allow synthetic mock tools when target has zero tools (demo mode)')
     .option('--skip-update-check', 'Skip checking for new ToolVeto CLI versions and update notices (Trivy/Grype compatible)')
     .option('--no-telemetry', 'Disable anonymous CLI run telemetry (or set DO_NOT_TRACK=1 / TOOLVETO_NO_TELEMETRY=1)')
+    .option('--telemetry-dry-run', 'Print the exact anonymized telemetry JSON payload to stderr and make zero network calls (or set TOOLVETO_TELEMETRY_DRY_RUN=1)')
     .action(async (target, options) => {
       await checkCommand(target, options);
     });
 
   program
     .command('wrap')
-    .description('Wrap MCP servers in Cursor, Claude Desktop, or Windsurf config with @toolveto/shield runtime protection')
+    .description('Wrap MCP servers in Cursor, VS Code, Claude Desktop, or Windsurf config with @toolveto/shield runtime protection')
     .argument('[target]', 'Path to MCP client config file (.cursor/mcp.json, claude_desktop_config.json) or directory')
-    .option('-c, --client <client>', 'Target MCP client: cursor | claude | windsurf | auto', 'auto')
+    .option('-c, --client <client>', 'Target MCP client: cursor | vscode | claude | windsurf | auto', 'auto')
     .option('--token-budget <tokens>', 'Max response tokens per tool call', '4000')
     .option('--strict', 'Enable fail-closed strict mode on Shield proxy')
+    .option('--lockfile <path>', 'Pin tool definitions against cryptographic lockfile at runtime')
     .option('--unwrap', 'Restore original unwrapped server commands from _toolvetoOriginal metadata')
     .option('--dry-run', 'Print the wrapped configuration JSON without writing to disk')
     .action(async (target, options) => {
@@ -84,6 +87,7 @@ export function createProgram(): Command {
     .argument('[target]', 'Path to MCP client config file or workspace directory', '.')
     .option('--ide <ide>', 'Target IDE config: cursor | claude | windsurf | vscode | auto', 'auto')
     .option('--fix', 'Pin floating @latest versions, replace plaintext secrets with ${ENV:...} references, and emit toolveto-ide.lock.json')
+    .option('--registry-url <url>', 'Custom npm registry URL for resolving @latest versions')
     .option('--json', 'Output machine-readable JSON report')
     .action(async (target, options) => {
       await doctorCommand(target, options);
@@ -91,19 +95,29 @@ export function createProgram(): Command {
 
   program
     .command('proxy')
-    .description('Launch ToolVeto Shield runtime reverse proxy gateway')
-    .option('-p, --port <port>', 'Proxy port to listen on', '8080')
-    .option('-u, --upstream <url>', 'Upstream MCP server URL', 'http://localhost:3000/mcp')
+    .description('Launch ToolVeto Shield runtime reverse proxy gateway (Streamable HTTP/SSE or stdio)')
+    .passThroughOptions()
+    .argument('[commandArgs...]', 'Upstream stdio server command and arguments (after `--`)')
+    .option('-p, --port <port>', 'Proxy port to listen on (HTTP mode)', '8080')
+    .option('-u, --upstream <url>', 'Upstream MCP Streamable HTTP server URL')
     .option('-t, --token-budget <tokens>', 'Maximum token ceiling for response truncation', '4000')
-    .action(async (options) => {
-      await proxyCommand(options);
+    .option('--loop-limit <count>', 'Maximum identical calls within 30s before circuit breaker trips', '5')
+    .option('--stdio', 'Run as a stdio-to-stdio (or stdio-to-HTTP) MCP Shield proxy')
+    .option('--strict', 'Fail closed (-32004 / -32000) on rug-pull drift or circuit-breaker trips')
+    .option('--lockfile <path>', 'Path to toolveto.lock.json for runtime rug-pull verification')
+    .option('--cmd <command>', 'Explicit child stdio server executable')
+    .option('--api-url <url>', 'ToolVeto Cloud API URL for runtime span & drift sync')
+    .option('--license-key <key>', 'ToolVeto Cloud license key for telemetry authentication')
+    .option('--repo <name>', 'Repository / service label for Cloud telemetry')
+    .action(async (commandArgs, options) => {
+      await proxyCommand(options, Array.isArray(commandArgs) ? commandArgs : []);
     });
 
   program
     .command('badge')
     .description('Generate an official ToolVeto SVG badge for README markdown')
     .option('-s, --score <score>', 'Evaluated score (0-100)')
-    .option('-t, --tier <tier>', 'Certification tier (Platinum, Gold, Silver, Bronze, Rejected)')
+    .option('-t, --tier <tier>', 'Certification tier (Platinum, Gold, Silver, Bronze, Failed)')
     .option('-o, --output <path>', 'Output SVG file path', 'toolveto-badge.svg')
     .action(async (options) => {
       await badgeCommand(options);
@@ -112,11 +126,12 @@ export function createProgram(): Command {
   program
     .command('evidence')
     .description('Generate an AIUC-1 / OWASP compliant JWS-signed evidence packet for CISO review')
-    .argument('[target]', 'Target server path or schema file')
+    .argument('[target]', 'Target server path, Streamable HTTP URL, or schema file')
     .option('-f, --format <format>', 'Output format: aiuc1, owasp, json', 'aiuc1')
     .option('-t, --target <path>', 'Target server path or schema file', '.')
     .option('-o, --output <path>', 'Output file destination')
     .option('-s, --secret <secret>', 'Signing secret (>= 32 chars) for JWS attestation')
+    .option('--allow-exec', 'Authorize spawning local server entrypoint scripts discovered inside target directory')
     .option('--demo', 'Allow synthetic mock tools when target has zero tools (demo mode)')
     .action(async (target, options) => {
       await evidenceCommand(target, options);
@@ -130,6 +145,7 @@ export function createProgram(): Command {
     .option('-f, --file <path>', 'Read JWS token from certificate file')
     .option('-s, --secret <secret>', 'Shared HMAC secret for offline HS256 verification')
     .option('-k, --public-key <key>', 'Public key (PEM, JWK, or path) for ES256 verification')
+    .option('--api-url <url>', 'ToolVeto Cloud API URL for automatic JWKS ES256 public key discovery')
     .action(async (token, options) => {
       await verifyCommand(token, options);
     });
@@ -137,9 +153,11 @@ export function createProgram(): Command {
   program
     .command('lock')
     .description('Generate cryptographic toolveto.lock.json pinning SHA-256 hashes of tool schemas & descriptions')
-    .argument('[target]', 'Target MCP server directory or tool manifest', '.')
+    .argument('[target]', 'Target MCP server directory, Streamable HTTP URL, or tool manifest', '.')
     .option('-o, --output <path>', 'Output lockfile path')
     .option('--verify', 'Verify current tool definitions against an existing lockfile')
+    .option('--allow-exec', 'Authorize spawning local server entrypoint scripts discovered inside target directory')
+    .option('--demo', 'Allow synthetic demo tool when target has zero tools')
     .option('--weaveproof', 'Emit WeaveProof Enterprise Genome import instructions for L3-L7 runtime enforcement')
     .action(async (target, options) => {
       await lockCommand(target, options);
@@ -148,9 +166,11 @@ export function createProgram(): Command {
   program
     .command('export-policy')
     .description('Generate AWS Cedar, OPA/Rego, WeaveProof Cedar, or WeaveProof Genome SHA-256 hash-pin manifests from MCP tool definitions')
-    .argument('[target]', 'Target MCP server directory or tool manifest', '.')
+    .argument('[target]', 'Target MCP server directory, Streamable HTTP URL, or tool manifest', '.')
     .option('-f, --format <format>', 'Policy language: cedar, opa, weaveproof, or weaveproof-genome', 'cedar')
     .option('-o, --output <path>', 'Output policy file path')
+    .option('--allow-exec', 'Authorize spawning local server entrypoint scripts discovered inside target directory')
+    .option('--demo', 'Allow synthetic demo tools when target has zero tools')
     .action(async (target, options) => {
       await exportPolicyCommand(target, options);
     });
@@ -168,4 +188,5 @@ export function createProgram(): Command {
 }
 
 export * from './telemetry.js';
-
+export * from './stdio-proxy.js';
+export * from './discovery.js';

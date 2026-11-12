@@ -16,6 +16,12 @@ export interface ShieldPolicyOptions {
   maxLimit?: number;
 }
 
+export interface ToolShieldOverride {
+  idempotency?: boolean;
+  loopLimit?: false | { count: number; windowMs: number };
+  tokenBudget?: false | number | { maxResponseTokens?: number };
+}
+
 export interface ShieldOptions {
   idempotency?: boolean | { enabled?: boolean; ttlSeconds?: number; ttlMs?: number };
   idempotencyTtlMs?: number;
@@ -33,6 +39,7 @@ export interface ShieldOptions {
     windowMs?: number;
   };
   tokenBudget?: number | { maxResponseTokens?: number };
+  toolOverrides?: Record<string, ToolShieldOverride>;
   promptInjectionScan?: PromptInjectionScanOptions;
   policy?: ShieldPolicyOptions;
   storage?: ShieldStorage;
@@ -343,16 +350,34 @@ export function decodeCursor(cursor: string): { toolName?: string; offset?: numb
 }
 
 export function computeToolDefinitionHash(tool: Record<string, any>): string {
+  const ann = tool.annotations && typeof tool.annotations === 'object' ? tool.annotations : {};
+  const readOnlyHint = tool.readOnlyHint ?? ann.readOnlyHint ?? null;
+  const destructiveHint = tool.destructiveHint ?? ann.destructiveHint ?? null;
+  const idempotentHint = tool.idempotentHint ?? ann.idempotentHint ?? null;
+  const openWorldHint = tool.openWorldHint ?? ann.openWorldHint ?? null;
+  const name = String(tool.name || '');
+  const inferredMutation =
+    tool.isMutation !== undefined
+      ? Boolean(tool.isMutation)
+      : readOnlyHint === true
+      ? false
+      : destructiveHint === true ||
+        (name.length > 0 &&
+          !name.startsWith('get_') &&
+          !name.startsWith('list_') &&
+          !name.startsWith('search_') &&
+          !name.startsWith('read_'));
+
   const canonical = canonicalizeJson({
-    name: tool.name || '',
+    name,
     description: tool.description || '',
     inputSchema: tool.inputSchema || {},
     annotations: {
-      isMutation: Boolean(tool.isMutation),
-      idempotentHint: tool.idempotentHint ?? null,
-      readOnlyHint: tool.readOnlyHint ?? null,
-      destructiveHint: tool.destructiveHint ?? null,
-      openWorldHint: tool.openWorldHint ?? null,
+      isMutation: inferredMutation,
+      idempotentHint,
+      readOnlyHint,
+      destructiveHint,
+      openWorldHint,
     },
   });
   return crypto.createHash('sha256').update(canonical).digest('hex');
@@ -366,6 +391,7 @@ interface NormalizedShieldOptions {
   autoKeyUnkeyedMutations?: boolean;
   loopLimit?: { count: number; windowMs: number };
   tokenBudget?: number;
+  toolOverrides?: Record<string, ToolShieldOverride>;
   promptInjectionScan?: PromptInjectionScanOptions;
   policy?: ShieldPolicyOptions;
   storage?: ShieldStorage;
@@ -409,6 +435,7 @@ function normalizeShieldOptions(opts: ShieldOptions = {}): NormalizedShieldOptio
     autoKeyUnkeyedMutations: opts.autoKeyUnkeyedMutations,
     loopLimit,
     tokenBudget,
+    toolOverrides: opts.toolOverrides,
     promptInjectionScan: opts.promptInjectionScan,
     policy: opts.policy,
     storage: opts.storage,
@@ -801,8 +828,25 @@ export class ShieldMiddleware {
       }
     }
 
+    const toolOverride = toolName ? this.options.toolOverrides?.[toolName] : undefined;
+    const effectiveLoopLimit =
+      toolOverride?.loopLimit === false
+        ? undefined
+        : toolOverride?.loopLimit ?? this.options.loopLimit;
+    const effectiveIdempotency = toolOverride?.idempotency ?? this.options.idempotency;
+    let effectiveTokenBudget: number | undefined;
+    if (toolOverride?.tokenBudget === false || toolOverride?.tokenBudget === 0) {
+      effectiveTokenBudget = undefined;
+    } else if (typeof toolOverride?.tokenBudget === 'number') {
+      effectiveTokenBudget = toolOverride.tokenBudget;
+    } else if (toolOverride?.tokenBudget && typeof toolOverride.tokenBudget === 'object') {
+      effectiveTokenBudget = toolOverride.tokenBudget.maxResponseTokens;
+    } else {
+      effectiveTokenBudget = this.options.tokenBudget;
+    }
+
     // 1. Loop-Breaker check with signature hashing
-    if (this.options.loopLimit && toolName) {
+    if (effectiveLoopLimit && toolName) {
       const cleanArgs = sanitizeArgsForHash(args);
       const canonicalArgs = canonicalizeJson(cleanArgs);
       const argsHash = crypto.createHash('sha256').update(canonicalArgs).digest('hex');
@@ -811,10 +855,10 @@ export class ShieldMiddleware {
       const recentCallCount = await this.storage.recordCall(
         loopTrackingKey,
         now,
-        this.options.loopLimit.windowMs
+        effectiveLoopLimit.windowMs
       );
 
-      if (recentCallCount > this.options.loopLimit.count) {
+      if (recentCallCount > effectiveLoopLimit.count) {
         this.metrics.loopsBroken++;
         this.metrics.tokensSaved += 2000;
         this.recalculateDollarsSaved();
@@ -824,7 +868,7 @@ export class ShieldMiddleware {
           content: [
             {
               type: 'text',
-              text: `[ToolVeto Shield Veto] Loop detected: Tool '${toolName}' invoked with identical arguments ${recentCallCount} times within ${this.options.loopLimit.windowMs}ms window by agent '${agentId}'. Execution halted to prevent token & budget exhaustion.\n\nRecommended recovery: Inspect previous error responses, adjust input parameters, or request clarifying input from the user before retrying.`,
+              text: `[ToolVeto Shield Veto] Loop detected: Tool '${toolName}' invoked with identical arguments ${recentCallCount} times within ${effectiveLoopLimit.windowMs}ms window by agent '${agentId}'. Execution halted to prevent token & budget exhaustion.\n\nRecommended recovery: Inspect previous error responses, adjust input parameters, or request clarifying input from the user before retrying.`,
             },
           ],
           _shield: {
@@ -848,7 +892,7 @@ export class ShieldMiddleware {
     let isFingerprintFallback = false;
 
     // RFC 8785 SHA256 fallback when explicit key is omitted
-    if (!idempKey && this.options.idempotency && toolName) {
+    if (!idempKey && effectiveIdempotency && toolName) {
       if (this.options.autoKeyUnkeyedMutations || this.options.autoFingerprintFallback === false) {
         idempKey = `auto_${crypto.randomUUID()}`;
         if (req.params) {
@@ -922,8 +966,8 @@ export class ShieldMiddleware {
       }
 
       // 5. Cumulative Token Budget / Context Bomb Truncation across all content items
-      if (this.options.tokenBudget && response.content && Array.isArray(response.content)) {
-        const maxChars = this.options.tokenBudget * 4;
+      if (effectiveTokenBudget && response.content && Array.isArray(response.content)) {
+        const maxChars = effectiveTokenBudget * 4;
         const totalOriginalChars = response.content.reduce(
           (sum, it) => sum + (it.type === 'text' && typeof it.text === 'string' ? it.text.length : 0),
           0
@@ -975,7 +1019,7 @@ export class ShieldMiddleware {
                     items_returned: slicedItems.length,
                     next_cursor: generatedCursor,
                     records: slicedItems,
-                    note: `[ToolVeto Shield: Truncated to prevent context exhaustion. Budget of ${this.options.tokenBudget} tokens (${maxChars} chars) reached. Subsequent items discarded.]`,
+                    note: `[ToolVeto Shield: Truncated to prevent context exhaustion. Budget of ${effectiveTokenBudget} tokens (${maxChars} chars) reached. Subsequent items discarded.]`,
                   };
                   budgetCappedContent.push({
                     ...item,
@@ -1015,7 +1059,7 @@ export class ShieldMiddleware {
                       total_records: totalRecords,
                       items_returned: slicedItems.length,
                       next_cursor: generatedCursor,
-                      note: `[ToolVeto Shield: Truncated to prevent context exhaustion. Budget of ${this.options.tokenBudget} tokens (${maxChars} chars) reached. Subsequent items discarded.]`,
+                      note: `[ToolVeto Shield: Truncated to prevent context exhaustion. Budget of ${effectiveTokenBudget} tokens (${maxChars} chars) reached. Subsequent items discarded.]`,
                     };
                     budgetCappedContent.push({
                       ...item,
@@ -1029,7 +1073,7 @@ export class ShieldMiddleware {
               }
 
               if (!structuredHandled) {
-                const noticeHeader = `\n\n[ToolVeto Shield: Truncated to prevent context exhaustion. Budget of ${this.options.tokenBudget} tokens (${maxChars} chars) reached.]\n`;
+                const noticeHeader = `\n\n[ToolVeto Shield: Truncated to prevent context exhaustion. Budget of ${effectiveTokenBudget} tokens (${maxChars} chars) reached.]\n`;
                 const roughNoticeLen = noticeHeader.length + 180;
                 const textSliceLen = Math.max(1, allowedForThisItem > roughNoticeLen ? allowedForThisItem - roughNoticeLen : Math.floor(allowedForThisItem / 2));
 
@@ -1069,7 +1113,7 @@ export class ShieldMiddleware {
 
         if (truncatedOccurred) {
           this.metrics.contextBombsTruncated++;
-          this.metrics.tokensSaved += Math.max(0, originalTokens - this.options.tokenBudget);
+          this.metrics.tokensSaved += Math.max(0, originalTokens - effectiveTokenBudget);
           this.recalculateDollarsSaved();
           response.content = budgetCappedContent as Array<{ type: string; text: string }>;
           response._shield = {
@@ -1088,7 +1132,7 @@ export class ShieldMiddleware {
       return { response };
     };
 
-    if (this.options.idempotency && idempKey && toolName) {
+    if (effectiveIdempotency && idempKey && toolName) {
       const cacheKey = `idemp:${toolName}:${idempKey}`;
       const cachedResponse = await this.storage.get(cacheKey);
 

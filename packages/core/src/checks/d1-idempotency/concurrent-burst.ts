@@ -193,12 +193,9 @@ export async function runConcurrentBurstCheck(
     tool: tool.name,
     status: 'PASS',
     severity: 'CRITICAL',
-    description: `Concurrent burst race test passed: tool safely handled simultaneous replay`,
+    description: `Schema declares explicit idempotency parameter on '${tool.name}' for concurrent burst safety`,
     evidence: {
-      requestsSent: concurrency,
-      mutationsCreated: 1,
-      expectedMutations: 1,
-      evidenceQuality: client ? 'VERIFIED' : 'STATIC-ONLY',
+      evidenceQuality: 'STATIC-ONLY',
     },
     durationMs: Date.now() - startTime,
   };

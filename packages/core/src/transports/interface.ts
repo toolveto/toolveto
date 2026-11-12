@@ -9,6 +9,7 @@ export interface McpClient {
   readResource?(uri: string): Promise<{ contents: Array<{ uri: string; text?: string; blob?: string }> }>;
   sendRawRequest?(rawJson: string | Record<string, unknown>): Promise<any>;
   sendNotification?(method: string, params?: Record<string, unknown>): Promise<void>;
+  getLastRequestId?(): number | string | undefined;
   getCapabilities?(): Promise<McpServerCapabilities>;
   getProtocolVersion?(): string;
   getTask?(taskId: string): Promise<McpTask | undefined>;

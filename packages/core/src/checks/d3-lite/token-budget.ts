@@ -71,7 +71,7 @@ export async function runTokenBudgetCheck(
     status: 'PASS',
     severity: 'CRITICAL',
     description: `Token budget compliance passed: payload size is well within agent limits`,
-    evidence: { evidenceQuality: client ? 'VERIFIED' : 'STATIC-ONLY' },
+    evidence: { evidenceQuality: client && !tool.isMutation ? 'VERIFIED' : 'STATIC-ONLY' },
     durationMs: Date.now() - startTime,
   };
 }

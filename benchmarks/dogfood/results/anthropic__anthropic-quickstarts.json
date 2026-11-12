@@ -5,11 +5,11 @@
   "failed": 9,
   "warned": 10,
   "fatalVetoTriggered": true,
-  "fatalVetoCode": "VETO_NONE",
+  "fatalVetoCode": "VETO_IDEMP",
   "phi": 1,
   "score": 80,
-  "tier": "Gold",
-  "durationMs": 17,
+  "tier": "Failed",
+  "durationMs": 9,
   "llmTokensUsed": 0,
   "dimensionalScores": {
     "D1": {
@@ -45,11 +45,8 @@
       "tool": "read_query",
       "status": "PASS",
       "severity": "CRITICAL",
-      "description": "Idempotency key parameter found on 'read_query'",
+      "description": "Read-only tool 'read_query' requires no mutation replay deduplication",
       "evidence": {
-        "requestsSent": 5,
-        "mutationsCreated": 1,
-        "expectedMutations": 1,
         "evidenceQuality": "STATIC-ONLY"
       },
       "durationMs": 0
@@ -100,7 +97,7 @@
       "evidence": {
         "evidenceQuality": "STATIC-ONLY"
       },
-      "durationMs": 1
+      "durationMs": 0
     },
     {
       "checkId": "TC-FUZZ-002",
@@ -122,7 +119,7 @@
           }
         ]
       },
-      "durationMs": 0
+      "durationMs": 1
     },
     {
       "checkId": "TC-ERR-001",
@@ -442,7 +439,7 @@
       "evidence": {
         "evidenceQuality": "STATIC-ONLY"
       },
-      "durationMs": 1
+      "durationMs": 0
     },
     {
       "checkId": "TC-CTX-001",
@@ -622,11 +619,8 @@
       "tool": "list_tables",
       "status": "PASS",
       "severity": "CRITICAL",
-      "description": "Idempotency key parameter found on 'list_tables'",
+      "description": "Read-only tool 'list_tables' requires no mutation replay deduplication",
       "evidence": {
-        "requestsSent": 5,
-        "mutationsCreated": 1,
-        "expectedMutations": 1,
         "evidenceQuality": "STATIC-ONLY"
       },
       "durationMs": 0
@@ -884,11 +878,8 @@
       "tool": "describe_table",
       "status": "PASS",
       "severity": "CRITICAL",
-      "description": "Idempotency key parameter found on 'describe_table'",
+      "description": "Read-only tool 'describe_table' requires no mutation replay deduplication",
       "evidence": {
-        "requestsSent": 5,
-        "mutationsCreated": 1,
-        "expectedMutations": 1,
         "evidenceQuality": "STATIC-ONLY"
       },
       "durationMs": 0
@@ -1123,13 +1114,13 @@
     }
   ],
   "statisticalConfidence": {
-    "n": 30,
+    "n": 69,
     "pointEstimate": 80,
     "confidenceInterval95": [
       70,
-      89
+      88
     ],
-    "certifiedLowerBound": 70
+    "certifiedLowerBound": 0
   },
   "aiuc1Compliance": {
     "AIUC-1 §4.2 Idempotency": "FAIL",
@@ -1144,9 +1135,10 @@
     "protocolVersion": "2025-03-26",
     "nodeVersion": "v26.5.0",
     "platform": "darwin",
-    "destructiveAuthorization": "false"
+    "destructiveAuthorization": "false",
+    "llmJudge": "disabled"
   },
-  "expiresAt": "2027-01-12T03:51:50.704Z",
+  "expiresAt": "2027-02-09T05:05:51.423Z",
   "perToolScorecard": {
     "read_query": {
       "score": 82,

@@ -511,43 +511,56 @@ describe('ToolVeto CLI Commands', () => {
     };
     fs.writeFileSync(mcpJsonPath, JSON.stringify(initialConfig, null, 2));
 
-    // 1. Wrap servers with --token-budget 3500 and --strict (skipping stdio)
+    // 1. Wrap BOTH HTTP and stdio servers with --token-budget 3500 and --strict
     const wrapRes = await wrapCommand(mcpJsonPath, { tokenBudget: 3500, strict: true });
     assert.ok(wrapRes, 'wrapCommand must return result');
-    assert.deepStrictEqual(wrapRes.wrappedServers, ['stripe', 'postgres']);
+    assert.deepStrictEqual(wrapRes.wrappedServers, ['stripe', 'postgres', 'localStdio']);
 
     const wrappedOnDisk = JSON.parse(fs.readFileSync(mcpJsonPath, 'utf-8'));
     assert.strictEqual(wrappedOnDisk.mcpServers.localStdio.command, 'npx');
-    assert.strictEqual(wrappedOnDisk.mcpServers.localStdio._toolvetoOriginal, undefined);
+    assert.deepStrictEqual(wrappedOnDisk.mcpServers.localStdio.args, [
+      '-y',
+      'toolveto',
+      'proxy',
+      '--stdio',
+      '--token-budget',
+      '3500',
+      '--strict',
+      '--',
+      'npx',
+      '-y',
+      '@stdio/mcp',
+    ]);
     assert.strictEqual(wrappedOnDisk.mcpServers.stripe.command, 'npx');
+    assert.strictEqual(wrappedOnDisk.mcpServers.stripe.url, undefined, 'Wrapped HTTP server must remove raw url so IDE routes through Shield proxy');
     assert.deepStrictEqual(wrappedOnDisk.mcpServers.stripe.args, [
       '-y',
       'toolveto',
       'proxy',
-      '--upstream',
-      'http://localhost:3000/mcp',
+      '--stdio',
       '--token-budget',
       '3500',
       '--strict',
+      '--upstream',
+      'http://localhost:3000/mcp',
     ]);
-    assert.deepStrictEqual(wrappedOnDisk.mcpServers.stripe._toolvetoOriginal, {
-      command: '',
-      args: [],
-    });
 
     // 2. Re-running wrap skips already wrapped servers
     const wrapAgain = await wrapCommand(mcpJsonPath, { tokenBudget: 3500 });
     assert.deepStrictEqual(wrapAgain?.wrappedServers, []);
 
-    // 3. Unwrap restores exact original commands and removes _toolvetoOriginal
+    // 3. Unwrap restores exact original commands/urls and removes _toolvetoOriginal
     const unwrapRes = await wrapCommand(mcpJsonPath, { unwrap: true });
-    assert.deepStrictEqual(unwrapRes?.unwrappedServers, ['stripe', 'postgres']);
+    assert.deepStrictEqual(unwrapRes?.unwrappedServers, ['stripe', 'postgres', 'localStdio']);
 
     const restoredOnDisk = JSON.parse(fs.readFileSync(mcpJsonPath, 'utf-8'));
-    assert.strictEqual(restoredOnDisk.mcpServers.stripe.command, '');
-    assert.deepStrictEqual(restoredOnDisk.mcpServers.stripe.args, []);
+    assert.strictEqual(restoredOnDisk.mcpServers.stripe.command, undefined);
+    assert.strictEqual(restoredOnDisk.mcpServers.stripe.args, undefined);
     assert.strictEqual(restoredOnDisk.mcpServers.stripe._toolvetoOriginal, undefined);
     assert.strictEqual(restoredOnDisk.mcpServers.stripe.url, 'http://localhost:3000/mcp');
+    assert.strictEqual(restoredOnDisk.mcpServers.localStdio.command, 'npx');
+    assert.deepStrictEqual(restoredOnDisk.mcpServers.localStdio.args, ['-y', '@stdio/mcp']);
+    assert.strictEqual(restoredOnDisk.mcpServers.localStdio._toolvetoOriginal, undefined);
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -873,6 +886,7 @@ describe('ToolVeto CLI Commands', () => {
     fs.mkdirSync(cursorDir, { recursive: true });
     const mcpJsonPath = path.join(cursorDir, 'mcp.json');
 
+    const secretVal = ['ghp', '1234567890abcdefghijklmnopqrstuv'].join('_');
     fs.writeFileSync(
       mcpJsonPath,
       JSON.stringify(
@@ -882,7 +896,7 @@ describe('ToolVeto CLI Commands', () => {
               command: 'npx',
               args: ['-y', '@modelcontextprotocol/server-github@latest'],
               env: {
-                GITHUB_PERSONAL_ACCESS_TOKEN: ['ghp', '1234567890abcdefghijklmnopqrstuv'].join('_'),
+                GITHUB_PERSONAL_ACCESS_TOKEN: secretVal,
               },
             },
           },
@@ -892,33 +906,58 @@ describe('ToolVeto CLI Commands', () => {
       )
     );
 
-    process.exitCode = 0;
-    const reportBefore = await doctorCommand(mcpJsonPath, { json: true });
-    assert.ok(reportBefore, 'doctorCommand must return report');
-    assert.strictEqual(process.exitCode, 1, 'High/Critical IDE findings must set exitCode 1');
-    assert.ok(reportBefore.findings.some((f) => f.category === 'FLOATING_PACKAGE'));
-    assert.ok(reportBefore.findings.some((f) => f.category === 'PLAINTEXT_SECRET'));
+    const mockRegistry = http.createServer((req, res) => {
+      if (req.url?.includes('server-github/latest')) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ name: '@modelcontextprotocol/server-github', version: '2026.4.1' }));
+      } else {
+        res.writeHead(404);
+        res.end();
+      }
+    });
+    await new Promise<void>((resolve) => mockRegistry.listen(0, () => resolve()));
+    const regPort = (mockRegistry.address() as any).port;
 
-    process.exitCode = 0;
-    const reportFixed = await doctorCommand(mcpJsonPath, { fix: true, json: true });
-    assert.ok(reportFixed, 'doctorCommand --fix must return report');
-    assert.strictEqual(reportFixed.fixedCount, 2, 'Both floating package and plaintext secret must be fixed');
+    try {
+      process.exitCode = 0;
+      const reportBefore = await doctorCommand(mcpJsonPath, { json: true });
+      assert.ok(reportBefore, 'doctorCommand must return report');
+      assert.strictEqual(process.exitCode, 1, 'High/Critical IDE findings must set exitCode 1');
+      assert.ok(reportBefore.findings.some((f) => f.category === 'FLOATING_PACKAGE'));
+      assert.ok(reportBefore.findings.some((f) => f.category === 'PLAINTEXT_SECRET'));
 
-    const fixedConfig = JSON.parse(fs.readFileSync(mcpJsonPath, 'utf-8'));
-    assert.strictEqual(
-      fixedConfig.mcpServers.github.args[1],
-      '@modelcontextprotocol/server-github@1.0.0',
-      '@latest must be pinned to deterministic semver'
-    );
-    assert.strictEqual(
-      fixedConfig.mcpServers.github.env.GITHUB_PERSONAL_ACCESS_TOKEN,
-      '${ENV:GITHUB_PERSONAL_ACCESS_TOKEN}',
-      'Plaintext secret must be replaced with env var reference'
-    );
-    assert.ok(fs.existsSync(path.join(cursorDir, 'toolveto-ide.lock.json')), 'toolveto-ide.lock.json must be emitted');
+      process.exitCode = 0;
+      const reportFixed = await doctorCommand(mcpJsonPath, {
+        fix: true,
+        json: true,
+        registryUrl: `http://127.0.0.1:${regPort}`,
+      });
+      assert.ok(reportFixed, 'doctorCommand --fix must return report');
+      assert.strictEqual(reportFixed.fixedCount, 2, 'Both floating package and plaintext secret must be fixed');
 
-    process.exitCode = 0;
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+      const fixedConfig = JSON.parse(fs.readFileSync(mcpJsonPath, 'utf-8'));
+      assert.strictEqual(
+        fixedConfig.mcpServers.github.args[1],
+        '@modelcontextprotocol/server-github@2026.4.1',
+        '@latest must be pinned to verified registry semver'
+      );
+      assert.strictEqual(
+        fixedConfig.mcpServers.github.env.GITHUB_PERSONAL_ACCESS_TOKEN,
+        '${ENV:GITHUB_PERSONAL_ACCESS_TOKEN}',
+        'Plaintext secret must be replaced with env var reference'
+      );
+      const vaultPath = path.join(cursorDir, '.env.toolveto.secrets');
+      assert.ok(fs.existsSync(vaultPath), 'Extracted secret must be preserved in .env.toolveto.secrets');
+      assert.ok(fs.readFileSync(vaultPath, 'utf-8').includes(secretVal), 'Vault must preserve secret value');
+      if (process.platform !== 'win32') {
+        assert.strictEqual(fs.statSync(vaultPath).mode & 0o777, 0o600, 'Vault must enforce 0600 permissions');
+      }
+      assert.ok(fs.existsSync(path.join(cursorDir, 'toolveto-ide.lock.json')), 'toolveto-ide.lock.json must be emitted');
+    } finally {
+      await new Promise<void>((resolve) => mockRegistry.close(() => resolve()));
+      process.exitCode = 0;
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 
   it('should patch Python @mcp.tool() function signatures and export WeaveProof Genome SHA-256 manifests', async () => {
@@ -970,8 +1009,143 @@ describe('ToolVeto CLI Commands', () => {
     await initCommand(tmpDir, { ci: 'github-actions' });
     const wfPath = path.join(tmpDir, '.github', 'workflows', 'toolveto.yml');
     assert.ok(fs.existsSync(wfPath), 'initCommand must scaffold .github/workflows/toolveto.yml');
+    const ghWf = fs.readFileSync(wfPath, 'utf-8');
+    assert.ok(ghWf.includes('timeout-minutes: 10'), 'GitHub Actions workflow must include job timeout');
+
+    await initCommand(tmpDir, { ci: 'gitlab' });
+    const glPath = path.join(tmpDir, '.gitlab-ci.toolveto.yml');
+    assert.ok(fs.existsSync(glPath), 'initCommand --ci gitlab must scaffold .gitlab-ci.toolveto.yml');
+    const glWf = fs.readFileSync(glPath, 'utf-8');
+    assert.ok(glWf.includes('toolveto_reliability_gate:'), 'GitLab CI workflow must use GitLab job syntax');
+
+    let sarifOutput = '';
+    const prevLog = console.log;
+    console.log = (msg: any) => {
+      if (typeof msg === 'string' && msg.includes('sarif-2.1.0')) {
+        sarifOutput = msg;
+      }
+    };
+    try {
+      await checkCommand(toolsJsonPath, { format: 'sarif', noTelemetry: true, skipUpdateCheck: true });
+    } finally {
+      console.log = prevLog;
+    }
+    assert.ok(sarifOutput.length > 0, 'checkCommand --format sarif must output SARIF 2.1.0 JSON');
+    const parsedSarif = JSON.parse(sarifOutput);
+    assert.strictEqual(parsedSarif.version, '2.1.0');
+    assert.strictEqual(parsedSarif.runs[0].tool.driver.name, 'ToolVeto');
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('should prove zero-egress outbound payload with --telemetry-dry-run and enforce fail-open air-gapped license lifecycle', async () => {
+    const {
+      runPlgTelemetryAndUpdateCheck,
+      evaluateOfflineLicenseLifecycle,
+      isTelemetryDryRun,
+    } = await import('../telemetry.js');
+
+    const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'tv-dryrun-home-'));
+    let unexpectedSocketHits = 0;
+    const trapServer = http.createServer((_req, res) => {
+      unexpectedSocketHits++;
+      res.writeHead(200);
+      res.end('{}');
+    });
+    await new Promise<void>((resolve) => trapServer.listen(0, () => resolve()));
+    const trapPort = (trapServer.address() as any).port;
+
+    try {
+      assert.strictEqual(isTelemetryDryRun({ telemetryDryRun: true }), true);
+      const mockSummary: any = {
+        score: 88,
+        tier: 'Gold',
+        fatalVetoTriggered: false,
+        fatalVetoes: [],
+        results: [
+          { checkId: 'TC-IDEMP-001', status: 'PASS', severity: 'CRITICAL', tool: 'secret_erp_transfer' },
+        ],
+      };
+
+      const dryRes = await runPlgTelemetryAndUpdateCheck({
+        summary: mockSummary,
+        target: '/private/onprem/secret-erp-mcp',
+        durationMs: 38,
+        options: {
+          telemetryDryRun: true,
+          customHomeDir: tmpHome,
+          apiUrl: `http://127.0.0.1:${trapPort}`,
+        },
+      });
+
+      assert.strictEqual(dryRes.telemetrySent, false, '--telemetry-dry-run must send zero network packets');
+      assert.strictEqual(unexpectedSocketHits, 0, 'Trap HTTP server must receive 0 requests during dry-run');
+      assert.ok(dryRes.dryRunOutput?.includes('0 network bytes sent'));
+      assert.ok(dryRes.payload?.clusterUidHash?.startsWith('clu_'), 'Payload must include anonymized clusterUidHash');
+      assert.ok(!dryRes.dryRunOutput?.includes('secret-erp-mcp'), 'Raw repo path must never appear in dry-run JSON');
+      assert.ok(!dryRes.dryRunOutput?.includes('secret_erp_transfer'), 'Raw tool name must never appear in dry-run JSON');
+
+      // Air-gapped tv_ent_* lifecycle: never blocks runtime, emits warnings & watermarks
+      const now = Date.now();
+      const mkEntToken = (claims: Record<string, any>) => {
+        const hdr = Buffer.from(JSON.stringify({ alg: 'ES256', typ: 'TV-ENT-LIC' })).toString('base64url');
+        const body = Buffer.from(JSON.stringify(claims)).toString('base64url');
+        return `tv_ent_${hdr}.${body}.sig_placeholder`;
+      };
+
+      const expiringToken = mkEntToken({
+        sub: 'cust_airgap_1',
+        tier: 'ENTERPRISE',
+        environment: 'airgapped-vpc',
+        exp: now + 10 * 86_400_000,
+      });
+      const expiringLife = evaluateOfflineLicenseLifecycle(expiringToken, now, 'clu_abc123');
+      assert.strictEqual(expiringLife.runtimeAllowed, true);
+      assert.strictEqual(expiringLife.attestationValid, true);
+      assert.strictEqual(expiringLife.state, 'EXPIRING_SOON');
+      assert.ok(expiringLife.warningBanner?.includes('720h fail-open grace'));
+
+      // 15 days past expiry is still inside the 720h (30d) air-gapped grace window
+      const graceToken = mkEntToken({
+        sub: 'cust_airgap_1',
+        tier: 'ENTERPRISE',
+        environment: 'airgapped-vpc',
+        exp: now - 15 * 86_400_000,
+      });
+      const graceLife = evaluateOfflineLicenseLifecycle(graceToken, now, 'clu_abc123');
+      assert.strictEqual(graceLife.runtimeAllowed, true);
+      assert.strictEqual(graceLife.attestationValid, true);
+      assert.strictEqual(graceLife.state, 'GRACE_PERIOD');
+
+      // 45 days past expiry exceeds 720h grace: STILL runtimeAllowed=true, but watermarked UNATTESTED_LICENSE_EXPIRED
+      const expiredToken = mkEntToken({
+        sub: 'cust_airgap_1',
+        tier: 'ENTERPRISE',
+        environment: 'airgapped-vpc',
+        exp: now - 45 * 86_400_000,
+      });
+      const expiredLife = evaluateOfflineLicenseLifecycle(expiredToken, now, 'clu_abc123');
+      assert.strictEqual(expiredLife.runtimeAllowed, true, 'Expired air-gapped license must NEVER block runtime');
+      assert.strictEqual(expiredLife.attestationValid, false);
+      assert.strictEqual(expiredLife.state, 'EXPIRED_FAIL_OPEN');
+      assert.strictEqual(expiredLife.watermark, 'UNATTESTED_LICENSE_EXPIRED');
+
+      // Cluster-bound mismatch detection
+      const pinnedToken = mkEntToken({
+        sub: 'cust_airgap_1',
+        tier: 'ENTERPRISE',
+        environment: 'airgapped-vpc',
+        allowedClusterHash: 'clu_prod_primary',
+        exp: now + 180 * 86_400_000,
+      });
+      const mismatchLife = evaluateOfflineLicenseLifecycle(pinnedToken, now, 'clu_shadow_copy');
+      assert.strictEqual(mismatchLife.runtimeAllowed, true);
+      assert.strictEqual(mismatchLife.clusterBindingMatch, false);
+      assert.strictEqual(mismatchLife.state, 'CLUSTER_MISMATCH_WARN');
+    } finally {
+      await new Promise<void>((resolve) => trapServer.close(() => resolve()));
+      fs.rmSync(tmpHome, { recursive: true, force: true });
+    }
   });
 });
 

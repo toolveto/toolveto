@@ -4,9 +4,10 @@ import * as os from 'node:os';
 import * as crypto from 'node:crypto';
 
 export interface DoctorCommandOptions {
-  ide?: 'cursor' | 'claude' | 'windsurf' | 'auto' | string;
+  ide?: 'cursor' | 'claude' | 'windsurf' | 'vscode' | 'auto' | string;
   fix?: boolean;
   json?: boolean;
+  registryUrl?: string;
 }
 
 export interface DoctorFinding {
@@ -27,6 +28,7 @@ export interface DoctorReport {
   fixedCount: number;
   findings: DoctorFinding[];
   lockfilePath?: string;
+  secretsBackupPath?: string;
 }
 
 const SECRET_KEY_NAMES = /(?:api[_-]?key|secret|token|password|passwd|private[_-]?key|auth|credential)/i;
@@ -53,6 +55,7 @@ function resolveIdeConfigFile(targetPath?: string, ide: string = 'auto'): { path
       if (stat.isDirectory()) {
         const candidates: Array<{ file: string; client: string }> = [
           { file: path.join(resolved, '.cursor', 'mcp.json'), client: 'cursor' },
+          { file: path.join(resolved, '.vscode', 'mcp.json'), client: 'vscode' },
           { file: path.join(resolved, 'claude_desktop_config.json'), client: 'claude' },
           { file: path.join(resolved, 'mcp.json'), client: 'mcp' },
         ];
@@ -70,6 +73,9 @@ function resolveIdeConfigFile(targetPath?: string, ide: string = 'auto'): { path
   if (ide === 'cursor' || ide === 'auto') {
     searchOrder.push({ file: path.resolve(process.cwd(), '.cursor', 'mcp.json'), client: 'cursor' });
     searchOrder.push({ file: path.join(home, '.cursor', 'mcp.json'), client: 'cursor' });
+  }
+  if (ide === 'vscode' || ide === 'auto') {
+    searchOrder.push({ file: path.resolve(process.cwd(), '.vscode', 'mcp.json'), client: 'vscode' });
   }
   if (ide === 'claude' || ide === 'auto') {
     searchOrder.push({ file: path.resolve(process.cwd(), 'claude_desktop_config.json'), client: 'claude' });
@@ -92,6 +98,36 @@ function resolveIdeConfigFile(targetPath?: string, ide: string = 'auto'): { path
   return { path: null, ideClient: ide };
 }
 
+function stripFloatingVersionSuffix(pkgSpec: string): string {
+  // Preserve leading '@' for scoped packages like '@modelcontextprotocol/server-github@latest'
+  const lastAt = pkgSpec.lastIndexOf('@');
+  if (lastAt > 0) {
+    return pkgSpec.slice(0, lastAt);
+  }
+  return pkgSpec;
+}
+
+async function resolveNpmLatestVersion(pkgName: string, registryBaseUrl: string): Promise<string | null> {
+  try {
+    const cleanRegistry = registryBaseUrl.replace(/\/+$/, '');
+    const encodedPkg = pkgName.startsWith('@')
+      ? `@${encodeURIComponent(pkgName.slice(1))}`
+      : encodeURIComponent(pkgName);
+    const res = await fetch(`${cleanRegistry}/${encodedPkg}/latest`, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(2500),
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { version?: string };
+    if (typeof body?.version === 'string' && /^\d+\.\d+\.\d+/.test(body.version)) {
+      return body.version;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 function isFloatingPackageArg(cmd: string, args: string[]): { floating: boolean; pkg?: string } {
   const normalizedCmd = path.basename(cmd).toLowerCase();
   if (!['npx', 'uvx', 'bunx', 'pnpx'].includes(normalizedCmd)) {
@@ -104,7 +140,6 @@ function isFloatingPackageArg(cmd: string, args: string[]): { floating: boolean;
     if (arg.endsWith('@latest') || arg.endsWith('@next') || arg.endsWith('@main')) {
       return { floating: true, pkg: arg };
     }
-    // Check if package name has no @x.y.z version suffix
     const atIndex = arg.lastIndexOf('@');
     if (atIndex <= 0) {
       return { floating: true, pkg: arg };
@@ -119,16 +154,52 @@ function isFloatingPackageArg(cmd: string, args: string[]): { floating: boolean;
   return { floating: false };
 }
 
+function saveExtractedSecretsSecurely(configDir: string, extracted: Map<string, string>): string {
+  const envFilePath = path.join(configDir, '.env.toolveto.secrets');
+  const existingMap = new Map<string, string>();
+
+  if (fs.existsSync(envFilePath)) {
+    const lines = fs.readFileSync(envFilePath, 'utf-8').split(/\r?\n/);
+    for (const line of lines) {
+      const m = line.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+      if (m) {
+        existingMap.set(m[1], m[2]);
+      }
+    }
+  }
+
+  for (const [k, v] of extracted) {
+    existingMap.set(k, JSON.stringify(v));
+  }
+
+  const serialized =
+    [
+      '# ToolVeto IDE Doctor — Extracted Secrets Vault (chmod 0600)',
+      '# Source this file or load into your OS keychain before launching your IDE.',
+      ...Array.from(existingMap.entries()).map(([k, v]) => `${k}=${v}`),
+    ].join('\n') + '\n';
+
+  fs.writeFileSync(envFilePath, serialized, { encoding: 'utf-8', mode: 0o600 });
+  try {
+    fs.chmodSync(envFilePath, 0o600);
+  } catch {
+    // ignore on platforms without POSIX chmod
+  }
+  return envFilePath;
+}
+
 export async function doctorCommand(
   targetPath?: string,
   options: DoctorCommandOptions = {}
 ): Promise<DoctorReport | undefined> {
   const idePref = (options.ide || 'auto').toLowerCase();
+  const registryUrl =
+    options.registryUrl || process.env.TOOLVETO_NPM_REGISTRY || 'https://registry.npmjs.org';
   const resolved = resolveIdeConfigFile(targetPath, idePref);
 
   if (!resolved.path) {
     console.error(
-      `\n❌ Error: Could not locate MCP IDE config file (checked Cursor, Claude Desktop, Windsurf).`
+      `\n❌ Error: Could not locate MCP IDE config file (checked Cursor, VS Code, Claude Desktop, Windsurf).`
     );
     console.error(`Pass an explicit path via 'npx toolveto doctor <path-to-mcp.json>'.\n`);
     process.exitCode = 1;
@@ -149,6 +220,7 @@ export async function doctorCommand(
   const serverEntries = Object.entries(servers);
   const findings: DoctorFinding[] = [];
   const unhealthyServerSet = new Set<string>();
+  const extractedSecrets = new Map<string, string>();
   let fixedCount = 0;
 
   for (const [serverName, entry] of serverEntries) {
@@ -161,17 +233,29 @@ export async function doctorCommand(
     const floatCheck = isFloatingPackageArg(cmd, args);
     if (floatCheck.floating && floatCheck.pkg) {
       unhealthyServerSet.add(serverName);
-      const pinnedPkg = `${floatCheck.pkg.replace(/@latest$/, '')}@1.0.0`;
+      const basePkgName = stripFloatingVersionSuffix(floatCheck.pkg);
+      const normalizedCmd = path.basename(cmd).toLowerCase();
+
+      let resolvedVersion: string | null = null;
+      if (options.fix && ['npx', 'bunx', 'pnpx'].includes(normalizedCmd)) {
+        resolvedVersion = await resolveNpmLatestVersion(basePkgName, registryUrl);
+      }
+
+      const examplePinned = resolvedVersion ? `${basePkgName}@${resolvedVersion}` : `${basePkgName}@<exact-semver>`;
       findings.push({
         id: 'DOC-PIN-001',
         serverName,
         severity: 'HIGH',
         category: 'FLOATING_PACKAGE',
         message: `Server '${serverName}' executes unpinned floating package '${floatCheck.pkg}' via ${cmd} (Supply-Chain Rug-Pull risk).`,
-        remediation: `Pin an immutable semantic version (e.g. '${pinnedPkg}') and run 'toolveto doctor --fix'.`,
+        remediation: resolvedVersion
+          ? `Pinned to verified registry release '${examplePinned}'.`
+          : `Pin an immutable published semantic version (e.g. '${examplePinned}') after verifying against your package registry.`,
       });
-      if (options.fix && Array.isArray(entry.args)) {
-        entry.args = entry.args.map((a: string) => (a === floatCheck.pkg ? pinnedPkg : a));
+
+      if (options.fix && resolvedVersion && Array.isArray(entry.args)) {
+        const pinnedSpec = `${basePkgName}@${resolvedVersion}`;
+        entry.args = entry.args.map((a: string) => (a === floatCheck.pkg ? pinnedSpec : a));
         fixedCount++;
       }
     }
@@ -193,10 +277,11 @@ export async function doctorCommand(
             severity: 'CRITICAL',
             category: 'PLAINTEXT_SECRET',
             message: `Server '${serverName}' exposes plaintext credential in env.${envKey} inside IDE config file.`,
-            remediation: `Replace literal secret with environment reference '\${ENV:${envKey}}' or OS keychain injection.`,
+            remediation: `Replace literal secret with environment reference '\${ENV:${envKey}}' (saved to .env.toolveto.secrets with 0600 permissions).`,
           });
 
           if (options.fix) {
+            extractedSecrets.set(envKey, strVal);
             entry.env[envKey] = `\${ENV:${envKey}}`;
             fixedCount++;
           }
@@ -221,7 +306,11 @@ export async function doctorCommand(
   }
 
   let lockfilePath: string | undefined;
+  let secretsBackupPath: string | undefined;
   if (options.fix) {
+    if (extractedSecrets.size > 0) {
+      secretsBackupPath = saveExtractedSecretsSecurely(path.dirname(resolved.path), extractedSecrets);
+    }
     fs.writeFileSync(resolved.path, JSON.stringify(parsed, null, 2) + '\n', 'utf-8');
     lockfilePath = path.join(path.dirname(resolved.path), 'toolveto-ide.lock.json');
     const pinEntries: Record<string, { sha256: string; command: string }> = {};
@@ -270,6 +359,7 @@ export async function doctorCommand(
     fixedCount,
     findings,
     lockfilePath,
+    secretsBackupPath,
   };
 
   if (!options.fix && (criticalCount > 0 || highCount > 0)) {
@@ -296,7 +386,11 @@ export async function doctorCommand(
     }
 
     if (options.fix && lockfilePath) {
-      console.log(`🔒 Remediated plaintext secrets & generated IDE pinfile: ${lockfilePath}\n`);
+      console.log(`🔒 Remediated plaintext secrets & generated IDE pinfile: ${lockfilePath}`);
+      if (secretsBackupPath) {
+        console.log(`🔐 Preserved extracted secrets in vault (chmod 0600): ${secretsBackupPath}`);
+      }
+      console.log('');
     }
   }
 

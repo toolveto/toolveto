@@ -39,13 +39,15 @@ export function loadHallucinatedParamsCorpus(): Array<{ name: string; value: any
 
 export async function runHallucinatedParamsCheck(
   tool: McpToolDefinition,
-  client?: McpClient
+  client?: McpClient,
+  destructiveAuthorization = false
 ): Promise<CheckResult> {
   const startTime = Date.now();
   const corpusParams = loadHallucinatedParamsCorpus();
   const hallucinatedKeys = corpusParams.map((p) => p.name);
+  const canInvoke = Boolean(client && (!tool.isMutation || destructiveAuthorization));
 
-  if (client) {
+  if (client && canInvoke) {
     const payload: Record<string, any> = {};
     for (const param of corpusParams) {
       payload[param.name] = param.value;
@@ -97,7 +99,7 @@ export async function runHallucinatedParamsCheck(
 
   // Static check: does schema set additionalProperties: false?
   const hasAdditionalPropsFalse = tool.inputSchema?.additionalProperties === false;
-  if (!hasAdditionalPropsFalse && !client) {
+  if (!hasAdditionalPropsFalse && !canInvoke) {
     return {
       checkId: 'TC-FUZZ-002',
       dimension: 'D2',
@@ -127,7 +129,7 @@ export async function runHallucinatedParamsCheck(
     status: 'PASS',
     severity: 'MEDIUM',
     description: `Tool '${tool.name}' safely tolerates or rejects hallucinated arguments`,
-    evidence: { evidenceQuality: client ? 'VERIFIED' : 'STATIC-ONLY' },
+    evidence: { evidenceQuality: canInvoke ? 'VERIFIED' : 'STATIC-ONLY' },
     durationMs: Date.now() - startTime,
   };
 }

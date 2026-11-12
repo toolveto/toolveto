@@ -3,7 +3,7 @@
 # 1. Generate a new 256-bit secret via `openssl rand -hex 32`.
 # 2. Update `TOOLVETO_GATEWAY_SECRET` and upstream API keys (`STRIPE_API_KEY`) in Kubernetes Secrets / Vault.
 # 3. During key rotation, support dual-key verification (`TOOLVETO_GATEWAY_SECRET_PREV`) for a 24h grace window.
-# 4. Trigger a rolling restart (`kubectl rollout restart deployment/toolveto-gateway`) and verify `/healthz`.
+# 4. Trigger a rolling restart (`kubectl rollout restart deployment/toolveto-gateway`) and verify `/health`.
 version: '1'
 port: 8080
 defaultPolicy: standard
@@ -11,6 +11,13 @@ defaultPolicy: standard
 auth:
   type: bearer
   secret: "${TOOLVETO_GATEWAY_SECRET}"
+  previousSecret: "${TOOLVETO_GATEWAY_SECRET_PREV}"
+
+cloud:
+  apiUrl: "${TOOLVETO_API_URL:-https://api.toolveto.com}"
+  licenseKey: "${TOOLVETO_LICENSE_KEY}"
+  syncTraces: true
+  syncDrift: true
 
 upstreams:
   stripe:
@@ -35,3 +42,4 @@ upstreams:
   default:
     url: "http://127.0.0.1:3000"
     policy: standard
+    allowLocal: true

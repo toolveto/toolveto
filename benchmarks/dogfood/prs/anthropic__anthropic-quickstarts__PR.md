@@ -6,7 +6,7 @@ This automated pull request applies resilience and safety hardening to the MCP t
 - **CRITICAL Issues Found:** 2
 - **HIGH Issues Found:** 4
 - **Total Checks Evaluated:** 69
-- **ToolVeto Score:** 80/100 [Tier: Gold]
+- **ToolVeto Score:** 80/100 [Tier: Failed]
 
 ---
 

@@ -3,9 +3,10 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 
 export interface WrapCommandOptions {
-  client?: 'cursor' | 'claude' | 'windsurf' | 'auto' | string;
+  client?: 'cursor' | 'claude' | 'windsurf' | 'vscode' | 'auto' | string;
   tokenBudget?: string | number;
   strict?: boolean;
+  lockfile?: string;
   unwrap?: boolean;
   dryRun?: boolean;
 }
@@ -43,6 +44,7 @@ function resolveConfigFile(targetPath?: string, client: string = 'auto'): string
       if (stat.isDirectory()) {
         const dirCandidates = [
           path.join(resolved, '.cursor', 'mcp.json'),
+          path.join(resolved, '.vscode', 'mcp.json'),
           path.join(resolved, 'claude_desktop_config.json'),
           path.join(resolved, 'mcp.json'),
         ];
@@ -60,6 +62,9 @@ function resolveConfigFile(targetPath?: string, client: string = 'auto'): string
   if (client === 'cursor' || client === 'auto') {
     candidates.push(path.resolve(process.cwd(), '.cursor', 'mcp.json'));
     candidates.push(path.join(home, '.cursor', 'mcp.json'));
+  }
+  if (client === 'vscode' || client === 'auto') {
+    candidates.push(path.resolve(process.cwd(), '.vscode', 'mcp.json'));
   }
   if (client === 'claude' || client === 'auto') {
     candidates.push(path.resolve(process.cwd(), 'claude_desktop_config.json'));
@@ -88,7 +93,7 @@ export async function wrapCommand(
   const configPath = resolveConfigFile(targetPath, clientType);
 
   if (!configPath) {
-    console.error(`\n❌ Error: Could not locate MCP client configuration file (checked Cursor, Claude Desktop, Windsurf).`);
+    console.error(`\n❌ Error: Could not locate MCP client configuration file (checked Cursor, VS Code, Claude Desktop, Windsurf).`);
     console.error(`Pass an explicit path via 'npx toolveto wrap <path-to-mcp.json>'.\n`);
     process.exitCode = 1;
     return undefined;
@@ -119,8 +124,22 @@ export async function wrapCommand(
   if (options.unwrap) {
     for (const [serverName, entry] of Object.entries(servers)) {
       if (entry && typeof entry === 'object' && entry._toolvetoOriginal) {
-        entry.command = entry._toolvetoOriginal.command;
-        entry.args = Array.isArray(entry._toolvetoOriginal.args) ? entry._toolvetoOriginal.args : [];
+        const orig = entry._toolvetoOriginal;
+        if (orig.hasCommand) {
+          entry.command = orig.command;
+        } else {
+          delete entry.command;
+        }
+        if (orig.hasArgs) {
+          entry.args = Array.isArray(orig.args) ? orig.args : [];
+        } else {
+          delete entry.args;
+        }
+        if (orig.hasUrl && typeof orig.url === 'string') {
+          entry.url = orig.url;
+        } else if (orig.hasUrl === false) {
+          delete entry.url;
+        }
         delete entry._toolvetoOriginal;
         unwrappedServers.push(serverName);
       }
@@ -169,8 +188,11 @@ export async function wrapCommand(
     }
 
     const rawCmd = entry._toolvetoOriginal
-      ? [entry._toolvetoOriginal.command, ...(entry._toolvetoOriginal.args || [])].join(' ').trim()
-      : [entry.command, ...(entry.args || [])].join(' ').trim();
+      ? [entry._toolvetoOriginal.command, ...(entry._toolvetoOriginal.args || []), entry._toolvetoOriginal.url]
+          .filter(Boolean)
+          .join(' ')
+          .trim()
+      : [entry.command, ...(entry.args || []), entry.url].filter(Boolean).join(' ').trim();
     if (rawCmd) {
       const prevCmdOwner = commandOwnerMap.get(rawCmd);
       if (prevCmdOwner && prevCmdOwner !== serverName) {
@@ -184,35 +206,50 @@ export async function wrapCommand(
   for (const [serverName, entry] of Object.entries(servers)) {
     if (!entry || typeof entry !== 'object') continue;
     if (entry._toolvetoOriginal) {
-      // Already wrapped
       continue;
     }
 
-    if (entry.command && !/^https?:\/\//i.test(entry.url ?? '')) {
-      console.warn(`⚠️ Skipping '${serverName}': stdio servers cannot be wrapped.`);
+    const hasHttpUrl = typeof entry.url === 'string' && /^https?:\/\//i.test(entry.url);
+    const hasStdioCommand = typeof entry.command === 'string' && entry.command.trim().length > 0;
+
+    if (!hasHttpUrl && !hasStdioCommand) {
       continue;
     }
 
-    const origCommand = entry.command || '';
-    const origArgs: string[] = Array.isArray(entry.args) ? entry.args : [];
-    const originalCommandString = [origCommand, ...origArgs].filter(Boolean).join(' ').trim() || entry.url || serverName;
+    const origCommand = typeof entry.command === 'string' ? entry.command : '';
+    const origArgs: string[] = Array.isArray(entry.args) ? entry.args.map(String) : [];
+    const origUrl = typeof entry.url === 'string' ? entry.url : undefined;
 
     entry._toolvetoOriginal = {
+      hasCommand: 'command' in entry,
       command: origCommand,
+      hasArgs: 'args' in entry,
       args: origArgs,
+      hasUrl: 'url' in entry,
+      ...(origUrl !== undefined ? { url: origUrl } : {}),
     };
 
-    entry.command = 'npx';
-    entry.args = [
+    const baseProxyArgs = [
       '-y',
       'toolveto',
       'proxy',
-      '--upstream',
-      originalCommandString,
+      '--stdio',
       '--token-budget',
       String(tokenBudget),
       ...(options.strict ? ['--strict'] : []),
+      ...(options.lockfile ? ['--lockfile', options.lockfile] : []),
     ];
+
+    if (hasHttpUrl && !hasStdioCommand) {
+      // Bridge IDE stdio -> Streamable HTTP/SSE upstream through Shield (removing raw url so IDE cannot bypass Shield)
+      delete entry.url;
+      entry.command = 'npx';
+      entry.args = [...baseProxyArgs, '--upstream', origUrl!];
+    } else {
+      // Wrap local stdio MCP server process (`-- <origCommand> <origArgs...>`)
+      entry.command = 'npx';
+      entry.args = [...baseProxyArgs, '--', origCommand, ...origArgs];
+    }
 
     wrappedServers.push(serverName);
   }
@@ -223,7 +260,7 @@ export async function wrapCommand(
     backupPath = writeConfigWithBackupAndAtomicRename(configPath, JSON.stringify(parsed, null, 2) + '\n');
     console.log(`\n🛡️  ToolVeto Shield Wrapper Active (${configPath})`);
     console.log(`Wrapped ${wrappedServers.length} MCP server(s): ${wrappedServers.join(', ') || 'none (already wrapped)'}`);
-    console.log(`Active @toolveto/shield Protections:`);
+    console.log(`Active @toolveto/shield Protections (Stdio & Streamable HTTP):`);
     console.log(`   ✓ RFC 8785 Canonical SHA-256 Idempotency Deduplication`);
     console.log(`   ✓ 5-call / 30s Runaway Retry Loop Circuit Breaker`);
     console.log(`   ✓ ${tokenBudget}-Token Context Bomb Truncator & Cursor Pagination`);

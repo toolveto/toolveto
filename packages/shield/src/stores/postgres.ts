@@ -45,9 +45,12 @@ export class PostgresShieldStorage implements ShieldStorage {
         );
       `);
       this.tablesInitialized = true;
-    } catch {
-      // Allow fallback if tables already exist or permissions are read-only
-      this.tablesInitialized = true;
+    } catch (err: any) {
+      // Only latch tablesInitialized on permission errors (42501) where tables were pre-provisioned by DBA;
+      // transient network/connection errors must retry on next call rather than permanently latching true.
+      if (err && (err.code === '42501' || String(err.message || '').toLowerCase().includes('permission denied'))) {
+        this.tablesInitialized = true;
+      }
     }
   }
 
