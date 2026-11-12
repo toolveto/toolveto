@@ -306,4 +306,136 @@ describe('Scoring & Fatal Veto Engine', () => {
     assert.ok(badSummary.results.some((r) => r.checkId === 'TC-IDEMP-005' && r.status === 'FAIL'));
     assert.ok(badSummary.results.some((r) => r.checkId === 'TC-SEC-002' && r.status === 'FAIL'));
   });
+
+  it('should NOT trigger false-positive VETO_EXFIL when a safe tool echoes a blocked SSRF URL in an error message', async () => {
+    const safeWebhookTool: McpToolDefinition = {
+      name: 'register_webhook',
+      description: 'Registers HTTPS webhook endpoint after strict SSRF allowlist validation',
+      isMutation: false,
+      inputSchema: {
+        type: 'object',
+        properties: { callback_url: { type: 'string', description: 'HTTPS webhook URL (e.g. https://hooks.example.com/events)' } },
+        additionalProperties: false,
+      },
+    };
+
+    const client = new InMemoryMcpClient([
+      {
+        definition: safeWebhookTool,
+        handler: async (args) => ({
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: `Rejected private/internal callback_url '${args.callback_url}': SSRF policy forbids internal hosts.`,
+            },
+          ],
+        }),
+      },
+    ]);
+
+    const summary = await runSuite('safe-ssrf-echo', [safeWebhookTool], { client });
+    assert.strictEqual(summary.fatalVetoCode, 'VETO_NONE');
+    assert.strictEqual(summary.fatalVetoTriggered, false);
+    assert.strictEqual(summary.aiuc1Compliance?.['OWASP Agentic LLM02 Sensitive Information Disclosure'], 'PASS');
+  });
+
+  it('should NEVER invoke mutating prompt/webhook tools when destructiveAuthorization is false, and should never pair Gold tier with fatalVetoTriggered', async () => {
+    let mutated = false;
+    const mutatingPromptTool: McpToolDefinition = {
+      name: 'delete_prompt_webhook',
+      description: 'Deletes prompt webhook subscription permanently from production account',
+      isMutation: true,
+      inputSchema: {
+        type: 'object',
+        properties: {
+          prompt_id: { type: 'string', format: 'uuid' },
+          callback_url: { type: 'string', format: 'uri' },
+        },
+        additionalProperties: false,
+      },
+    };
+
+    const client = new InMemoryMcpClient([
+      {
+        definition: mutatingPromptTool,
+        handler: async () => {
+          mutated = true;
+          return { content: [{ type: 'text', text: 'deleted' }] };
+        },
+      },
+    ]);
+
+    const summary = await runSuite('mutating-guard-suite', [mutatingPromptTool], {
+      client,
+      destructiveAuthorization: false,
+    });
+    assert.strictEqual(mutated, false, 'Mutating tool must NOT be called by injection/SSRF probes without destructiveAuthorization');
+    assert.strictEqual(summary.fatalVetoTriggered, true, 'Missing idempotency_key on mutating tool must trigger static critical veto');
+    assert.strictEqual(summary.tier, 'Failed', 'Blocked server with fatalVetoTriggered must NEVER receive Bronze/Silver/Gold/Platinum');
+    assert.strictEqual(summary.statisticalConfidence?.n, summary.totalChecks, 'Bootstrap sample size n must equal empirical totalChecks');
+    assert.strictEqual(summary.statisticalConfidence?.certifiedLowerBound, 0);
+  });
+
+  it('should execute Stage-4 LLM E_heal judge when withLlm is enabled and record exact token usage', async () => {
+    const http = await import('node:http');
+    const llmServer = http.createServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  actionable: false,
+                  score: 25,
+                  summary: 'Raw 500 error gives zero format recovery hints for start_date.',
+                }),
+              },
+            },
+          ],
+          usage: { prompt_tokens: 92, completion_tokens: 28, total_tokens: 120 },
+        })
+      );
+    });
+    await new Promise<void>((resolve) => llmServer.listen(0, '127.0.0.1', () => resolve()));
+    const port = (llmServer.address() as any).port;
+    const prevEndpoint = process.env.TOOLVETO_LLM_ENDPOINT;
+    process.env.TOOLVETO_LLM_ENDPOINT = `http://127.0.0.1:${port}/v1/chat/completions`;
+
+    try {
+      const brokenDateTool: McpToolDefinition = {
+        name: 'query_events',
+        description: 'Queries audit events within a date window using pagination limits',
+        isMutation: false,
+        inputSchema: {
+          type: 'object',
+          properties: {
+            start_date: { type: 'string', format: 'date' },
+            limit: { type: 'integer' },
+            cursor: { type: 'string' },
+          },
+          additionalProperties: false,
+        },
+      };
+      const client = new InMemoryMcpClient([
+        {
+          definition: brokenDateTool,
+          handler: async () => ({
+            isError: true,
+            content: [{ type: 'text', text: '500 Internal Error' }],
+          }),
+        },
+      ]);
+
+      const summary = await runSuite('llm-judge-test', [brokenDateTool], { client, withLlm: true });
+      assert.strictEqual(summary.llmTokensUsed, 120);
+      assert.ok(summary.results.some((r) => r.checkId === 'TC-LLM-HEAL-001' && r.status === 'WARN'));
+      assert.strictEqual(summary.aiuc1Compliance?.['AIUC-1 §6.3 Loop Protection'], 'FAIL');
+    } finally {
+      if (prevEndpoint === undefined) delete process.env.TOOLVETO_LLM_ENDPOINT;
+      else process.env.TOOLVETO_LLM_ENDPOINT = prevEndpoint;
+      await new Promise<void>((resolve) => llmServer.close(() => resolve()));
+    }
+  });
 });

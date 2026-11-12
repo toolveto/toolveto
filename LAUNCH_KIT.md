@@ -22,10 +22,13 @@ Hey HN,
 Over the past two weeks, we ran 10 of the most popular open-source Model Context Protocol (MCP) servers (including Stripe, GitHub, Neon, Supabase, Cloudflare, Linear, and Slack) through a deterministic chaos testing suite called ToolVeto.
 
 The result: All 10 failed at least one critical production invariant.
-Average score: 70.3/100 (Bronze/Silver baseline; 10/10 blocked on CI merge gate).
+Average score: 70.8/100 (Failed tier across all 10 due to fatal safety vetoes; 10/10 blocked on CI merge gate).
 
 Why this happens:
 REST APIs were designed assuming well-behaved human-engineered clients. LLM agents (Claude 4.6 Sonnet, GPT-5, Gemini 2.5 Pro) are not well-behaved. They retry failed calls aggressively, hallucinate parameter types, loop 47 times on opaque 500 errors, and dump 50k tokens into context.
+
+Note on Methodology:
+To avoid executing destructive mutations against live third-party SaaS APIs, our public 10-repo benchmark runs deterministic Stages 1 & 2 static contract verification (`STATIC-ONLY`), while live dynamic Stages 3 & 4 behavioral probes (`TC-IDEMP-002` burst replay, `TC-ERR-001` malformed-argument recovery, `TC-CTX-002` payload truncation) run against live local/staging MCP servers via `npx toolveto check --allow-exec`.
 
 The 3 most critical failure patterns we found:
 1. The Double-Charge (TC-IDEMP-002): Financial & mutation tools (like Stripe and Neon) omit idempotency keys. When an agent network request times out, it replays the call, creating duplicate charges or duplicate rows.
@@ -54,7 +57,7 @@ Would love your feedback on our scoring rubric and chaos invariants!
 > We ran 10 of the most popular Model Context Protocol (MCP) servers through a deterministic chaos test.
 > 
 > All 10 failed.
-> Average score: 70.3/100 (10/10 blocked on default merge gate).
+> Average score: 70.8/100 (10/10 Failed tier & blocked on default merge gate).
 > 
 > Here’s why agents break your APIs—and the 3-line diffs to fix them 🧵👇
 > [Image: STATE_OF_MCP_2026 Scorecard Wall]

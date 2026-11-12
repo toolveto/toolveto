@@ -1,18 +1,18 @@
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   runSuite,
   evaluateServer,
   formatTerminalReport,
   renderPRComment,
-  StdioMcpClient,
-  HttpMcpClient,
   InMemoryMcpClient,
   McpToolDefinition,
   McpClient,
   SuiteSummary,
 } from '@toolveto/core';
-import { runPlgTelemetryAndUpdateCheck } from '../telemetry.js';
+import { runPlgTelemetryAndUpdateCheck, isTelemetryDryRun } from '../telemetry.js';
+import { discoverToolsFromTarget } from '../discovery.js';
 
 export interface CheckCommandOptions {
   withLlm?: boolean;
@@ -27,7 +27,49 @@ export interface CheckCommandOptions {
   failOnSeverity?: string;
   skipUpdateCheck?: boolean;
   noTelemetry?: boolean;
+  telemetryDryRun?: boolean;
 }
+
+const DEMO_CHECK_TOOLS: McpToolDefinition[] = [
+  {
+    name: 'create_payment',
+    description: 'Charges credit card',
+    isMutation: true,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        amount: { type: 'number' },
+        currency: { type: 'string' },
+        customer_id: { type: 'string' },
+      },
+      required: ['amount', 'currency', 'customer_id'],
+    },
+  },
+  {
+    name: 'update_appointment',
+    description: 'Updates customer appointment date',
+    isMutation: true,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        appointment_id: { type: 'string' },
+        date: { type: 'string', format: 'date' },
+      },
+      required: ['appointment_id', 'date'],
+    },
+  },
+  {
+    name: 'list_invoices',
+    description: 'Lists all customer invoices',
+    isMutation: false,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        customer_id: { type: 'string' },
+      },
+    },
+  },
+];
 
 export function createEphemeralMockClient(tools: McpToolDefinition[]): InMemoryMcpClient {
   const toolMap = new Map<string, McpToolDefinition>();
@@ -127,6 +169,7 @@ export function createEphemeralMockClient(tools: McpToolDefinition[]): InMemoryM
           'crash_commit_val',
           'delayed_test',
           'probe_ref_001',
+          'probe_canary_input_001',
           'updated',
         ]);
         if (isDateField && !replayPlaceholders.has(val) && !/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])/.test(val)) {
@@ -219,39 +262,6 @@ export function createEphemeralMockClient(tools: McpToolDefinition[]): InMemoryM
   });
 }
 
-function extractToolsFromJson(parsed: any, baseDir: string): McpToolDefinition[] {
-  if (Array.isArray(parsed)) {
-    return parsed;
-  }
-  if (parsed && Array.isArray(parsed.tools)) {
-    return parsed.tools;
-  }
-  if (parsed && parsed.name && parsed.inputSchema) {
-    return [parsed];
-  }
-  if (parsed && parsed.mcpServers && typeof parsed.mcpServers === 'object') {
-    const collected: McpToolDefinition[] = [];
-    for (const [, serverCfg] of Object.entries<any>(parsed.mcpServers)) {
-      if (!serverCfg || typeof serverCfg !== 'object') continue;
-      if (Array.isArray(serverCfg.tools)) {
-        collected.push(...serverCfg.tools);
-      } else if (typeof serverCfg.toolsPath === 'string') {
-        const tp = path.resolve(baseDir, serverCfg.toolsPath);
-        if (fs.existsSync(tp)) {
-          try {
-            const sub = JSON.parse(fs.readFileSync(tp, 'utf-8'));
-            collected.push(...extractToolsFromJson(sub, path.dirname(tp)));
-          } catch {
-            // Ignore invalid sub-config
-          }
-        }
-      }
-    }
-    return collected;
-  }
-  return [];
-}
-
 export async function checkCommand(
   targetPath: string,
   options: CheckCommandOptions = {}
@@ -261,209 +271,21 @@ export async function checkCommand(
   const targetDisplay = targetPath || '.';
 
   try {
-    // 1. Remote Streamable HTTP MCP Server
-    if (targetPath && (targetPath.startsWith('http://') || targetPath.startsWith('https://'))) {
-      const httpClient = new HttpMcpClient({
-        baseUrl: targetPath,
-        timeoutMs: options.timeoutMs || 15000,
-      });
-      await httpClient.connect();
-      tools = await httpClient.listTools();
-      client = httpClient;
-    } else {
-      const resolvedTarget = path.resolve(process.cwd(), targetPath || '.');
+    const discovered = await discoverToolsFromTarget(targetPath || '.', {
+      timeoutMs: options.timeoutMs || 15000,
+      allowExec: options.allowExec,
+      demo: options.demo,
+      keepClientOpen: true,
+      demoFallbackTools: DEMO_CHECK_TOOLS,
+    });
+    tools = discovered.tools;
+    client = discovered.client;
 
-      if (fs.existsSync(resolvedTarget)) {
-        const stat = fs.statSync(resolvedTarget);
-
-        // 2. Direct JSON Schema / Manifest / Multi-Server Config file
-        if (stat.isFile() && resolvedTarget.endsWith('.json')) {
-          const content = fs.readFileSync(resolvedTarget, 'utf-8');
-          const parsed = JSON.parse(content);
-          tools = extractToolsFromJson(parsed, path.dirname(resolvedTarget));
-        }
-        // 3. Executable Server script (Node / Python)
-        else if (stat.isFile()) {
-          const ext = path.extname(resolvedTarget).toLowerCase();
-          if (!new Set(['.js', '.mjs', '.cjs', '.py', '.json']).has(ext)) {
-            throw new Error(`Refusing to auto-exec '${ext}'`);
-          }
-          if (options.allowExec === false || process.env.TOOLVETO_DISALLOW_AUTO_EXEC === '1') {
-            throw new Error('auto-exec disabled');
-          }
-
-          let command = process.execPath;
-          const args: string[] = [resolvedTarget];
-
-          if (resolvedTarget.endsWith('.py')) {
-            command = 'python3';
-          }
-
-          const stdioClient = new StdioMcpClient({
-            command,
-            args,
-            timeoutMs: options.timeoutMs || 15000,
-          });
-          await stdioClient.connect();
-          tools = await stdioClient.listTools();
-          client = stdioClient;
-        }
-        // 4. Directory containing server files, manifests, or client configs
-        else if (stat.isDirectory()) {
-          const jsonCandidates = [
-            path.join(resolvedTarget, 'tools.json'),
-            path.join(resolvedTarget, 'mcp.json'),
-            path.join(resolvedTarget, 'schema.json'),
-            path.join(resolvedTarget, '.cursor', 'mcp.json'),
-            path.join(resolvedTarget, 'claude_desktop_config.json'),
-          ];
-
-          for (const candidate of jsonCandidates) {
-            if (fs.existsSync(candidate)) {
-              const parsed = JSON.parse(fs.readFileSync(candidate, 'utf-8'));
-              const extracted = extractToolsFromJson(parsed, path.dirname(candidate));
-              if (extracted.length > 0) {
-                tools = extracted;
-                break;
-              }
-            }
-          }
-
-          if (tools.length === 0) {
-            const realTargetDir = fs.realpathSync(resolvedTarget);
-            const ALLOWED_EXEC_EXTENSIONS = new Set(['.js', '.mjs', '.cjs', '.py']);
-            const isSafeEntrypoint = (candidatePath: string): string | null => {
-              if (!fs.existsSync(candidatePath) || !fs.statSync(candidatePath).isFile()) return null;
-              const realCandidate = fs.realpathSync(candidatePath);
-              const rel = path.relative(realTargetDir, realCandidate);
-              if (rel.startsWith('..') || path.isAbsolute(rel)) {
-                throw new Error(
-                  `[ToolVeto CLI Security] Blocked path-traversal entrypoint '${candidatePath}' escaping target directory '${realTargetDir}'.`
-                );
-              }
-              const ext = path.extname(realCandidate).toLowerCase();
-              if (!ALLOWED_EXEC_EXTENSIONS.has(ext)) {
-                return null;
-              }
-              return realCandidate;
-            };
-
-            let entrypoint: string | null = null;
-            const pkgJsonPath = path.join(resolvedTarget, 'package.json');
-            if (fs.existsSync(pkgJsonPath)) {
-              let pkg: any;
-              try {
-                pkg = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf-8'));
-              } catch {
-                pkg = null;
-              }
-              if (pkg) {
-                const mainCandidate = typeof pkg.main === 'string'
-                  ? pkg.main
-                  : typeof pkg.bin === 'string'
-                    ? pkg.bin
-                    : pkg.bin && typeof pkg.bin === 'object'
-                      ? (Object.values(pkg.bin)[0] as string)
-                      : null;
-                if (mainCandidate) {
-                  const resolvedMain = path.resolve(resolvedTarget, mainCandidate);
-                  const relMain = path.relative(resolvedTarget, resolvedMain);
-                  if (relMain.startsWith('..') || path.isAbsolute(relMain)) {
-                    throw new Error(
-                      `[ToolVeto CLI Security] Blocked untrusted package.json entrypoint '${mainCandidate}' escaping target directory '${resolvedTarget}'.`
-                    );
-                  }
-                  entrypoint = isSafeEntrypoint(resolvedMain);
-                }
-              }
-            }
-
-            if (!entrypoint) {
-              const scriptCandidates = [
-                path.join(resolvedTarget, 'index.js'),
-                path.join(resolvedTarget, 'index.mjs'),
-                path.join(resolvedTarget, 'dist', 'index.js'),
-                path.join(resolvedTarget, 'build', 'index.js'),
-                path.join(resolvedTarget, 'server.py'),
-                path.join(resolvedTarget, 'main.py'),
-              ];
-              for (const sc of scriptCandidates) {
-                const safeSc = isSafeEntrypoint(sc);
-                if (safeSc) {
-                  entrypoint = safeSc;
-                  break;
-                }
-              }
-            }
-
-            const execDisallowed =
-              options.allowExec === false || process.env.TOOLVETO_DISALLOW_AUTO_EXEC === '1';
-
-            if (entrypoint && !execDisallowed) {
-              const command = entrypoint.endsWith('.py') ? 'python3' : process.execPath;
-              const stdioClient = new StdioMcpClient({
-                command,
-                args: [entrypoint],
-                timeoutMs: options.timeoutMs || 15000,
-              });
-              await stdioClient.connect();
-              tools = await stdioClient.listTools();
-              client = stdioClient;
-            }
-          }
-        }
-      }
-    }
-
-    // Fallback if no tools were discovered
     if (tools.length === 0) {
-      if (options.demo) {
-        tools = [
-          {
-            name: 'create_payment',
-            description: 'Charges credit card',
-            isMutation: true,
-            inputSchema: {
-              type: 'object',
-              properties: {
-                amount: { type: 'number' },
-                currency: { type: 'string' },
-                customer_id: { type: 'string' },
-              },
-              required: ['amount', 'currency', 'customer_id'],
-            },
-          },
-          {
-            name: 'update_appointment',
-            description: 'Updates customer appointment date',
-            isMutation: true,
-            inputSchema: {
-              type: 'object',
-              properties: {
-                appointment_id: { type: 'string' },
-                date: { type: 'string', format: 'date' },
-              },
-              required: ['appointment_id', 'date'],
-            },
-          },
-          {
-            name: 'list_invoices',
-            description: 'Lists all customer invoices',
-            isMutation: false,
-            inputSchema: {
-              type: 'object',
-              properties: {
-                customer_id: { type: 'string' },
-              },
-            },
-          },
-        ];
-      } else {
-        console.error(`\n❌ Error: No tools discovered at ${targetDisplay}.`);
-        console.error(`Please provide a valid MCP server or tool definition, or pass --demo for demonstration mode.\n`);
-        process.exitCode = 1;
-        return undefined;
-      }
+      console.error(`\n❌ Error: No tools discovered at ${targetDisplay}.`);
+      console.error(`Please provide a valid MCP server or tool definition, or pass --demo for demonstration mode.\n`);
+      process.exitCode = 1;
+      return undefined;
     }
 
     if (options.ephemeralMock && !client) {
@@ -488,22 +310,45 @@ export async function checkCommand(
           });
     const durationMs = Date.now() - checkStartMs;
 
-    // Optional Cloud Telemetry Upload when TOOLVETO_TOKEN is configured
-    if (process.env.TOOLVETO_TOKEN) {
-      const apiUrl = (process.env.TOOLVETO_API_URL || 'https://api.toolveto.ai').replace(/\/+$/, '');
+    // Optional Cloud Telemetry Upload when TOOLVETO_TOKEN or ~/.toolveto/config.json is configured
+    let cloudToken = process.env.TOOLVETO_TOKEN || process.env.TOOLVETO_LICENSE_KEY || '';
+    let cloudApiUrl = process.env.TOOLVETO_API_URL || '';
+    if (!cloudToken) {
+      try {
+        const configPath = path.join(os.homedir(), '.toolveto', 'config.json');
+        if (fs.existsSync(configPath)) {
+          const savedCfg = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+          if (savedCfg && typeof savedCfg.token === 'string' && savedCfg.token.trim()) {
+            cloudToken = savedCfg.token.trim();
+          }
+          if (!cloudApiUrl && savedCfg && typeof savedCfg.apiUrl === 'string' && savedCfg.apiUrl.trim()) {
+            cloudApiUrl = savedCfg.apiUrl.trim();
+          }
+        }
+      } catch {
+        // Ignore config read errors
+      }
+    }
+    if (cloudToken && !options.noTelemetry && !isTelemetryDryRun(options)) {
+      const apiUrl = (cloudApiUrl || 'https://api.toolveto.ai').replace(/\/+$/, '');
       try {
         await fetch(`${apiUrl}/api/v1/audits`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${process.env.TOOLVETO_TOKEN}`,
+            Authorization: `Bearer ${cloudToken}`,
+            'X-ToolVeto-License': cloudToken,
           },
           body: JSON.stringify({
+            repo: summary.target,
             serverName: summary.target,
+            commitSha: process.env.GITHUB_SHA || process.env.CI_COMMIT_SHA || 'local',
             score: summary.score,
             tier: summary.tier,
+            vetoTriggered: Boolean(summary.fatalVetoTriggered),
             phi: summary.phi,
             results: summary.results,
+            summary,
           }),
         });
       } catch {
@@ -513,10 +358,63 @@ export async function checkCommand(
 
     if (options.json || options.format === 'json') {
       console.log(JSON.stringify(summary, null, 2));
+    } else if (options.format === 'sarif') {
+      const sarifReport = {
+        $schema: 'https://json.schemastore.org/sarif-2.1.0.json',
+        version: '2.1.0',
+        runs: [
+          {
+            tool: {
+              driver: {
+                name: 'ToolVeto',
+                informationUri: 'https://toolveto.ai',
+                version: '0.2.0',
+                rules: Array.from(new Map(summary.results.map((r) => [r.checkId, r])).values()).map((r) => ({
+                  id: r.checkId,
+                  name: `${r.dimension}-${r.checkId}`,
+                  shortDescription: { text: r.description },
+                  fullDescription: { text: r.description },
+                  defaultConfiguration: {
+                    level: r.severity === 'CRITICAL' || r.severity === 'HIGH' ? 'error' : 'warning',
+                  },
+                })),
+              },
+            },
+            results: summary.results
+              .filter((r) => r.status === 'FAIL' || r.status === 'WARN')
+              .map((r) => ({
+                ruleId: r.checkId,
+                level: r.status === 'FAIL' && (r.severity === 'CRITICAL' || r.severity === 'HIGH') ? 'error' : 'warning',
+                message: {
+                  text: `[${r.dimension}] Tool '${r.tool}': ${r.description} (Evidence: ${r.evidence.evidenceQuality})`,
+                },
+                locations: [
+                  {
+                    physicalLocation: {
+                      artifactLocation: {
+                        uri: summary.target.startsWith('http') ? 'mcp-tools.json' : summary.target,
+                      },
+                    },
+                  },
+                ],
+              })),
+          },
+        ],
+      };
+      console.log(JSON.stringify(sarifReport, null, 2));
     } else if (options.format === 'github-pr') {
       console.log(renderPRComment(summary));
     } else {
       console.log(formatTerminalReport(summary));
+      if (process.env.GITHUB_ACTIONS === 'true') {
+        for (const r of summary.results) {
+          if (r.status === 'FAIL') {
+            const level = r.severity === 'CRITICAL' || r.severity === 'HIGH' ? 'error' : 'warning';
+            const cleanMsg = `${r.description} (Evidence: ${r.evidence.evidenceQuality})`.replace(/\r?\n/g, ' ');
+            console.log(`::${level} title=${r.checkId} (${r.tool})::${cleanMsg}`);
+          }
+        }
+      }
     }
 
     // PLG Free CLI Run Telemetry + Trivy/Grype-style Version & Tier Update Checker
@@ -529,6 +427,7 @@ export async function checkCommand(
         format: options.format,
         noTelemetry: options.noTelemetry,
         skipUpdateCheck: options.skipUpdateCheck,
+        telemetryDryRun: options.telemetryDryRun,
       },
     });
 
@@ -562,7 +461,7 @@ export async function checkCommand(
       const minRank = severityRank[options.failOnSeverity.toUpperCase()];
       if (minRank) {
         const triggered = summary.results.some(
-          r => r.status === 'FAIL' && (severityRank[r.severity] || 0) >= minRank
+          (r) => r.status === 'FAIL' && (severityRank[r.severity] || 0) >= minRank
         );
         if (triggered) {
           process.exitCode = 1;

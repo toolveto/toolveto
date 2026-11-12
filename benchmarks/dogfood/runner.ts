@@ -3,7 +3,8 @@ import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import corePkg from '../../packages/core/dist/index.js';
 import { computeToolDefinitionHash, canonicalizeJson } from '../../packages/shield/dist/index.js';
-import { generateCedarPolicy, generateOpaRegoPolicy } from '../../packages/cli/src/commands/export-policy.ts';
+import exportPolicyPkg from '../../packages/cli/dist/src/commands/export-policy.js';
+const { generateCedarPolicy, generateOpaRegoPolicy } = exportPolicyPkg;
 const { runSuite } = corePkg;
 
 interface TargetConfig {

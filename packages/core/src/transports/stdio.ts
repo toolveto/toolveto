@@ -23,6 +23,7 @@ export class StdioMcpClient implements McpClient {
   private pendingRequests: Map<number, { resolve: (val: any) => void; reject: (err: any) => void }> = new Map();
   private rawResponseResolvers: Array<(msg: any) => void> = [];
   private nextId = 1;
+  private lastRequestId: number | undefined = undefined;
   private isInitialized = false;
   private stdoutReader: readline.Interface | null = null;
   private serverErrorLog: string[] = [];
@@ -165,19 +166,34 @@ export class StdioMcpClient implements McpClient {
       },
     });
     const tools = result?.tools || [];
-    return tools.map((t: any) => ({
-      name: t.name,
-      description: t.description || '',
-      inputSchema: t.inputSchema || { type: 'object', properties: {} },
-      outputSchema: t.outputSchema,
-      isMutation: t.isMutation ?? (!t.name.startsWith('get_') && !t.name.startsWith('list_') && !t.name.startsWith('search_') && !t.name.startsWith('read_')),
-      idempotentHint: t.idempotentHint,
-      readOnlyHint: t.readOnlyHint,
-      destructiveHint: t.destructiveHint,
-      openWorldHint: t.openWorldHint,
-      requiresApproval: Boolean(t.requiresApproval),
-      tasksSupported: Boolean(t.tasksSupported),
-    }));
+    return tools.map((t: any) => {
+      const readOnlyHint = t.annotations?.readOnlyHint ?? t.readOnlyHint;
+      const destructiveHint = t.annotations?.destructiveHint ?? t.destructiveHint;
+      const idempotentHint = t.annotations?.idempotentHint ?? t.idempotentHint;
+      const openWorldHint = t.annotations?.openWorldHint ?? t.openWorldHint;
+      const inferredMutation =
+        t.isMutation ??
+        (readOnlyHint === true
+          ? false
+          : destructiveHint === true ||
+            (!t.name.startsWith('get_') &&
+              !t.name.startsWith('list_') &&
+              !t.name.startsWith('search_') &&
+              !t.name.startsWith('read_')));
+      return {
+        name: t.name,
+        description: t.description || '',
+        inputSchema: t.inputSchema || { type: 'object', properties: {} },
+        outputSchema: t.outputSchema,
+        isMutation: inferredMutation,
+        idempotentHint,
+        readOnlyHint,
+        destructiveHint,
+        openWorldHint,
+        requiresApproval: Boolean(t.requiresApproval),
+        tasksSupported: Boolean(t.tasksSupported),
+      };
+    });
   }
 
   public async callTool(name: string, args: Record<string, any> = {}): Promise<McpCallResponse> {
@@ -237,6 +253,7 @@ export class StdioMcpClient implements McpClient {
       }
 
       const id = this.nextId++;
+      this.lastRequestId = id;
       const timer = setTimeout(() => {
         if (this.pendingRequests.has(id)) {
           this.pendingRequests.delete(id);
@@ -423,6 +440,10 @@ export class StdioMcpClient implements McpClient {
     } catch {
       return false;
     }
+  }
+
+  public getLastRequestId(): number | undefined {
+    return this.lastRequestId;
   }
 
   public async close(): Promise<void> {

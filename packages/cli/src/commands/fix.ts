@@ -53,6 +53,37 @@ function scanSourceFiles(dirOrFile: string): string[] {
   return results;
 }
 
+function insertAfterShebang(code: string, preambleLine: string): string {
+  if (code.startsWith('#!')) {
+    const nl = code.indexOf('\n');
+    if (nl === -1) return `${code}\n${preambleLine}`;
+    return `${code.slice(0, nl + 1)}${preambleLine}${code.slice(nl + 1)}`;
+  }
+  return `${preambleLine}${code}`;
+}
+
+function findMatchingClosingBrace(code: string, openBraceIndex: number): number {
+  let depth = 0;
+  let inSingle = false;
+  let inDouble = false;
+  let inTemplate = false;
+  for (let i = openBraceIndex; i < code.length; i++) {
+    const ch = code[i];
+    const prev = i > 0 ? code[i - 1] : '';
+    if (prev === '\\') continue;
+    if (!inDouble && !inTemplate && ch === "'") inSingle = !inSingle;
+    else if (!inSingle && !inTemplate && ch === '"') inDouble = !inDouble;
+    else if (!inSingle && !inDouble && ch === '`') inTemplate = !inTemplate;
+    if (inSingle || inDouble || inTemplate) continue;
+    if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
 function weaveImperativeHandlerGuard(
   filePath: string,
   source: string,
@@ -66,28 +97,54 @@ function weaveImperativeHandlerGuard(
   const wantDryRun = matchesCheckFilter(checkFilter, ['TC-DRYRUN-001']);
 
   if ((ext === '.ts' || ext === '.js') && !patched.includes('__toolvetoIdempotencyCache')) {
+    const isTs = ext === '.ts';
     const handlerRegex = /(async\s*\(\s*([a-zA-Z0-9_]+)(?:\s*:[^)]*)?\s*\)\s*=>\s*\{|async\s+function\s+[a-zA-Z0-9_]+\s*\(\s*([a-zA-Z0-9_]+)(?:\s*:[^)]*)?\s*\)\s*\{)/;
     const match = patched.match(handlerRegex);
-    if (match && (wantIdemp || wantDryRun)) {
+    if (match && match.index !== undefined && (wantIdemp || wantDryRun)) {
       const argName = match[2] || match[3] || 'args';
-      const cachePreamble = `const __toolvetoIdempotencyCache = new Map<string, unknown>();\n`;
+      const argExpr = isTs ? `(${argName} as Record<string, unknown>)` : argName;
+      const cachePreamble = isTs
+        ? `const __toolvetoIdempotencyCache = new Map<string, unknown>();\n`
+        : `const __toolvetoIdempotencyCache = new Map();\n`;
       const guardLines: string[] = [];
       if (wantDryRun) {
         guardLines.push(
-          `  if ((${argName} as Record<string, unknown>)?.dry_run === true) {`,
+          `  if (${argExpr}?.dry_run === true) {`,
           `    return { status: "DRY_RUN_VALIDATED", simulated: true };`,
           `  }`
         );
       }
       if (wantIdemp) {
         guardLines.push(
-          `  const __idempKey = String((${argName} as Record<string, unknown>)?.idempotencyKey ?? (${argName} as Record<string, unknown>)?.idempotency_key ?? "");`,
+          `  const __idempKey = String(${argExpr}?.idempotencyKey ?? ${argExpr}?.idempotency_key ?? "");`,
           `  if (__idempKey && __toolvetoIdempotencyCache.has(__idempKey)) {`,
           `    return __toolvetoIdempotencyCache.get(__idempKey);`,
           `  }`
         );
       }
-      patched = `${cachePreamble}${patched.replace(match[0], `${match[0]}\n${guardLines.join('\n')}`)}`;
+
+      const openBraceIdx = match.index + match[0].lastIndexOf('{');
+      const closeBraceIdx = findMatchingClosingBrace(patched, openBraceIdx);
+
+      if (wantIdemp && closeBraceIdx > openBraceIdx) {
+        const innerBody = patched.slice(openBraceIdx + 1, closeBraceIdx);
+        const wrappedBody = [
+          ...guardLines,
+          `  const __toolvetoExec = async () => {${innerBody}};`,
+          `  const __toolvetoResult = await __toolvetoExec();`,
+          `  if (__idempKey) __toolvetoIdempotencyCache.set(__idempKey, __toolvetoResult);`,
+          `  return __toolvetoResult;`,
+        ].join('\n');
+        patched =
+          patched.slice(0, openBraceIdx + 1) +
+          '\n' +
+          wrappedBody +
+          '\n' +
+          patched.slice(closeBraceIdx);
+      } else {
+        patched = patched.replace(match[0], `${match[0]}\n${guardLines.join('\n')}`);
+      }
+      patched = insertAfterShebang(patched, cachePreamble);
       appliedCount += guardLines.length + 1;
       diffHunks.push(`+${cachePreamble.trim()}`, ...guardLines.map((l) => `+${l}`));
     }
@@ -103,7 +160,12 @@ function weaveImperativeHandlerGuard(
         `    if _idemp_key and _idemp_key in _TOOLVETO_IDEMPOTENCY_CACHE:`,
         `        return _TOOLVETO_IDEMPOTENCY_CACHE[_idemp_key]`,
       ];
-      patched = `${cachePreamble}${patched.replace(defMatch[0], `${defMatch[0]}\n${guardLines.join('\n')}`)}`;
+      let bodyPatched = patched.replace(defMatch[0], `${defMatch[0]}\n${guardLines.join('\n')}`);
+      bodyPatched = bodyPatched.replace(
+        /^([ \t]{4})return\s+([^\n]+)$/m,
+        `$1_tv_res = $2\n$1if _idemp_key:\n$1    _TOOLVETO_IDEMPOTENCY_CACHE[_idemp_key] = _tv_res\n$1return _tv_res`
+      );
+      patched = insertAfterShebang(bodyPatched, cachePreamble);
       appliedCount += guardLines.length + 1;
       diffHunks.push(`+${cachePreamble.trim()}`, ...guardLines.map((l) => `+${l}`));
     }
@@ -117,7 +179,7 @@ function weaveImperativeHandlerGuard(
         `\t\t// Deduplicate replayed mutation`,
         `\t}`,
       ];
-      patched = `${cachePreamble}${patched.replace(funcMatch[0], `${funcMatch[0]}\n${guardLines.join('\n')}`)}`;
+      patched = patched.replace(funcMatch[0], `${cachePreamble}${funcMatch[0]}\n${guardLines.join('\n')}`);
       appliedCount += guardLines.length + 1;
       diffHunks.push(`+${cachePreamble.trim()}`, ...guardLines.map((l) => `+${l}`));
     }
@@ -172,7 +234,7 @@ export async function synthesizeHandlerPatchWithLlm(
         }
       }
     } else if ((providerPref === 'anthropic' || providerPref === 'auto') && anthropicKey) {
-      const model = options.model || 'claude-3-7-sonnet-latest';
+      const model = options.model || 'claude-sonnet-4-6';
       const res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
@@ -200,7 +262,7 @@ export async function synthesizeHandlerPatchWithLlm(
         }
       }
     } else if ((providerPref === 'openai' || providerPref === 'auto') && openaiKey) {
-      const model = options.model || 'gpt-4o';
+      const model = options.model || 'gpt-5.4';
       const res = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -229,7 +291,7 @@ export async function synthesizeHandlerPatchWithLlm(
         }
       }
     } else if ((providerPref === 'gemini' || providerPref === 'auto') && geminiKey) {
-      const model = options.model || 'gemini-2.5-pro';
+      const model = options.model || 'gemini-3.1-pro';
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`,
         {

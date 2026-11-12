@@ -976,4 +976,92 @@ describe('ToolVeto Shield Runtime Middleware', () => {
     const canonical = canonicalizeJson(cyclic);
     assert.ok(canonical.includes('[CIRCULAR]'));
   });
+
+  it('should support per-tool toolOverrides for loopLimit (circuit breaker), tokenBudget truncation, and lossless multi-page cursor pagination', async () => {
+    const mw = new ShieldMiddleware({
+      idempotency: true,
+      loopLimit: { count: 2, windowMs: 30_000 },
+      tokenBudget: 50, // default 50 tokens (200 chars)
+      toolOverrides: {
+        // Strict circuit breaker on charge_card (only 1 call allowed per window)
+        charge_card: {
+          loopLimit: { count: 1, windowMs: 30_000 },
+        },
+        // Polling tool disables loop breaker, idempotency caching, and token truncation
+        poll_job_status: {
+          loopLimit: false,
+          idempotency: false,
+          tokenBudget: false,
+        },
+        // Paginated list tool with custom 40-token (160-char) budget
+        list_audit_events: {
+          idempotency: false,
+          loopLimit: false,
+          tokenBudget: 40,
+        },
+      },
+    });
+
+    // 1. charge_card trips circuit breaker on the 2nd identical call (override count: 1)
+    const call1 = await mw.intercept(
+      { method: 'tools/call', params: { name: 'charge_card', arguments: { amount: 500 } } },
+      async () => ({ content: [{ type: 'text', text: 'ok' }] })
+    );
+    assert.ok(!call1.isError);
+    const call2 = await mw.intercept(
+      { method: 'tools/call', params: { name: 'charge_card', arguments: { amount: 500 } } },
+      async () => ({ content: [{ type: 'text', text: 'ok' }] })
+    );
+    assert.strictEqual(call2.isError, true);
+    assert.strictEqual(call2._shield?.loopChecked, true);
+
+    // 2. poll_job_status can be called 5 times without tripping loopLimit and returns >50 tokens untruncated
+    const longOutput = 'x'.repeat(600); // 150 tokens (> default 50 token budget)
+    let pollUpstreamCalls = 0;
+    for (let i = 0; i < 5; i++) {
+      const pollRes = await mw.intercept(
+        { method: 'tools/call', params: { name: 'poll_job_status', arguments: { jobId: 'job_1' } } },
+        async () => {
+          pollUpstreamCalls++;
+          return { content: [{ type: 'text', text: longOutput }] };
+        }
+      );
+      assert.ok(!pollRes.isError);
+      assert.ok(!pollRes._shield?.truncated);
+      assert.strictEqual(pollRes.content[0].text.length, 600);
+    }
+    assert.strictEqual(pollUpstreamCalls, 5, 'Polling tool with idempotency:false must invoke upstream every time');
+
+    // 3. list_audit_events truncates to custom 40-token budget and paginates all records losslessly via next_cursor
+    const allRecords = Array.from({ length: 12 }, (_, i) => ({ id: `evt_${i + 1}`, msg: `Audit event payload #${i + 1}` }));
+    let listUpstreamCalls = 0;
+    const collectedRecords: Array<{ id: string; msg: string }> = [];
+
+    let cursor: string | undefined = undefined;
+    let pagesFetched = 0;
+    do {
+      const pageRes = await mw.intercept(
+        {
+          method: 'tools/call',
+          params: {
+            name: 'list_audit_events',
+            arguments: cursor ? { cursor } : {},
+          },
+        },
+        async () => {
+          listUpstreamCalls++;
+          return { content: [{ type: 'text', text: JSON.stringify({ events: allRecords }) }] };
+        }
+      );
+      pagesFetched++;
+      const envelope = JSON.parse(pageRes.content[0].text);
+      assert.ok(Array.isArray(envelope.events));
+      collectedRecords.push(...envelope.events);
+      cursor = envelope.next_cursor;
+    } while (cursor && pagesFetched < 20);
+
+    assert.strictEqual(listUpstreamCalls, 1, 'Subsequent cursor pages must be served from Shield cursorStore without re-querying upstream');
+    assert.ok(pagesFetched >= 2, 'Should paginate across multiple pages');
+    assert.deepStrictEqual(collectedRecords, allRecords, 'All 12 records must be recovered losslessly across cursor pages');
+  });
 });

@@ -5,11 +5,11 @@
   "failed": 11,
   "warned": 13,
   "fatalVetoTriggered": true,
-  "fatalVetoCode": "VETO_NONE",
+  "fatalVetoCode": "VETO_IDEMP",
   "phi": 1,
   "score": 72,
-  "tier": "Bronze",
-  "durationMs": 9,
+  "tier": "Failed",
+  "durationMs": 6,
   "llmTokensUsed": 0,
   "dimensionalScores": {
     "D1": {
@@ -363,11 +363,8 @@
       "tool": "list_channels",
       "status": "PASS",
       "severity": "CRITICAL",
-      "description": "Idempotency key parameter found on 'list_channels'",
+      "description": "Read-only tool 'list_channels' requires no mutation replay deduplication",
       "evidence": {
-        "requestsSent": 5,
-        "mutationsCreated": 1,
-        "expectedMutations": 1,
         "evidenceQuality": "STATIC-ONLY"
       },
       "durationMs": 0
@@ -611,11 +608,8 @@
       "tool": "get_channel_history",
       "status": "PASS",
       "severity": "CRITICAL",
-      "description": "Idempotency key parameter found on 'get_channel_history'",
+      "description": "Read-only tool 'get_channel_history' requires no mutation replay deduplication",
       "evidence": {
-        "requestsSent": 5,
-        "mutationsCreated": 1,
-        "expectedMutations": 1,
         "evidenceQuality": "STATIC-ONLY"
       },
       "durationMs": 0
@@ -1172,19 +1166,19 @@
     }
   ],
   "statisticalConfidence": {
-    "n": 30,
+    "n": 69,
     "pointEstimate": 72,
     "confidenceInterval95": [
-      63,
-      82
+      64,
+      81
     ],
-    "certifiedLowerBound": 63
+    "certifiedLowerBound": 0
   },
   "aiuc1Compliance": {
     "AIUC-1 §4.2 Idempotency": "FAIL",
     "AIUC-1 §4.5 Error Guidance": "PASS",
     "AIUC-1 §5.1 Auth Model & Tenant Isolation": "PASS",
-    "AIUC-1 §6.3 Loop Protection": "PASS",
+    "AIUC-1 §6.3 Loop Protection": "WARN",
     "OWASP Agentic LLM01 Prompt Injection": "PASS",
     "OWASP Agentic LLM02 Sensitive Information Disclosure": "PASS"
   },
@@ -1193,9 +1187,10 @@
     "protocolVersion": "2025-03-26",
     "nodeVersion": "v26.5.0",
     "platform": "darwin",
-    "destructiveAuthorization": "false"
+    "destructiveAuthorization": "false",
+    "llmJudge": "disabled"
   },
-  "expiresAt": "2027-01-12T03:51:50.789Z",
+  "expiresAt": "2027-02-09T05:05:51.440Z",
   "perToolScorecard": {
     "post_message": {
       "score": 47,

@@ -184,5 +184,120 @@ describe('HttpMcpClient Streamable Transport', () => {
     });
     assert.strictEqual(rawNonJson.error.code, -32700);
   });
+
+  it('should support MCP Streamable HTTP text/event-stream SSE responses, Mcp-Session-Id propagation, and DELETE teardown', async () => {
+    let seenAccept = '';
+    let seenSessionIds: string[] = [];
+    let seenDeleteSessionId = '';
+
+    const sseServer = http.createServer((req, res) => {
+      if (req.method === 'DELETE') {
+        seenDeleteSessionId = String(req.headers['mcp-session-id'] || '');
+        res.writeHead(204).end();
+        return;
+      }
+
+      seenAccept = String(req.headers['accept'] || '');
+      let body = '';
+      req.on('data', (c) => { body += c; });
+      req.on('end', () => {
+        const msg = JSON.parse(body);
+        const incomingSid = String(req.headers['mcp-session-id'] || '');
+        if (incomingSid) seenSessionIds.push(incomingSid);
+
+        if (msg.id === undefined) {
+          res.writeHead(202, { 'Mcp-Session-Id': 'sess_stream_99' }).end();
+          return;
+        }
+
+        if (msg.method === 'initialize') {
+          res.writeHead(200, {
+            'Content-Type': 'text/event-stream',
+            'Mcp-Session-Id': 'sess_stream_99',
+          });
+          res.write(`event: message\ndata: ${JSON.stringify({
+            jsonrpc: '2.0',
+            id: msg.id,
+            result: {
+              protocolVersion: '2025-03-26',
+              capabilities: { tools: {} },
+              serverInfo: { name: 'sse-mcp', version: '1.0.0' },
+            },
+          })}\n\n`);
+          res.end();
+          return;
+        }
+
+        if (msg.method === 'tools/list') {
+          res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+          res.write(`event: message\ndata: ${JSON.stringify({
+            jsonrpc: '2.0',
+            id: msg.id,
+            result: {
+              tools: [
+                {
+                  name: 'streamed_mutate',
+                  description: 'Mutating tool over SSE with official MCP annotations',
+                  inputSchema: { type: 'object', properties: { amount: { type: 'number' } } },
+                  annotations: {
+                    readOnlyHint: false,
+                    destructiveHint: true,
+                    idempotentHint: true,
+                  },
+                },
+              ],
+            },
+          })}\n\n`);
+          res.end();
+          return;
+        }
+
+        if (msg.method === 'tools/call') {
+          res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+          res.write(`event: notification\ndata: ${JSON.stringify({
+            jsonrpc: '2.0',
+            method: 'notifications/progress',
+            params: { progress: 50 },
+          })}\n\n`);
+          res.write(`event: message\ndata: ${JSON.stringify({
+            jsonrpc: '2.0',
+            id: msg.id,
+            result: {
+              content: [{ type: 'text', text: 'streamed-ok' }],
+              isError: false,
+            },
+          })}\n\n`);
+          res.end();
+          return;
+        }
+      });
+    });
+
+    await new Promise<void>((resolve) => sseServer.listen(0, '127.0.0.1', () => resolve()));
+    const ssePort = (sseServer.address() as any).port;
+
+    try {
+      const client = new HttpMcpClient(`http://127.0.0.1:${ssePort}/mcp`);
+      await client.connect();
+      assert.ok(seenAccept.includes('application/json') && seenAccept.includes('text/event-stream'));
+      assert.strictEqual(client.getSessionId(), 'sess_stream_99');
+
+      const tools = await client.listTools();
+      assert.strictEqual(tools.length, 1);
+      assert.strictEqual(tools[0].name, 'streamed_mutate');
+      assert.strictEqual(tools[0].destructiveHint, true);
+      assert.strictEqual(tools[0].idempotentHint, true);
+      assert.strictEqual(tools[0].isMutation, true);
+
+      const callRes = await client.callTool('streamed_mutate', { amount: 42 });
+      assert.strictEqual(callRes.content[0].text, 'streamed-ok');
+      assert.ok(seenSessionIds.includes('sess_stream_99'));
+
+      await client.close();
+      assert.strictEqual(seenDeleteSessionId, 'sess_stream_99');
+    } finally {
+      await new Promise<void>((resolve) => sseServer.close(() => resolve()));
+    }
+  });
 });
 

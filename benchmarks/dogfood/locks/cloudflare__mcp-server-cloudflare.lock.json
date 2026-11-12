@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "generatedAt": "2026-10-14T03:51:50.733Z",
+  "generatedAt": "2026-11-11T05:05:51.432Z",
   "target": "cloudflare/mcp-server-cloudflare",
   "manifestHash": "sha256:9cf3ab1cc4b6f42b1b56bc92b8d9f5c95b06753591fce36ad13f368469a04d73",
   "tools": {

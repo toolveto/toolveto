@@ -184,12 +184,11 @@ export async function runSequentialReplayCheck(
     tool: tool.name,
     status: 'PASS',
     severity: 'CRITICAL',
-    description: `Idempotency key parameter found on '${tool.name}'`,
+    description: tool.isMutation
+      ? `Idempotency key parameter found on '${tool.name}'`
+      : `Read-only tool '${tool.name}' requires no mutation replay deduplication`,
     evidence: {
-      requestsSent: 5,
-      mutationsCreated: 1,
-      expectedMutations: 1,
-      evidenceQuality: client ? 'VERIFIED' : 'STATIC-ONLY',
+      evidenceQuality: 'STATIC-ONLY',
     },
     durationMs: Date.now() - startTime,
   };

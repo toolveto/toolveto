@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "generatedAt": "2026-10-14T03:51:50.810Z",
+  "generatedAt": "2026-11-11T05:05:51.447Z",
   "target": "supabase/mcp-server-supabase",
   "manifestHash": "sha256:240a4fd68a3b9126f618baf11bf016d5e5829fca872ab7043154b5c8f35645d2",
   "tools": {

@@ -5,11 +5,11 @@
   "failed": 10,
   "warned": 12,
   "fatalVetoTriggered": true,
-  "fatalVetoCode": "VETO_NONE",
+  "fatalVetoCode": "VETO_IDEMP",
   "phi": 1,
   "score": 74,
-  "tier": "Bronze",
-  "durationMs": 11,
+  "tier": "Failed",
+  "durationMs": 13,
   "llmTokensUsed": 0,
   "dimensionalScores": {
     "D1": {
@@ -349,11 +349,8 @@
       "tool": "get_issue",
       "status": "PASS",
       "severity": "CRITICAL",
-      "description": "Idempotency key parameter found on 'get_issue'",
+      "description": "Read-only tool 'get_issue' requires no mutation replay deduplication",
       "evidence": {
-        "requestsSent": 5,
-        "mutationsCreated": 1,
-        "expectedMutations": 1,
         "evidenceQuality": "STATIC-ONLY"
       },
       "durationMs": 0
@@ -580,11 +577,8 @@
       "tool": "list_pull_requests",
       "status": "PASS",
       "severity": "CRITICAL",
-      "description": "Idempotency key parameter found on 'list_pull_requests'",
+      "description": "Read-only tool 'list_pull_requests' requires no mutation replay deduplication",
       "evidence": {
-        "requestsSent": 5,
-        "mutationsCreated": 1,
-        "expectedMutations": 1,
         "evidenceQuality": "STATIC-ONLY"
       },
       "durationMs": 0
@@ -934,7 +928,7 @@
       "evidence": {
         "evidenceQuality": "STATIC-ONLY"
       },
-      "durationMs": 1
+      "durationMs": 0
     },
     {
       "checkId": "TC-FUZZ-002",
@@ -1154,13 +1148,13 @@
     }
   ],
   "statisticalConfidence": {
-    "n": 30,
+    "n": 69,
     "pointEstimate": 74,
     "confidenceInterval95": [
       64,
       84
     ],
-    "certifiedLowerBound": 64
+    "certifiedLowerBound": 0
   },
   "aiuc1Compliance": {
     "AIUC-1 §4.2 Idempotency": "FAIL",
@@ -1175,9 +1169,10 @@
     "protocolVersion": "2025-03-26",
     "nodeVersion": "v26.5.0",
     "platform": "darwin",
-    "destructiveAuthorization": "false"
+    "destructiveAuthorization": "false",
+    "llmJudge": "disabled"
   },
-  "expiresAt": "2027-01-12T03:51:50.745Z",
+  "expiresAt": "2027-02-09T05:05:51.428Z",
   "perToolScorecard": {
     "create_issue": {
       "score": 53,

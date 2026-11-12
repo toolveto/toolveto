@@ -15,14 +15,77 @@ export interface HttpMcpClientOptions {
   keepAlive?: boolean;
 }
 
+/**
+ * Parses either a standard `application/json` body or an MCP Streamable HTTP
+ * `text/event-stream` (SSE) payload into the matching JSON-RPC 2.0 response envelope.
+ */
+export function parseMcpStreamableBody(
+  contentType: string | null | undefined,
+  rawText: string,
+  expectedId?: number | string
+): any {
+  const trimmed = (rawText || '').trim();
+  if (!trimmed) return undefined;
+
+  const normalizedCt = (contentType || '').toLowerCase();
+  const looksLikeSse =
+    normalizedCt.includes('text/event-stream') ||
+    trimmed.startsWith('event:') ||
+    trimmed.startsWith('data:');
+
+  if (looksLikeSse) {
+    const blocks = trimmed.split(/\r?\n\r?\n/);
+    const messages: any[] = [];
+    for (const block of blocks) {
+      const lines = block.split(/\r?\n/);
+      const dataLines: string[] = [];
+      for (const line of lines) {
+        if (line.startsWith('data:')) {
+          dataLines.push(line.slice(5).trimStart());
+        }
+      }
+      if (dataLines.length > 0) {
+        const payloadStr = dataLines.join('\n').trim();
+        if (payloadStr && payloadStr !== '[DONE]') {
+          try {
+            const parsed = JSON.parse(payloadStr);
+            if (Array.isArray(parsed)) {
+              messages.push(...parsed);
+            } else {
+              messages.push(parsed);
+            }
+          } catch {
+            // Ignore malformed SSE comment/data frames
+          }
+        }
+      }
+    }
+
+    if (expectedId !== undefined) {
+      const exact = messages.find((m) => m && m.id === expectedId);
+      if (exact) return exact;
+    }
+    const rpcReply = messages.find((m) => m && ('result' in m || 'error' in m));
+    if (rpcReply) return rpcReply;
+    if (messages.length > 0) return messages[messages.length - 1];
+    throw new Error(`Unable to parse JSON-RPC message from SSE stream: ${trimmed.slice(0, 200)}`);
+  }
+
+  return JSON.parse(trimmed);
+}
+
 export class HttpMcpClient implements McpClient {
   private baseUrl: string;
   private headers: Record<string, string>;
   private timeoutMs: number;
   private keepAlive: boolean;
   private requestId = 1;
+  private lastRequestId: number | undefined = undefined;
+  private sessionId: string | undefined = undefined;
+  private negotiatedProtocolVersion: string | undefined = undefined;
   private protocolVersion: string = LATEST_MCP_PROTOCOL_VERSION;
   private capabilities: McpServerCapabilities = {};
+  private connected = false;
 
   constructor(options: HttpMcpClientOptions | string) {
     if (typeof options === 'string') {
@@ -38,7 +101,62 @@ export class HttpMcpClient implements McpClient {
     }
   }
 
+  private buildRequestHeaders(): Record<string, string> {
+    const reqHeaders: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Accept: 'application/json, text/event-stream',
+      Connection: this.keepAlive ? 'keep-alive' : 'close',
+      ...this.headers,
+    };
+    if (this.sessionId && !reqHeaders['Mcp-Session-Id'] && !reqHeaders['mcp-session-id']) {
+      reqHeaders['Mcp-Session-Id'] = this.sessionId;
+    }
+    if (
+      this.negotiatedProtocolVersion &&
+      !reqHeaders['Mcp-Protocol-Version'] &&
+      !reqHeaders['mcp-protocol-version']
+    ) {
+      reqHeaders['Mcp-Protocol-Version'] = this.negotiatedProtocolVersion;
+    }
+    return reqHeaders;
+  }
+
   public async connect(): Promise<void> {
+    if (this.connected) return;
+
+    // 1. Standard MCP Streamable HTTP Handshake (initialize + notifications/initialized)
+    try {
+      const initRes = await this.jsonRpcRequest('initialize', {
+        protocolVersion: '2025-03-26',
+        capabilities: {
+          tools: {},
+        },
+        clientInfo: {
+          name: 'toolveto-harness',
+          version: '0.2.0',
+        },
+      });
+      if (initRes?.protocolVersion) {
+        this.protocolVersion = initRes.protocolVersion;
+        this.negotiatedProtocolVersion = initRes.protocolVersion;
+      }
+      if (initRes?.capabilities) {
+        this.capabilities = initRes.capabilities;
+      }
+      await this.sendNotification('notifications/initialized').catch(() => {});
+      this.connected = true;
+      return;
+    } catch (initErr: any) {
+      // Only fall back to stateless server/discover if initialize is unsupported (-32601)
+      const isMethodNotFound =
+        initErr?.rpcCode === -32601 ||
+        String(initErr?.message || '').toLowerCase().includes('method not found');
+      if (!isMethodNotFound && initErr?.statusCode && initErr.statusCode >= 500) {
+        throw initErr;
+      }
+    }
+
+    // 2. Fallback to stateless server/discover or lightweight reachability check
     try {
       const res = await this.jsonRpcRequest('server/discover', {
         protocolVersion: this.protocolVersion,
@@ -52,14 +170,15 @@ export class HttpMcpClient implements McpClient {
       if (res?.capabilities) {
         this.capabilities = res.capabilities;
       }
+      this.connected = true;
     } catch {
-      // Ping base URL or /health to ensure remote server is reachable
       try {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), this.timeoutMs);
         const res = await fetch(this.baseUrl, {
           method: 'GET',
           headers: {
+            Accept: 'application/json, text/event-stream',
             Connection: this.keepAlive ? 'keep-alive' : 'close',
             ...this.headers,
           },
@@ -67,29 +186,26 @@ export class HttpMcpClient implements McpClient {
           signal: controller.signal,
         });
         clearTimeout(timer);
-        // Even if 404 or 405 on GET (since MCP is JSON-RPC POST), network connectivity is confirmed
         if (res.status >= 500) {
           throw new Error(`Remote MCP server returned HTTP ${res.status}`);
         }
-      } catch (err: any) {
-        // If GET failed, ignore if it's purely JSON-RPC POST
+      } catch {
+        // Ignore GET rejection if endpoint is strictly JSON-RPC POST
       }
+      this.connected = true;
     }
   }
 
   private async jsonRpcRequest(method: string, params: Record<string, any> = {}): Promise<any> {
     const id = this.requestId++;
+    this.lastRequestId = id;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
 
     try {
       const response = await fetch(this.baseUrl, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Connection: this.keepAlive ? 'keep-alive' : 'close',
-          ...this.headers,
-        },
+        headers: this.buildRequestHeaders(),
         keepalive: this.keepAlive,
         body: JSON.stringify({
           jsonrpc: '2.0',
@@ -102,14 +218,20 @@ export class HttpMcpClient implements McpClient {
 
       clearTimeout(timer);
 
+      const returnedSessionId =
+        response.headers.get('mcp-session-id') || response.headers.get('Mcp-Session-Id');
+      if (returnedSessionId) {
+        this.sessionId = returnedSessionId;
+      }
+
+      const rawText = await response.text();
       if (!response.ok) {
-        const text = await response.text();
-        const httpErr: any = new Error(`HTTP ${response.status}: ${text || response.statusText}`);
+        const httpErr: any = new Error(`HTTP ${response.status}: ${rawText || response.statusText}`);
         httpErr.statusCode = response.status;
         throw httpErr;
       }
 
-      const json = (await response.json()) as any;
+      const json = parseMcpStreamableBody(response.headers.get('content-type'), rawText, id);
       if (json && json.error) {
         const rpcErr: any = new Error(`JSON-RPC Error [${json.error.code}]: ${json.error.message}`);
         rpcErr.rpcCode = json.error.code;
@@ -123,7 +245,38 @@ export class HttpMcpClient implements McpClient {
     }
   }
 
+  public async sendNotification(method: string, params: Record<string, unknown> = {}): Promise<void> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      const response = await fetch(this.baseUrl, {
+        method: 'POST',
+        headers: this.buildRequestHeaders(),
+        keepalive: this.keepAlive,
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          method,
+          params,
+        }),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      const returnedSessionId =
+        response.headers.get('mcp-session-id') || response.headers.get('Mcp-Session-Id');
+      if (returnedSessionId) {
+        this.sessionId = returnedSessionId;
+      }
+      await response.text().catch(() => '');
+    } catch (err) {
+      clearTimeout(timer);
+      throw err;
+    }
+  }
+
   public async listTools(): Promise<McpToolDefinition[]> {
+    if (!this.connected) {
+      await this.connect();
+    }
     const result = await this.jsonRpcRequest('tools/list', {
       _meta: {
         protocolVersion: this.protocolVersion,
@@ -131,12 +284,42 @@ export class HttpMcpClient implements McpClient {
       },
     });
     if (result && Array.isArray(result.tools)) {
-      return result.tools;
+      return result.tools.map((t: any) => {
+        const readOnlyHint = t.annotations?.readOnlyHint ?? t.readOnlyHint;
+        const destructiveHint = t.annotations?.destructiveHint ?? t.destructiveHint;
+        const idempotentHint = t.annotations?.idempotentHint ?? t.idempotentHint;
+        const openWorldHint = t.annotations?.openWorldHint ?? t.openWorldHint;
+        const inferredMutation =
+          t.isMutation ??
+          (readOnlyHint === true
+            ? false
+            : destructiveHint === true ||
+              (!t.name.startsWith('get_') &&
+                !t.name.startsWith('list_') &&
+                !t.name.startsWith('search_') &&
+                !t.name.startsWith('read_')));
+        return {
+          name: t.name,
+          description: t.description || '',
+          inputSchema: t.inputSchema || { type: 'object', properties: {} },
+          outputSchema: t.outputSchema,
+          isMutation: inferredMutation,
+          idempotentHint,
+          readOnlyHint,
+          destructiveHint,
+          openWorldHint,
+          requiresApproval: Boolean(t.requiresApproval),
+          tasksSupported: Boolean(t.tasksSupported),
+        };
+      });
     }
     return [];
   }
 
   public async listResources(): Promise<McpResourceDefinition[]> {
+    if (!this.connected) {
+      await this.connect();
+    }
     try {
       const result = await this.jsonRpcRequest('resources/list', {
         _meta: {
@@ -151,6 +334,9 @@ export class HttpMcpClient implements McpClient {
   }
 
   public async readResource(uri: string): Promise<{ contents: Array<{ uri: string; text?: string; blob?: string }> }> {
+    if (!this.connected) {
+      await this.connect();
+    }
     const result = await this.jsonRpcRequest('resources/read', {
       uri,
       _meta: {
@@ -169,11 +355,7 @@ export class HttpMcpClient implements McpClient {
     try {
       const response = await fetch(this.baseUrl, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Connection: this.keepAlive ? 'keep-alive' : 'close',
-          ...this.headers,
-        },
+        headers: this.buildRequestHeaders(),
         keepalive: this.keepAlive,
         body: typeof rawJson === 'string' ? rawJson : JSON.stringify(rawJson),
         signal: controller.signal,
@@ -184,7 +366,7 @@ export class HttpMcpClient implements McpClient {
         return undefined;
       }
       try {
-        return JSON.parse(text);
+        return parseMcpStreamableBody(response.headers.get('content-type'), text);
       } catch {
         return {
           jsonrpc: '2.0',
@@ -201,6 +383,9 @@ export class HttpMcpClient implements McpClient {
   }
 
   public async callTool(name: string, args: Record<string, any>): Promise<McpCallResponse> {
+    if (!this.connected) {
+      await this.connect();
+    }
     try {
       const result = await this.jsonRpcRequest('tools/call', {
         name,
@@ -249,6 +434,14 @@ export class HttpMcpClient implements McpClient {
         content: [{ type: 'text', text: err.message || String(err) }],
       };
     }
+  }
+
+  public getLastRequestId(): number | undefined {
+    return this.lastRequestId;
+  }
+
+  public getSessionId(): string | undefined {
+    return this.sessionId;
   }
 
   public getProtocolVersion(): string {
@@ -317,7 +510,25 @@ export class HttpMcpClient implements McpClient {
   }
 
   public async close(): Promise<void> {
-    // HTTP is stateless
-    return Promise.resolve();
+    if (this.sessionId) {
+      const activeSession = this.sessionId;
+      this.sessionId = undefined;
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 2000);
+        await fetch(this.baseUrl, {
+          method: 'DELETE',
+          headers: {
+            ...this.headers,
+            'Mcp-Session-Id': activeSession,
+          },
+          signal: controller.signal,
+        });
+        clearTimeout(timer);
+      } catch {
+        // Ignore session teardown errors
+      }
+    }
+    this.connected = false;
   }
 }

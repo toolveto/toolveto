@@ -30,6 +30,7 @@ export interface CliCheckPayload {
   triggerEvent: string;
   orgHash: string;
   pipelineHash: string;
+  clusterUidHash?: string;
   authenticated: boolean;
   targetHash: string;
   runNumber: number;
@@ -70,6 +71,147 @@ export function isTelemetryDisabled(options?: { noTelemetry?: boolean; skipUpdat
   const tvTelDisabled = (process.env.TOOLVETO_TELEMETRY_DISABLED || '').trim().toLowerCase();
   if (tvTelDisabled === '1' || tvTelDisabled === 'true') return true;
   return false;
+}
+
+export function isTelemetryDryRun(options?: { telemetryDryRun?: boolean }): boolean {
+  if (options?.telemetryDryRun) return true;
+  const dryRunEnv = (process.env.TOOLVETO_TELEMETRY_DRY_RUN || '').trim().toLowerCase();
+  return dryRunEnv === '1' || dryRunEnv === 'true';
+}
+
+export function computeClusterUidHash(orgSeed: string): string {
+  const k8sHost = (process.env.KUBERNETES_SERVICE_HOST || '').trim();
+  const k8sPort = (process.env.KUBERNETES_SERVICE_PORT || '').trim();
+  const clusterOverride = (process.env.TOOLVETO_CLUSTER_ID || '').trim();
+  const hostSeed = clusterOverride || (k8sHost ? `k8s:${k8sHost}:${k8sPort}` : `host:${os.hostname()}`);
+  return `clu_${crypto.createHash('sha256').update(`${hostSeed}|${orgSeed}`).digest('hex').slice(0, 12)}`;
+}
+
+export interface OfflineLicenseLifecycle {
+  runtimeAllowed: true;
+  attestationValid: boolean;
+  clusterBindingMatch: boolean;
+  state: 'VALID' | 'EXPIRING_SOON' | 'GRACE_PERIOD' | 'EXPIRED_FAIL_OPEN' | 'CLUSTER_MISMATCH_WARN' | 'UNCONFIGURED';
+  daysRemaining?: number;
+  graceHoursRemaining?: number;
+  watermark?: 'UNATTESTED_LICENSE_EXPIRED' | 'CLUSTER_BINDING_MISMATCH';
+  warningBanner?: string;
+}
+
+/**
+ * Evaluates offline / air-gapped enterprise license lifecycle locally without network egress.
+ * CRITICAL INVARIANT: `runtimeAllowed` is ALWAYS `true` so production MCP traffic and local CI
+ * checks NEVER stop working due to license expiration; expiry only triggers warnings, OTel
+ * renewal alerts, and unattested JWS watermarks.
+ */
+export function evaluateOfflineLicenseLifecycle(
+  token?: string,
+  nowMs: number = Date.now(),
+  currentClusterHash?: string
+): OfflineLicenseLifecycle {
+  const raw = (token || '').trim();
+  if (!raw || (!raw.startsWith('tv_ent_') && !raw.startsWith('tv_live_'))) {
+    return {
+      runtimeAllowed: true,
+      attestationValid: false,
+      clusterBindingMatch: true,
+      state: 'UNCONFIGURED',
+    };
+  }
+
+  try {
+    let payloadB64 = '';
+    if (raw.startsWith('tv_ent_')) {
+      const parts = raw.slice('tv_ent_'.length).split('.');
+      if (parts.length !== 3 || !parts[1]) {
+        return { runtimeAllowed: true, attestationValid: false, clusterBindingMatch: true, state: 'UNCONFIGURED' };
+      }
+      payloadB64 = parts[1];
+    } else {
+      const parts = raw.slice('tv_live_'.length).split('.');
+      if (parts.length !== 2 || !parts[0]) {
+        return { runtimeAllowed: true, attestationValid: false, clusterBindingMatch: true, state: 'UNCONFIGURED' };
+      }
+      payloadB64 = parts[0];
+    }
+
+    const claims = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf-8')) as Record<string, any>;
+    if (!claims || typeof claims.exp !== 'number') {
+      return { runtimeAllowed: true, attestationValid: false, clusterBindingMatch: true, state: 'UNCONFIGURED' };
+    }
+
+    const allowedCluster = typeof claims.allowedClusterHash === 'string' ? claims.allowedClusterHash.trim() : '';
+    const clusterBindingMatch = !allowedCluster || !currentClusterHash || allowedCluster === currentClusterHash;
+
+    const msRemaining = claims.exp - nowMs;
+    const daysRemaining = Math.ceil(msRemaining / 86_400_000);
+    const defaultGrace = claims.environment === 'airgapped-vpc' ? 720 : claims.tier === 'ENTERPRISE' ? 72 : 0;
+    const graceHours = typeof claims.gracePeriodHours === 'number' ? claims.gracePeriodHours : defaultGrace;
+    const graceDeadline = claims.exp + graceHours * 3_600_000;
+
+    if (!clusterBindingMatch) {
+      return {
+        runtimeAllowed: true,
+        attestationValid: false,
+        clusterBindingMatch: false,
+        state: 'CLUSTER_MISMATCH_WARN',
+        daysRemaining,
+        watermark: 'CLUSTER_BINDING_MISMATCH',
+        warningBanner: `License bound to cluster ${allowedCluster} (current: ${currentClusterHash}). Runtime stays active; contact billing@toolveto.ai for multi-cluster entitlement.`,
+      };
+    }
+
+    if (nowMs <= claims.exp) {
+      if (daysRemaining <= 30) {
+        return {
+          runtimeAllowed: true,
+          attestationValid: true,
+          clusterBindingMatch: true,
+          state: 'EXPIRING_SOON',
+          daysRemaining,
+          warningBanner: `Enterprise license (${claims.contractId || claims.sub}) renews in ${daysRemaining}d. Air-gapped runtime stays active (${graceHours}h fail-open grace).`,
+        };
+      }
+      return {
+        runtimeAllowed: true,
+        attestationValid: true,
+        clusterBindingMatch: true,
+        state: 'VALID',
+        daysRemaining,
+      };
+    }
+
+    if (nowMs <= graceDeadline) {
+      const graceHoursRemaining = Math.max(1, Math.ceil((graceDeadline - nowMs) / 3_600_000));
+      return {
+        runtimeAllowed: true,
+        attestationValid: true,
+        clusterBindingMatch: true,
+        state: 'GRACE_PERIOD',
+        daysRemaining: 0,
+        graceHoursRemaining,
+        warningBanner: `License expired; operating in ${graceHours}h fail-open renewal grace (${graceHoursRemaining}h left). Production Shield & CI remain 100% active.`,
+      };
+    }
+
+    return {
+      runtimeAllowed: true,
+      attestationValid: false,
+      clusterBindingMatch: true,
+      state: 'EXPIRED_FAIL_OPEN',
+      daysRemaining,
+      graceHoursRemaining: 0,
+      watermark: 'UNATTESTED_LICENSE_EXPIRED',
+      warningBanner: `License & ${graceHours}h grace elapsed. Fail-open safety active: runtime Shield NEVER blocks prod traffic, but JWS evidence packets carry UNATTESTED_LICENSE_EXPIRED.`,
+    };
+  } catch {
+    return {
+      runtimeAllowed: true,
+      attestationValid: false,
+      clusterBindingMatch: true,
+      state: 'UNCONFIGURED',
+    };
+  }
 }
 
 export function isUpdateCheckDisabled(options?: { skipUpdateCheck?: boolean; json?: boolean; format?: string }): boolean {
@@ -459,6 +601,7 @@ export async function runPlgTelemetryAndUpdateCheck(params: {
     format?: string;
     noTelemetry?: boolean;
     skipUpdateCheck?: boolean;
+    telemetryDryRun?: boolean;
     customHomeDir?: string;
     apiUrl?: string;
   };
@@ -467,6 +610,8 @@ export async function runPlgTelemetryAndUpdateCheck(params: {
   updateAvailable: boolean;
   latestVersion?: string;
   noticeText?: string;
+  dryRunOutput?: string;
+  licenseLifecycle?: OfflineLicenseLifecycle;
   payload?: CliCheckPayload;
 }> {
   const { state, statePath } = getOrCreateCliState(params.options?.customHomeDir);
@@ -482,7 +627,8 @@ export async function runPlgTelemetryAndUpdateCheck(params: {
   // Check if user is authenticated via env or ~/.toolveto/config.json
   const home = params.options?.customHomeDir || process.env.HOME || os.homedir();
   const configPath = path.join(home, '.toolveto', 'config.json');
-  const authenticated = Boolean(process.env.TOOLVETO_TOKEN || fs.existsSync(configPath));
+  const activeLicenseToken = (process.env.TOOLVETO_TOKEN || process.env.TOOLVETO_LICENSE_KEY || '').trim();
+  const authenticated = Boolean(activeLicenseToken || fs.existsSync(configPath));
 
   const ciInfo = detectCiProvider();
   const gitRemote = resolveGitRemoteIdentity();
@@ -492,6 +638,8 @@ export async function runPlgTelemetryAndUpdateCheck(params: {
   const orgHash = `org_${crypto.createHash('sha256').update(orgSeed).digest('hex').slice(0, 14)}`;
   const pipelineSeed = ciInfo.ciPipelineIdentity || canonicalTarget;
   const pipelineHash = `pipe_${crypto.createHash('sha256').update(pipelineSeed).digest('hex').slice(0, 14)}`;
+  const clusterUidHash = computeClusterUidHash(orgSeed);
+  const licenseLifecycle = evaluateOfflineLicenseLifecycle(activeLicenseToken, Date.now(), clusterUidHash);
 
   const failedResults = params.summary.results.filter((r) => r.status === 'FAIL');
   const passedCount = params.summary.results.filter((r) => r.status === 'PASS').length;
@@ -527,6 +675,7 @@ export async function runPlgTelemetryAndUpdateCheck(params: {
     triggerEvent: ciInfo.triggerEvent,
     orgHash,
     pipelineHash,
+    clusterUidHash,
     authenticated,
     targetHash,
     runNumber: state.totalRuns,
@@ -545,9 +694,28 @@ export async function runPlgTelemetryAndUpdateCheck(params: {
     durationMs: Math.max(1, Math.round(params.durationMs)),
   };
 
+  if (licenseLifecycle.warningBanner) {
+    console.error(`\n⚠️  [ToolVeto License Lifecycle] ${licenseLifecycle.warningBanner}`);
+  }
+
+  // Zero-"Trust-Me-Bro" Outbound Proof Mode: print exact payload to stderr and guarantee 0 network sockets
+  if (isTelemetryDryRun(params.options)) {
+    saveCliState(state, statePath);
+    const dryRunOutput = `[ToolVeto Telemetry Dry-Run — 0 network bytes sent]\n${JSON.stringify(payload, null, 2)}`;
+    console.error(`\n${dryRunOutput}\n`);
+    return {
+      telemetrySent: false,
+      updateAvailable: false,
+      latestVersion: state.latestKnownVersion,
+      dryRunOutput,
+      licenseLifecycle,
+      payload,
+    };
+  }
+
   let telemetrySent = false;
   let latestVersion = state.latestKnownVersion;
-  let latestCorpusVersion = 'v1.1';
+  let latestCorpusVersion = 'v2.4';
 
   // 1. Send anonymous CLI run stats if not opted out
   if (!isTelemetryDisabled(params.options)) {
@@ -628,6 +796,7 @@ export async function runPlgTelemetryAndUpdateCheck(params: {
     updateAvailable,
     latestVersion,
     noticeText,
+    licenseLifecycle,
     payload,
   };
 }

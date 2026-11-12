@@ -1,62 +1,49 @@
-import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { McpToolDefinition } from '@toolveto/core';
+import { computeToolDefinitionHash } from '@toolveto/shield';
+import { discoverToolsFromTarget } from '../discovery.js';
 
 export interface ExportPolicyOptions {
   format?: 'cedar' | 'opa' | 'weaveproof' | 'weaveproof-genome' | string;
   output?: string;
   demo?: boolean;
+  allowExec?: boolean;
 }
 
-function loadToolsForPolicy(resolvedTarget: string, demo = false): McpToolDefinition[] {
-  let tools: McpToolDefinition[] = [];
-  if (fs.existsSync(resolvedTarget)) {
-    const stat = fs.statSync(resolvedTarget);
-    if (stat.isFile() && resolvedTarget.endsWith('.json')) {
-      const parsed = JSON.parse(fs.readFileSync(resolvedTarget, 'utf-8'));
-      tools = Array.isArray(parsed) ? parsed : parsed.tools || [];
-    } else if (stat.isDirectory()) {
-      for (const candidate of ['tools.json', 'mcp.json', 'schema.json']) {
-        const full = path.join(resolvedTarget, candidate);
-        if (fs.existsSync(full)) {
-          const parsed = JSON.parse(fs.readFileSync(full, 'utf-8'));
-          tools = Array.isArray(parsed) ? parsed : parsed.tools || [];
-          break;
-        }
-      }
-    }
-  }
+const DEMO_POLICY_TOOLS: McpToolDefinition[] = [
+  {
+    name: 'get_invoice',
+    description: 'Reads customer invoice by ID',
+    isMutation: false,
+    readOnlyHint: true,
+    inputSchema: { type: 'object', properties: { invoice_id: { type: 'string' } } },
+  },
+  {
+    name: 'create_payment',
+    description: 'Creates a payment transaction',
+    isMutation: true,
+    idempotentHint: true,
+    inputSchema: {
+      type: 'object',
+      properties: { amount: { type: 'number' }, idempotency_key: { type: 'string' } },
+    },
+  },
+  {
+    name: 'delete_customer_account',
+    description: 'Permanently deletes customer account',
+    isMutation: true,
+    destructiveHint: true,
+    inputSchema: { type: 'object', properties: { customer_id: { type: 'string' } } },
+  },
+];
 
-  if (tools.length === 0 && demo) {
-    tools = [
-      {
-        name: 'get_invoice',
-        description: 'Reads customer invoice by ID',
-        isMutation: false,
-        readOnlyHint: true,
-        inputSchema: { type: 'object', properties: { invoice_id: { type: 'string' } } },
-      },
-      {
-        name: 'create_payment',
-        description: 'Creates a payment transaction',
-        isMutation: true,
-        idempotentHint: true,
-        inputSchema: {
-          type: 'object',
-          properties: { amount: { type: 'number' }, idempotency_key: { type: 'string' } },
-        },
-      },
-      {
-        name: 'delete_customer_account',
-        description: 'Permanently deletes customer account',
-        isMutation: true,
-        destructiveHint: true,
-        inputSchema: { type: 'object', properties: { customer_id: { type: 'string' } } },
-      },
-    ];
-  }
-  return tools;
+function escapeCedarString(val: string): string {
+  return String(val)
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\r/g, '\\r')
+    .replace(/\n/g, '\\n');
 }
 
 function isDestructiveTool(tool: McpToolDefinition): boolean {
@@ -83,32 +70,33 @@ export function generateCedarPolicy(tools: McpToolDefinition[]): string {
   for (const tool of tools) {
     const destructive = isDestructiveTool(tool);
     const readOnly = isReadOnlyTool(tool);
+    const safeName = escapeCedarString(tool.name);
 
     if (destructive) {
       blocks.push(`
-// Tool '${tool.name}' (Destructive Mutation — requires human approval)
+// Tool '${safeName}' (Destructive Mutation — requires human approval)
 forbid (
   principal,
   action == Action::"tools/call",
-  resource == Tool::"${tool.name}"
+  resource == Tool::"${safeName}"
 ) unless {
   context.humanApproved == true
 };`);
     } else if (readOnly) {
       blocks.push(`
-// Tool '${tool.name}' (Read-Only Query — safe for autonomous execution)
+// Tool '${safeName}' (Read-Only Query — safe for autonomous execution)
 permit (
   principal,
   action == Action::"tools/call",
-  resource == Tool::"${tool.name}"
+  resource == Tool::"${safeName}"
 );`);
     } else {
       blocks.push(`
-// Tool '${tool.name}' (State Mutation — requires idempotency key)
+// Tool '${safeName}' (State Mutation — requires idempotency key)
 permit (
   principal,
   action == Action::"tools/call",
-  resource == Tool::"${tool.name}"
+  resource == Tool::"${safeName}"
 ) when {
   context.hasIdempotencyKey == true
 };`);
@@ -174,42 +162,44 @@ export function generateWeaveProofCedarPolicy(tools: McpToolDefinition[]): strin
     const destructive = isDestructiveTool(tool);
     const readOnly = isReadOnlyTool(tool);
     const lower = tool.name.toLowerCase();
+    const safeName = escapeCedarString(tool.name);
+    const safeIdSlug = lower.replace(/[^a-z0-9]/g, '-');
     const isFinancial = ['payment', 'refund', 'credit', 'invoice', 'transfer', 'charge', 'journal'].some((k) =>
       lower.includes(k)
     );
 
     if (destructive) {
       blocks.push(`
-// Tool '${tool.name}' (Destructive Mutation — 2-of-2 Dual-Quorum SOX/SOC2 HITL)
-@id("tv-wp-quorum-${lower.replace(/[^a-z0-9]/g, '-')}")
+// Tool '${safeName}' (Destructive Mutation — 2-of-2 Dual-Quorum SOX/SOC2 HITL)
+@id("tv-wp-quorum-${safeIdSlug}")
 @approval(quorum=2, roles=["security_admin", "controller"], min_dwell_ms=800)
 permit (
   principal,
   action == Action::"tools/call",
-  resource == Tool::"${tool.name}"
+  resource == Tool::"${safeName}"
 ) when {
   context.humanApproved == true
 };`);
     } else if (isFinancial || !readOnly) {
       blocks.push(`
-// Tool '${tool.name}' (Financial / State Mutation — CRM-Hydrated @clamp + Idempotency)
-@id("tv-wp-clamp-${lower.replace(/[^a-z0-9]/g, '-')}")
+// Tool '${safeName}' (Financial / State Mutation — CRM-Hydrated @clamp + Idempotency)
+@id("tv-wp-clamp-${safeIdSlug}")
 @clamp(field="amount", limit=250000, currency="USD")
 permit (
   principal,
   action == Action::"tools/call",
-  resource == Tool::"${tool.name}"
+  resource == Tool::"${safeName}"
 ) when {
   context.hasIdempotencyKey == true && !context.session_taint.contains("UNTRUSTED_EXTERNAL_INGEST")
 };`);
     } else {
       blocks.push(`
-// Tool '${tool.name}' (Read-Only Query — Dynamic Tool Slicer Permitted)
-@id("tv-wp-readonly-${lower.replace(/[^a-z0-9]/g, '-')}")
+// Tool '${safeName}' (Read-Only Query — Dynamic Tool Slicer Permitted)
+@id("tv-wp-readonly-${safeIdSlug}")
 permit (
   principal,
   action == Action::"tools/call",
-  resource == Tool::"${tool.name}"
+  resource == Tool::"${safeName}"
 );`);
     }
   }
@@ -225,19 +215,19 @@ export function generateWeaveProofGenomeManifest(tools: McpToolDefinition[]): st
     const isFinancial = ['payment', 'refund', 'credit', 'invoice', 'transfer', 'charge', 'journal'].some((k) =>
       lower.includes(k)
     );
-    const canonicalString = `${tool.name}||${tool.description || ''}||${JSON.stringify(tool.inputSchema || {})}`;
-    const sha256Hash = crypto.createHash('sha256').update(canonicalString).digest('hex');
+    const rawHash = computeToolDefinitionHash(tool as any);
+    const canonicalSha256 = rawHash.startsWith('sha256:') ? rawHash : `sha256:${rawHash}`;
 
     return {
       toolName: tool.name,
-      canonicalSha256: `sha256:${sha256Hash}`,
-      pinningFormula: 'SHA256(name || description || inputSchema)',
+      canonicalSha256,
+      pinningFormula: 'RFC8785-SHA256(normalizedToolDefinition)',
       failureCodeOnMismatch: -32004,
       riskTier: destructive
         ? 'DUAL_QUORUM_2OF2_ED25519'
         : isFinancial || !readOnly
-        ? 'SUPERVISED_HOLD_VFENCE'
-        : 'AUTO_PERMITTED_READ',
+          ? 'SUPERVISED_HOLD_VFENCE'
+          : 'AUTO_PERMITTED_READ',
       contextSlicingEligible: readOnly && !destructive,
       requiresMonotonicLeaseFence: !readOnly || destructive,
       requiresIdempotencyKey: !readOnly || destructive,
@@ -263,12 +253,26 @@ export async function exportPolicyCommand(
   targetPath?: string,
   options: ExportPolicyOptions = {}
 ): Promise<void> {
-  const resolvedTarget = path.resolve(process.cwd(), targetPath || '.');
+  const target = targetPath || '.';
   const format = (options.format || 'cedar').toLowerCase();
-  const tools = loadToolsForPolicy(resolvedTarget, options.demo);
+
+  let tools: McpToolDefinition[] = [];
+  try {
+    const discovered = await discoverToolsFromTarget(target, {
+      demo: options.demo,
+      allowExec: options.allowExec,
+      demoFallbackTools: DEMO_POLICY_TOOLS,
+      keepClientOpen: false,
+    });
+    tools = discovered.tools;
+  } catch (err: any) {
+    console.error(`\n❌ Error discovering tools at '${target}': ${err.message}`);
+    process.exitCode = 1;
+    return;
+  }
 
   if (tools.length === 0) {
-    console.error(`\n❌ Error: No tools discovered at '${targetPath || '.'}' for policy generation.`);
+    console.error(`\n❌ Error: No tools discovered at '${target}' for policy generation.`);
     process.exitCode = 1;
     return;
   }
@@ -277,13 +281,14 @@ export async function exportPolicyCommand(
     format === 'opa' || format === 'rego'
       ? generateOpaRegoPolicy(tools)
       : format === 'weaveproof-genome' || format === 'genome'
-      ? generateWeaveProofGenomeManifest(tools)
-      : format === 'weaveproof'
-      ? generateWeaveProofCedarPolicy(tools)
-      : generateCedarPolicy(tools);
+        ? generateWeaveProofGenomeManifest(tools)
+        : format === 'weaveproof'
+          ? generateWeaveProofCedarPolicy(tools)
+          : generateCedarPolicy(tools);
 
   if (options.output) {
     const outPath = path.resolve(process.cwd(), options.output);
+    fs.mkdirSync(path.dirname(outPath), { recursive: true });
     fs.writeFileSync(outPath, policyText, 'utf-8');
     console.log(`\n✅ Exported ${format.toUpperCase()} least-privilege policy to ${outPath}`);
     console.log(

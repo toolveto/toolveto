@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "generatedAt": "2026-10-14T03:51:50.800Z",
+  "generatedAt": "2026-11-11T05:05:51.446Z",
   "target": "stripe/agent-toolkit",
   "manifestHash": "sha256:276056481985cda1db397905dc8a56f0ea2e8f8564dc51cb6b7c90fc5d57e721",
   "tools": {

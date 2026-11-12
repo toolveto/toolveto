@@ -4,8 +4,22 @@
   "description": "ToolVeto Shield — Runtime Idempotency Deduplication, Loop Protection, and Token Budgeting Middleware for MCP Servers",
   "license": "Apache-2.0",
   "main": "./dist/index.js",
-  "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./stores/redis": {
+      "types": "./dist/stores/redis.d.ts",
+      "default": "./dist/stores/redis.js"
+    },
+    "./stores/postgres": {
+      "types": "./dist/stores/postgres.d.ts",
+      "default": "./dist/stores/postgres.js"
+    },
+    "./package.json": "./package.json"
+  },
   "files": [
     "dist"
   ],
@@ -18,6 +32,8 @@
   },
   "devDependencies": {
     "@types/node": "^22.13.1",
+    "@types/pg": "8.16.0",
+    "pg": "8.20.0",
     "typescript": "^5.7.3"
   },
   "dependencies": {

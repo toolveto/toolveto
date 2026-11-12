@@ -5,11 +5,11 @@
   "failed": 15,
   "warned": 14,
   "fatalVetoTriggered": true,
-  "fatalVetoCode": "VETO_NONE",
+  "fatalVetoCode": "VETO_IDEMP",
   "phi": 1,
   "score": 64,
-  "tier": "Bronze",
-  "durationMs": 13,
+  "tier": "Failed",
+  "durationMs": 12,
   "llmTokensUsed": 0,
   "dimensionalScores": {
     "D1": {
@@ -173,7 +173,7 @@
           }
         ]
       },
-      "durationMs": 1
+      "durationMs": 0
     },
     {
       "checkId": "TC-ERR-001",
@@ -681,11 +681,8 @@
       "tool": "list_dns_records",
       "status": "PASS",
       "severity": "CRITICAL",
-      "description": "Idempotency key parameter found on 'list_dns_records'",
+      "description": "Read-only tool 'list_dns_records' requires no mutation replay deduplication",
       "evidence": {
-        "requestsSent": 5,
-        "mutationsCreated": 1,
-        "expectedMutations": 1,
         "evidenceQuality": "STATIC-ONLY"
       },
       "durationMs": 0
@@ -1241,13 +1238,13 @@
     }
   ],
   "statisticalConfidence": {
-    "n": 30,
+    "n": 69,
     "pointEstimate": 64,
     "confidenceInterval95": [
-      55,
-      73
+      54,
+      75
     ],
-    "certifiedLowerBound": 55
+    "certifiedLowerBound": 0
   },
   "aiuc1Compliance": {
     "AIUC-1 §4.2 Idempotency": "FAIL",
@@ -1262,9 +1259,10 @@
     "protocolVersion": "2025-03-26",
     "nodeVersion": "v26.5.0",
     "platform": "darwin",
-    "destructiveAuthorization": "false"
+    "destructiveAuthorization": "false",
+    "llmJudge": "disabled"
   },
-  "expiresAt": "2027-01-12T03:51:50.733Z",
+  "expiresAt": "2027-02-09T05:05:51.427Z",
   "perToolScorecard": {
     "deploy_worker": {
       "score": 47,

@@ -5,6 +5,16 @@
   "license": "BSL-1.1",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "toolveto-gateway": "./dist/bin.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
   "files": [
     "dist"
   ],
@@ -12,15 +22,17 @@
     "build": "tsc -b",
     "clean": "rm -rf dist tsconfig.tsbuildinfo",
     "lint": "tsc --noEmit",
-    "start": "node dist/index.js",
+    "start": "node dist/bin.js",
     "test": "node --test dist/**/*.test.js",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@toolveto/core": "workspace:*",
     "@toolveto/shield": "workspace:*",
-    "@toolveto/core": "workspace:*"
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
     "@types/node": "^22.13.1",
     "typescript": "^5.7.3"
   }

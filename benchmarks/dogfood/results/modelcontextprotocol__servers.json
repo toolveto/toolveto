@@ -5,11 +5,11 @@
   "failed": 10,
   "warned": 14,
   "fatalVetoTriggered": true,
-  "fatalVetoCode": "VETO_NONE",
+  "fatalVetoCode": "VETO_IDEMP",
   "phi": 1,
   "score": 79,
-  "tier": "Silver",
-  "durationMs": 11,
+  "tier": "Failed",
+  "durationMs": 5,
   "llmTokensUsed": 0,
   "dimensionalScores": {
     "D1": {
@@ -45,11 +45,8 @@
       "tool": "fetch",
       "status": "PASS",
       "severity": "CRITICAL",
-      "description": "Idempotency key parameter found on 'fetch'",
+      "description": "Read-only tool 'fetch' requires no mutation replay deduplication",
       "evidence": {
-        "requestsSent": 5,
-        "mutationsCreated": 1,
-        "expectedMutations": 1,
         "evidenceQuality": "STATIC-ONLY"
       },
       "durationMs": 0
@@ -122,7 +119,7 @@
           }
         ]
       },
-      "durationMs": 0
+      "durationMs": 1
     },
     {
       "checkId": "TC-ERR-001",
@@ -276,11 +273,8 @@
       "tool": "filesystem_read_file",
       "status": "PASS",
       "severity": "CRITICAL",
-      "description": "Idempotency key parameter found on 'filesystem_read_file'",
+      "description": "Read-only tool 'filesystem_read_file' requires no mutation replay deduplication",
       "evidence": {
-        "requestsSent": 5,
-        "mutationsCreated": 1,
-        "expectedMutations": 1,
         "evidenceQuality": "STATIC-ONLY"
       },
       "durationMs": 0
@@ -1143,11 +1137,8 @@
       "tool": "git_status",
       "status": "PASS",
       "severity": "CRITICAL",
-      "description": "Idempotency key parameter found on 'git_status'",
+      "description": "Read-only tool 'git_status' requires no mutation replay deduplication",
       "evidence": {
-        "requestsSent": 5,
-        "mutationsCreated": 1,
-        "expectedMutations": 1,
         "evidenceQuality": "STATIC-ONLY"
       },
       "durationMs": 0
@@ -1382,13 +1373,13 @@
     }
   ],
   "statisticalConfidence": {
-    "n": 30,
+    "n": 86,
     "pointEstimate": 79,
     "confidenceInterval95": [
       70,
-      86
+      87
     ],
-    "certifiedLowerBound": 70
+    "certifiedLowerBound": 0
   },
   "aiuc1Compliance": {
     "AIUC-1 §4.2 Idempotency": "FAIL",
@@ -1403,9 +1394,10 @@
     "protocolVersion": "2025-03-26",
     "nodeVersion": "v26.5.0",
     "platform": "darwin",
-    "destructiveAuthorization": "false"
+    "destructiveAuthorization": "false",
+    "llmJudge": "disabled"
   },
-  "expiresAt": "2027-01-12T03:51:50.768Z",
+  "expiresAt": "2027-02-09T05:05:51.438Z",
   "perToolScorecard": {
     "fetch": {
       "score": 88,

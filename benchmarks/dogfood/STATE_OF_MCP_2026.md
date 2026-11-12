@@ -24,16 +24,16 @@ When autonomous agents interact with today's open-source MCP ecosystem:
 
 | Server Repository | GitHub Stars | ToolVeto Score | Certification Tier | Critical Violations | CI Merge Gate |
 |:------------------|:------------:|:--------------:|:------------------:|:-------------------:|:-------------:|
-| **Anthropic SQLite Server** (`anthropic/anthropic-quickstarts`) | 13,200 | **80/100** | Gold | 🔴 2 Critical | 🔴 Blocked |
-| **Atlassian Confluence Server** (`atlassian/mcp-server-confluence`) | 2,400 | **75/100** | Bronze | 🔴 4 Critical | 🔴 Blocked |
-| **Cloudflare MCP Server** (`cloudflare/mcp-server-cloudflare`) | 5,400 | **64/100** | Bronze | 🔴 6 Critical | 🔴 Blocked |
-| **GitHub Official MCP Server** (`github/github-mcp-server`) | 15,800 | **74/100** | Bronze | 🔴 4 Critical | 🔴 Blocked |
-| **Linear MCP Server** (`linear/mcp-linear`) | 3,400 | **75/100** | Bronze | 🔴 4 Critical | 🔴 Blocked |
-| **Reference MCP Servers** (`modelcontextprotocol/servers`) | 42,000 | **79/100** | Silver | 🔴 4 Critical | 🔴 Blocked |
-| **Neon Database Server** (`neondatabase/mcp-server-neon`) | 6,200 | **63/100** | Bronze | 🔴 6 Critical | 🔴 Blocked |
-| **Slack MCP Server** (`slack/mcp-server`) | 4,600 | **72/100** | Bronze | 🔴 4 Critical | 🔴 Blocked |
-| **Stripe Agent Toolkit** (`stripe/agent-toolkit`) | 8,500 | **63/100** | Bronze | 🔴 6 Critical | 🔴 Blocked |
-| **Supabase MCP Server** (`supabase/mcp-server-supabase`) | 8,200 | **63/100** | Bronze | 🔴 6 Critical | 🔴 Blocked |
+| **Anthropic SQLite Server** (`anthropic/anthropic-quickstarts`) | 13,200 | **80/100** | Failed | 🔴 2 Critical | 🔴 Blocked |
+| **Atlassian Confluence Server** (`atlassian/mcp-server-confluence`) | 2,400 | **75/100** | Failed | 🔴 4 Critical | 🔴 Blocked |
+| **Cloudflare MCP Server** (`cloudflare/mcp-server-cloudflare`) | 5,400 | **64/100** | Failed | 🔴 6 Critical | 🔴 Blocked |
+| **GitHub Official MCP Server** (`github/github-mcp-server`) | 15,800 | **74/100** | Failed | 🔴 4 Critical | 🔴 Blocked |
+| **Linear MCP Server** (`linear/mcp-linear`) | 3,400 | **75/100** | Failed | 🔴 4 Critical | 🔴 Blocked |
+| **Reference MCP Servers** (`modelcontextprotocol/servers`) | 42,000 | **79/100** | Failed | 🔴 4 Critical | 🔴 Blocked |
+| **Neon Database Server** (`neondatabase/mcp-server-neon`) | 6,200 | **63/100** | Failed | 🔴 6 Critical | 🔴 Blocked |
+| **Slack MCP Server** (`slack/mcp-server`) | 4,600 | **72/100** | Failed | 🔴 4 Critical | 🔴 Blocked |
+| **Stripe Agent Toolkit** (`stripe/agent-toolkit`) | 8,500 | **63/100** | Failed | 🔴 6 Critical | 🔴 Blocked |
+| **Supabase MCP Server** (`supabase/mcp-server-supabase`) | 8,200 | **63/100** | Failed | 🔴 6 Critical | 🔴 Blocked |
 
 ---
 

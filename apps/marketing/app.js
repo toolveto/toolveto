@@ -1,9 +1,22 @@
 import { BENCHMARK_SERVERS, BENCHMARK_SUMMARY, PRESET_SCHEMAS } from './benchmark-data.js';
 
 // State
-let currentTools = PRESET_SCHEMAS.stripe_payment.tools;
 let activeWreckIndex = 0;
-let wreckInterval = null;
+
+function safeCopyText(text, onSuccess) {
+  const finish = () => {
+    if (typeof onSuccess === "function") onSuccess();
+  };
+  try {
+    if (typeof navigator !== "undefined" && navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+      navigator.clipboard.writeText(String(text || "")).then(finish).catch(finish);
+      return;
+    }
+  } catch {
+    // Fallback below when Clipboard API is restricted in headless/sandboxed contexts
+  }
+  finish();
+}
 
 // Disaster Wreck Scenarios
 const WRECKS = [
@@ -102,7 +115,7 @@ export function evaluateToolsLocally(tools) {
   const mutationKeywords = ["create", "update", "delete", "post", "send", "charge", "refund", "execute", "run", "deploy", "purge", "write", "insert", "drop"];
   const collectionKeywords = ["list", "search", "find", "get_all", "query", "scan", "fetch_all"];
 
-  const toolNames = tools.map(t => t.name || "");
+  const toolNames = tools.map(t => (t && typeof t.name === "string" ? t.name : ""));
 
   let d1Score = 100;
   let d2Score = 80;
@@ -111,12 +124,13 @@ export function evaluateToolsLocally(tools) {
   let d5Score = 100;
 
   for (const tool of tools) {
-    const name = tool.name || "unnamed_tool";
+    if (!tool || typeof tool !== "object") continue;
+    const name = typeof tool.name === "string" && tool.name.trim() ? tool.name.trim() : "unnamed_tool";
     const lowerName = name.toLowerCase();
     const isMutation = mutationKeywords.some(kw => lowerName.includes(kw));
     const isCollection = collectionKeywords.some(kw => lowerName.includes(kw));
-    const schema = tool.inputSchema || {};
-    const props = schema.properties || {};
+    const schema = tool.inputSchema && typeof tool.inputSchema === "object" ? tool.inputSchema : {};
+    const props = schema.properties && typeof schema.properties === "object" ? schema.properties : {};
     const propKeys = Object.keys(props);
 
     // D1 Checks: Idempotency
@@ -193,7 +207,8 @@ export function evaluateToolsLocally(tools) {
 
     // Schema Ergonomics (TC-SCHEMA-001)
     for (const [propName, propDef] of Object.entries(props)) {
-      if (!propDef.description || propDef.description.trim().length === 0) {
+      const desc = propDef && typeof propDef === "object" && typeof propDef.description === "string" ? propDef.description : "";
+      if (desc.trim().length === 0) {
         d3Score = Math.min(d3Score, 75);
         findings.push({
           level: "MEDIUM",
@@ -256,6 +271,9 @@ if (typeof document !== "undefined") {
     initWaveformOscilloscope();
     initBentoSpotlight();
     initRoiSlider();
+    initDocsSearch();
+    initPricingPage();
+    initStateOfMcpSearch();
   });
 }
 
@@ -294,15 +312,13 @@ jobs:
 
   if (copyBtn && cmdText) {
     copyBtn.addEventListener("click", () => {
-      navigator.clipboard.writeText(cmdText.textContent).then(() => {
-        const originalHTML = copyBtn.innerHTML;
-        copyBtn.innerHTML = `
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
-          <span>COPIED!</span>
-        `;
+      safeCopyText(cmdText.textContent, () => {
+        const labelSpan = copyBtn.querySelector("span");
+        const prevText = labelSpan ? labelSpan.textContent : "COPY";
+        if (labelSpan) labelSpan.textContent = "COPIED!";
         copyBtn.classList.add("copied");
         setTimeout(() => {
-          copyBtn.innerHTML = originalHTML;
+          if (labelSpan) labelSpan.textContent = prevText;
           copyBtn.classList.remove("copied");
         }, 2000);
       });
@@ -322,6 +338,7 @@ function initDisasterPlayer() {
   const displayCheck = document.getElementById("wreck-check-id");
   const chatLogs = document.getElementById("wreck-chat-logs");
   const codeDiff = document.getElementById("wreck-code-diff");
+  if (!tabs.length && !chatLogs) return;
 
   function renderWreck(index) {
     activeWreckIndex = index;
@@ -342,15 +359,19 @@ function initDisasterPlayer() {
     if (codeDiff) codeDiff.textContent = w.codeDiff;
 
     if (chatLogs) {
-      chatLogs.innerHTML = "";
+      chatLogs.textContent = "";
       w.steps.forEach((step, idx) => {
         const div = document.createElement("div");
         div.className = `wreck-step status-${step.status}`;
         div.style.animationDelay = `${idx * 120}ms`;
-        div.innerHTML = `
-          <div class="step-sender">${step.sender}</div>
-          <div class="step-bubble">${step.text}</div>
-        `;
+        const senderEl = document.createElement("div");
+        senderEl.className = "step-sender";
+        senderEl.textContent = step.sender;
+        const bubbleEl = document.createElement("div");
+        bubbleEl.className = "step-bubble";
+        bubbleEl.textContent = step.text;
+        div.appendChild(senderEl);
+        div.appendChild(bubbleEl);
         chatLogs.appendChild(div);
       });
     }
@@ -370,6 +391,8 @@ function initPlayground() {
   const presetBtns = document.querySelectorAll(".preset-btn");
   const schemaEditor = document.getElementById("schema-editor-textarea");
   const runBtn = document.getElementById("run-lint-btn");
+  const jsonErrorBanner = document.getElementById("pg-json-error");
+  if (!schemaEditor) return;
 
   const scoreNum = document.getElementById("pg-score-number");
   const tierBadge = document.getElementById("pg-tier-badge");
@@ -391,20 +414,32 @@ function initPlayground() {
   const findingsContainer = document.getElementById("pg-findings-list");
   const fixDiffContainer = document.getElementById("pg-fix-diff");
 
+  function showJsonError(msg) {
+    if (!jsonErrorBanner) return;
+    if (msg) {
+      jsonErrorBanner.textContent = msg;
+      jsonErrorBanner.classList.remove("hidden");
+    } else {
+      jsonErrorBanner.textContent = "";
+      jsonErrorBanner.classList.add("hidden");
+    }
+  }
+
   function runAudit() {
     let parsed = null;
     try {
       parsed = JSON.parse(schemaEditor.value);
+      showJsonError("");
     } catch (e) {
-      alert("Invalid JSON format in schema editor: " + e.message);
+      showJsonError(`Invalid JSON in schema editor: ${e && e.message ? e.message : "Syntax error"}`);
       return;
     }
 
-    const tools = Array.isArray(parsed) ? parsed : (parsed.tools || [parsed]);
+    const tools = Array.isArray(parsed) ? parsed : (parsed && Array.isArray(parsed.tools) ? parsed.tools : (parsed && typeof parsed === "object" ? [parsed] : []));
     const res = evaluateToolsLocally(tools);
 
     // Update Score & Tier
-    if (scoreNum) scoreNum.textContent = res.score;
+    if (scoreNum) scoreNum.textContent = String(res.score);
     if (tierBadge) {
       tierBadge.textContent = res.tier;
       tierBadge.className = `tier-badge tier-${res.tier.toLowerCase()}`;
@@ -427,21 +462,39 @@ function initPlayground() {
     if (barD4 && valD4) { barD4.style.width = `${res.dimensions.d4}%`; valD4.textContent = `${res.dimensions.d4}/100`; }
     if (barD5 && valD5) { barD5.style.width = `${res.dimensions.d5}%`; valD5.textContent = `${res.dimensions.d5}/100`; }
 
-    // Update Findings List
+    // Update Findings List (strictly XSS-safe DOM creation via textContent)
     if (findingsContainer) {
-      findingsContainer.innerHTML = "";
+      findingsContainer.textContent = "";
       if (res.findings.length === 0) {
-        findingsContainer.innerHTML = `<div class="pass-note">All 12 stateful chaos invariants passed! Zero vetoes triggered.</div>`;
+        const passNote = document.createElement("div");
+        passNote.className = "pass-note";
+        passNote.textContent = "All 12 stateful chaos invariants passed! Zero vetoes triggered.";
+        findingsContainer.appendChild(passNote);
       } else {
         res.findings.forEach(f => {
           const item = document.createElement("div");
           item.className = `finding-item level-${f.level.toLowerCase()}`;
-          item.innerHTML = `
-            <span class="finding-badge">${f.level}</span>
-            <span class="finding-id">${f.id}</span>
-            <span class="finding-tool">${f.tool}</span>
-            <div class="finding-msg">${f.message}</div>
-          `;
+
+          const badge = document.createElement("span");
+          badge.className = "finding-badge";
+          badge.textContent = f.level;
+
+          const fid = document.createElement("span");
+          fid.className = "finding-id";
+          fid.textContent = f.id;
+
+          const ftool = document.createElement("span");
+          ftool.className = "finding-tool";
+          ftool.textContent = f.tool;
+
+          const fmsg = document.createElement("div");
+          fmsg.className = "finding-msg";
+          fmsg.textContent = f.message;
+
+          item.appendChild(badge);
+          item.appendChild(fid);
+          item.appendChild(ftool);
+          item.appendChild(fmsg);
           findingsContainer.appendChild(item);
         });
       }
@@ -451,6 +504,8 @@ function initPlayground() {
     if (fixDiffContainer) {
       if (res.fixes.length > 0) {
         fixDiffContainer.textContent = res.fixes.map(f => `// Fix for ${f.tool} (${f.issue}):\n${f.diff}`).join("\n\n");
+      } else if (tools.length === 0) {
+        fixDiffContainer.textContent = "// Add at least one MCP tool definition to generate automated Zod / FastMCP remediation diffs.";
       } else {
         fixDiffContainer.textContent = "// No schema fixes needed! Your tool contracts meet 100/100 Platinum Tier standards.";
       }
@@ -462,7 +517,10 @@ function initPlayground() {
       presetBtns.forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
       const key = btn.dataset.preset;
-      if (PRESET_SCHEMAS[key]) {
+      if (key === "empty") {
+        schemaEditor.value = "[]";
+        runAudit();
+      } else if (PRESET_SCHEMAS[key]) {
         schemaEditor.value = JSON.stringify(PRESET_SCHEMAS[key].tools, null, 2);
         runAudit();
       }
@@ -473,26 +531,50 @@ function initPlayground() {
     runBtn.addEventListener("click", runAudit);
   }
 
-  // Initial load
-  if (schemaEditor) {
+  // Initial load (respect ?preset=empty or ?tools=[] query parameters)
+  const params = new URLSearchParams(window.location.search);
+  const presetParam = params.get("preset");
+  const toolsParam = params.get("tools");
+  if (presetParam === "empty" || toolsParam === "[]") {
+    presetBtns.forEach(b => b.classList.remove("active"));
+    schemaEditor.value = "[]";
+  } else if (presetParam && PRESET_SCHEMAS[presetParam]) {
+    presetBtns.forEach(b => b.classList.toggle("active", b.dataset.preset === presetParam));
+    schemaEditor.value = JSON.stringify(PRESET_SCHEMAS[presetParam].tools, null, 2);
+  } else {
     schemaEditor.value = JSON.stringify(PRESET_SCHEMAS.stripe_payment.tools, null, 2);
-    runAudit();
   }
+  runAudit();
 }
 
 // 4. Benchmark Grid (Beat 4: The 10-Server Wall)
 function initBenchmarkGrid() {
   const grid = document.getElementById("benchmark-cards-grid");
   const filterInput = document.getElementById("benchmark-search-input");
+  const emptyBox = document.getElementById("benchmark-empty-state");
+  const clearBtn = document.getElementById("benchmark-clear-btn");
   if (!grid) return;
 
   function renderCards(filterText = "") {
-    grid.innerHTML = "";
+    grid.textContent = "";
+    const normalized = String(filterText || "").trim().toLowerCase();
     const filtered = BENCHMARK_SERVERS.filter(s =>
-      s.name.toLowerCase().includes(filterText.toLowerCase()) ||
-      s.repo.toLowerCase().includes(filterText.toLowerCase()) ||
-      s.category.toLowerCase().includes(filterText.toLowerCase())
+      s.name.toLowerCase().includes(normalized) ||
+      s.repo.toLowerCase().includes(normalized) ||
+      s.category.toLowerCase().includes(normalized)
     );
+
+    if (emptyBox) {
+      const msgEl = emptyBox.querySelector("p");
+      if (filtered.length === 0) {
+        if (msgEl) {
+          msgEl.textContent = `No audited MCP repositories matched "${String(filterText || "").slice(0, 80)}". Try searching for Stripe, GitHub, Cloudflare, or SQLite.`;
+        }
+        emptyBox.classList.remove("hidden");
+      } else {
+        emptyBox.classList.add("hidden");
+      }
+    }
 
     filtered.forEach(s => {
       const card = document.createElement("div");
@@ -505,7 +587,7 @@ function initBenchmarkGrid() {
             <a href="https://github.com/${s.repo}" target="_blank" rel="noreferrer" class="repo-link">${s.repo}</a>
           </div>
           <div class="stars-badge">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
             ${s.stars}
           </div>
         </div>
@@ -548,8 +630,8 @@ function initBenchmarkGrid() {
         </div>
 
         <div class="card-footer">
-          <button class="open-pr-btn" data-server-id="${s.id}">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"></circle><circle cx="6" cy="6" r="3"></circle><path d="M13 6h3a2 2 0 0 1 2 2v7"></path><line x1="6" y1="9" x2="6" y2="21"></line></svg>
+          <button type="button" class="open-pr-btn" data-action="open-pr-diff" data-server-id="${s.id}">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="18" cy="18" r="3"></circle><circle cx="6" cy="6" r="3"></circle><path d="M13 6h3a2 2 0 0 1 2 2v7"></path><line x1="6" y1="9" x2="6" y2="21"></line></svg>
             Inspect PR Diff
           </button>
         </div>
@@ -557,8 +639,7 @@ function initBenchmarkGrid() {
       grid.appendChild(card);
     });
 
-    // Attach click listeners to "Inspect PR Diff"
-    document.querySelectorAll(".open-pr-btn").forEach(btn => {
+    grid.querySelectorAll(".open-pr-btn").forEach(btn => {
       btn.addEventListener("click", () => {
         const serverId = btn.dataset.serverId;
         const target = BENCHMARK_SERVERS.find(s => s.id === serverId);
@@ -573,7 +654,20 @@ function initBenchmarkGrid() {
     });
   }
 
-  renderCards();
+  if (clearBtn && filterInput) {
+    clearBtn.addEventListener("click", () => {
+      filterInput.value = "";
+      renderCards("");
+      filterInput.focus();
+    });
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const initialQuery = params.get("search") || "";
+  if (filterInput && initialQuery) {
+    filterInput.value = initialQuery;
+  }
+  renderCards(initialQuery);
 }
 
 // 5. PR Diff Modal Viewer
@@ -595,7 +689,7 @@ function openDiffModal(server) {
   if (modalSummary) {
     modalSummary.innerHTML = `
       <p><strong>Evaluated Score:</strong> <span class="score-highlight">${server.score}/100</span> [Tier: ${server.tier}]</p>
-      <p><strong>CI Merge Gate:</strong> <strong style="color: #ff4757;">🔴 ${server.ciGate} (${server.criticalFailures} Critical Failures)</strong></p>
+      <p><strong>CI Merge Gate:</strong> <strong style="color: #ff8095;">🔴 ${server.ciGate} (${server.criticalFailures} Critical Failures)</strong></p>
       <p><strong>Fatal Veto Code:</strong> <code>${server.criticalVeto}</code></p>
       <p><strong>Root Cause:</strong> ${server.keyIssue}</p>
       <p><strong>Prepared Patch Manifest:</strong> <code>${server.prArtifact}</code></p>
@@ -610,7 +704,6 @@ function initDiffModal() {
   const modal = document.getElementById("diff-modal");
   const closeBtn = document.getElementById("modal-close-btn");
   const copyDiffBtn = document.getElementById("modal-copy-diff-btn");
-  const backdrop = document.getElementById("modal-backdrop");
 
   function closeModal() {
     if (modal) modal.classList.remove("open");
@@ -618,7 +711,11 @@ function initDiffModal() {
   }
 
   if (closeBtn) closeBtn.addEventListener("click", closeModal);
-  if (backdrop) backdrop.addEventListener("click", closeModal);
+  if (modal) {
+    modal.addEventListener("click", (e) => {
+      if (e.target === modal) closeModal();
+    });
+  }
 
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && modal && modal.classList.contains("open")) {
@@ -629,10 +726,15 @@ function initDiffModal() {
   if (copyDiffBtn) {
     copyDiffBtn.addEventListener("click", () => {
       if (activeModalServer) {
-        navigator.clipboard.writeText(activeModalServer.diffSnippet).then(() => {
-          const originalText = copyDiffBtn.textContent;
-          copyDiffBtn.textContent = "COPIED TO CLIPBOARD!";
-          setTimeout(() => { copyDiffBtn.textContent = originalText; }, 2000);
+        safeCopyText(activeModalServer.diffSnippet, () => {
+          const span = copyDiffBtn.querySelector("span");
+          const originalText = span ? span.textContent : copyDiffBtn.textContent;
+          if (span) span.textContent = "COPIED TO CLIPBOARD!";
+          else copyDiffBtn.textContent = "COPIED TO CLIPBOARD!";
+          setTimeout(() => {
+            if (span) span.textContent = originalText;
+            else copyDiffBtn.textContent = originalText;
+          }, 2000);
         });
       }
     });
@@ -693,7 +795,6 @@ function initHeroChaosCanvas() {
     mouse.y = -9999;
   });
 
-  // Particle pool
   const particles = [];
   const PARTICLE_COUNT = 45;
 
@@ -708,13 +809,12 @@ function initHeroChaosCanvas() {
       this.vy = (Math.random() - 0.5) * 0.8;
       this.radius = 2.5 + Math.random() * 2.5;
       this.isChaos = Math.random() > 0.45;
-      this.color = this.isChaos ? "#ff3355" : "#00f5a0";
-      this.glowColor = this.isChaos ? "rgba(255, 51, 85, 0.4)" : "rgba(0, 245, 160, 0.4)";
+      this.color = this.isChaos ? "#ff6b81" : "#00f5a0";
+      this.glowColor = this.isChaos ? "rgba(255, 107, 129, 0.4)" : "rgba(0, 245, 160, 0.4)";
       this.alpha = 0.4 + Math.random() * 0.6;
       this.history = [];
     }
     update() {
-      // Mouse magnetic repel
       const dx = mouse.x - this.x;
       const dy = mouse.y - this.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
@@ -727,26 +827,21 @@ function initHeroChaosCanvas() {
       this.x += this.vx;
       this.y += this.vy;
 
-      // History trail
       this.history.push({ x: this.x, y: this.y });
       if (this.history.length > 5) this.history.shift();
 
-      // Shield barrier collision at width * 0.58
       const barrierX = width * 0.58;
       if (this.isChaos && this.x >= barrierX - 25 && this.x <= barrierX + 15) {
-        // Veto deflection!
         this.vx = -Math.abs(this.vx) * 0.8;
         this.alpha *= 0.6;
         triggerSpark(this.x, this.y, this.color);
       }
 
-      // Reset when off bounds
       if (this.x > width + 40 || this.x < -40 || this.y < -40 || this.y > height + 40 || this.alpha < 0.1) {
         this.reset();
       }
     }
     draw() {
-      // Trail
       if (this.history.length > 1) {
         ctx.beginPath();
         ctx.moveTo(this.history[0].x, this.history[0].y);
@@ -758,7 +853,6 @@ function initHeroChaosCanvas() {
         ctx.stroke();
       }
 
-      // Packet head
       ctx.beginPath();
       ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
       ctx.fillStyle = this.color;
@@ -773,7 +867,6 @@ function initHeroChaosCanvas() {
     particles.push(new Packet());
   }
 
-  // Sparks array for VETO impacts
   const sparks = [];
   function triggerSpark(x, y, color) {
     for (let i = 0; i < 6; i++) {
@@ -795,7 +888,7 @@ function initHeroChaosCanvas() {
     const burstX = width * 0.58;
     const burstY = height * 0.45;
     for (let i = 0; i < 35; i++) {
-      triggerSpark(burstX + (Math.random() - 0.5) * 50, burstY + (Math.random() - 0.5) * 100, "#ff3355");
+      triggerSpark(burstX + (Math.random() - 0.5) * 50, burstY + (Math.random() - 0.5) * 100, "#ff6b81");
     }
   };
 
@@ -811,14 +904,13 @@ function initHeroChaosCanvas() {
     if (isVisible) {
       ctx.clearRect(0, 0, width, height);
 
-      // Draw subtle defensive shield barrier
       const barrierX = width * 0.58;
       const grad = ctx.createLinearGradient(0, 0, 0, height);
-      grad.addColorStop(0, "rgba(255, 122, 0, 0)");
-      grad.addColorStop(0.3, "rgba(255, 122, 0, 0.2)");
-      grad.addColorStop(0.5, "rgba(255, 51, 85, 0.35)");
-      grad.addColorStop(0.7, "rgba(255, 122, 0, 0.2)");
-      grad.addColorStop(1, "rgba(255, 122, 0, 0)");
+      grad.addColorStop(0, "rgba(10, 215, 230, 0)");
+      grad.addColorStop(0.3, "rgba(10, 215, 230, 0.2)");
+      grad.addColorStop(0.5, "rgba(255, 107, 129, 0.35)");
+      grad.addColorStop(0.7, "rgba(10, 215, 230, 0.2)");
+      grad.addColorStop(1, "rgba(10, 215, 230, 0)");
 
       ctx.beginPath();
       ctx.moveTo(barrierX, 60);
@@ -829,13 +921,11 @@ function initHeroChaosCanvas() {
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // Update & draw packets
       for (const p of particles) {
         p.update();
         p.draw();
       }
 
-      // Update & draw sparks
       for (let i = sparks.length - 1; i >= 0; i--) {
         const s = sparks[i];
         s.x += s.vx;
@@ -888,7 +978,7 @@ function initHeroFlightDeck() {
 
   function appendStreamLines(lines) {
     if (!terminal) return;
-    terminal.innerHTML = "";
+    terminal.textContent = "";
     lines.forEach((l, idx) => {
       const el = document.createElement("div");
       el.className = `terminal-stream-line ${l.type || ""}`;
@@ -908,7 +998,7 @@ function initHeroFlightDeck() {
       setActive(btnReplay);
       if (chaosCanvasBurst) chaosCanvasBurst();
       if (needle) needle.style.transform = "rotate(50deg)";
-      setDialColor("#ff3355");
+      setDialColor("#ff6b81");
       if (window.setHudWaveformState) window.setHudWaveformState("danger");
       if (threatScore) {
         threatScore.textContent = "94";
@@ -916,7 +1006,7 @@ function initHeroFlightDeck() {
       }
       if (gaugeLabel) {
         gaugeLabel.textContent = "🔴 CRITICAL VETO ENGAGED";
-        gaugeLabel.style.color = "#ff4757";
+        gaugeLabel.style.color = "#ff8095";
       }
       if (gaugeSub) gaugeSub.textContent = "Missing idempotency key: $340 double charge risk";
       if (beacon) beacon.className = "beacon-pulse red";
@@ -938,7 +1028,7 @@ function initHeroFlightDeck() {
       setActive(btnContext);
       if (chaosCanvasBurst) chaosCanvasBurst();
       if (needle) needle.style.transform = "rotate(62deg)";
-      setDialColor("#ff3355");
+      setDialColor("#ff6b81");
       if (window.setHudWaveformState) window.setHudWaveformState("danger");
       if (threatScore) {
         threatScore.textContent = "98";
@@ -946,7 +1036,7 @@ function initHeroFlightDeck() {
       }
       if (gaugeLabel) {
         gaugeLabel.textContent = "💣 VETO_DATALOSS (CONTEXT BOMB)";
-        gaugeLabel.style.color = "#ff4757";
+        gaugeLabel.style.color = "#ff8095";
       }
       if (gaugeSub) gaugeSub.textContent = "57,200 tokens dumped; prompt window eviction";
       if (beacon) beacon.className = "beacon-pulse red";
@@ -968,7 +1058,7 @@ function initHeroFlightDeck() {
       setActive(btnLoop);
       if (chaosCanvasBurst) chaosCanvasBurst();
       if (needle) needle.style.transform = "rotate(40deg)";
-      setDialColor("#ff7a00");
+      setDialColor("#0ad7e6");
       if (window.setHudWaveformState) window.setHudWaveformState("warning");
       if (threatScore) {
         threatScore.textContent = "88";
@@ -976,7 +1066,7 @@ function initHeroFlightDeck() {
       }
       if (gaugeLabel) {
         gaugeLabel.textContent = "🔄 VETO_PANIC (47× RETRY SPIRAL)";
-        gaugeLabel.style.color = "#ff7a00";
+        gaugeLabel.style.color = "#0ad7e6";
       }
       if (gaugeSub) gaugeSub.textContent = "Raw 500 error causes recursive agent retry spiral";
       if (beacon) beacon.className = "beacon-pulse red";
@@ -1031,7 +1121,7 @@ function initWaveformOscilloscope() {
   if (!ctx) return;
 
   let step = 0;
-  let waveMode = "danger"; // "danger", "warning", "safe"
+  let waveMode = "danger";
 
   window.setHudWaveformState = function(mode) {
     waveMode = mode;
@@ -1054,7 +1144,6 @@ function initWaveformOscilloscope() {
 
     const midY = h / 2;
 
-    // Subtle center baseline
     ctx.strokeStyle = "rgba(255, 255, 255, 0.05)";
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -1068,29 +1157,26 @@ function initWaveformOscilloscope() {
     for (let x = 0; x < w; x++) {
       let y;
       if (waveMode === "danger") {
-        // High-energy turbulent threat spikes
         const wave1 = Math.sin((x * 0.1) + step) * 12;
         const wave2 = Math.cos((x * 0.04) - (step * 1.6)) * 6;
         const jitter = (Math.sin(x * 1.3 + step * 3) > 0.6) ? ((Math.random() - 0.5) * 8) : 0;
         y = midY + wave1 + wave2 + jitter;
       } else if (waveMode === "warning") {
-        // Repeated cyclic loop oscillations
         const wave1 = Math.sin((x * 0.07) + step) * 10;
         const wave2 = Math.sin((x * 0.2) + (step * 2)) * 4;
         y = midY + wave1 + wave2;
       } else {
-        // Clean harmonic emerald stream
         y = midY + Math.sin((x * 0.05) + step) * 8;
       }
       ctx.lineTo(x, y);
     }
 
     if (waveMode === "danger") {
-      ctx.strokeStyle = "#ff3355";
-      ctx.shadowColor = "rgba(255, 51, 85, 0.65)";
+      ctx.strokeStyle = "#ff6b81";
+      ctx.shadowColor = "rgba(255, 107, 129, 0.65)";
     } else if (waveMode === "warning") {
-      ctx.strokeStyle = "#ff7a00";
-      ctx.shadowColor = "rgba(255, 122, 0, 0.65)";
+      ctx.strokeStyle = "#0ad7e6";
+      ctx.shadowColor = "rgba(10, 215, 230, 0.65)";
     } else {
       ctx.strokeStyle = "#00f5a0";
       ctx.shadowColor = "rgba(0, 245, 160, 0.65)";
@@ -1122,10 +1208,12 @@ function initBentoSpotlight() {
   });
 }
 
-// 12. Interactive Incident & ROI Dynamic Calculator
+// 11. Interactive Incident & ROI Dynamic Calculator (index.html)
 function initRoiSlider() {
   const invocationsSlider = document.getElementById("roi-invocations-slider");
   const toolsSlider = document.getElementById("roi-tools-slider");
+  if (!invocationsSlider && !toolsSlider) return;
+
   const invocationsVal = document.getElementById("roi-invocations-val");
   const toolsVal = document.getElementById("roi-tools-val");
 
@@ -1133,25 +1221,40 @@ function initRoiSlider() {
   const tokensEl = document.getElementById("roi-tokens-saved");
   const dollarsEl = document.getElementById("roi-dollars-saved");
   const multipleEl = document.getElementById("roi-multiple-val");
+  const planLabelEl = document.getElementById("roi-plan-label");
 
   function calculate() {
-    const invocations = parseInt(invocationsSlider ? invocationsSlider.value : 250000, 10);
-    const tools = parseInt(toolsSlider ? toolsSlider.value : 8, 10);
+    const rawInv = parseInt(invocationsSlider ? invocationsSlider.value : "250000", 10);
+    const rawTools = parseInt(toolsSlider ? toolsSlider.value : "8", 10);
+    const invocations = Number.isFinite(rawInv) ? Math.max(0, rawInv) : 250000;
+    const tools = Number.isFinite(rawTools) ? Math.max(0, rawTools) : 8;
 
-    if (invocationsVal) invocationsVal.textContent = `${(invocations).toLocaleString()} / mo`;
-    if (toolsVal) toolsVal.textContent = `${tools} Tools`;
+    if (invocationsVal) invocationsVal.textContent = `${invocations.toLocaleString()} / mo`;
+    if (toolsVal) toolsVal.textContent = `${tools} ${tools === 1 ? "Tool" : "Tools"}`;
 
-    // 0.0064% of mutating agent calls encounter transient timeouts leading to replayed duplicates
-    const doubleCharges = Math.max(1, Math.round((invocations * 0.000064) * (tools / 8)));
-    const tokenWaste = ((invocations * 16.8) / 1000000).toFixed(1); // M tokens
-    const dollarsSaved = doubleCharges * 340;
-    const shieldCost = 499;
-    const roiMultiplier = ((dollarsSaved - shieldCost) / shieldCost).toFixed(1);
+    const doubleCharges = invocations > 0 && tools > 0
+      ? Math.max(1, Math.round((invocations * 0.000064) * (tools / 8)))
+      : 0;
+    const tokenWaste = ((invocations * 16.8) / 1000000).toFixed(1);
+    const driftTriageSaved = tools * 55;
+    const dollarsSaved = (doubleCharges * 340) + driftTriageSaved;
 
-    if (chargesEl) chargesEl.textContent = doubleCharges;
+    if (chargesEl) chargesEl.textContent = String(doubleCharges);
     if (tokensEl) tokensEl.textContent = `${tokenWaste}M`;
     if (dollarsEl) dollarsEl.textContent = `$${dollarsSaved.toLocaleString()}`;
-    if (multipleEl) multipleEl.textContent = `${Math.max(1.0, roiMultiplier)}×`;
+
+    if (dollarsSaved <= 249) {
+      if (multipleEl) multipleEl.textContent = "$0 CLI";
+      if (planLabelEl) planLabelEl.textContent = "RECOMMENDED: COMMUNITY CLI ($0/MO)";
+    } else if (dollarsSaved <= 1200) {
+      const netRoi = ((dollarsSaved - 249) / 249).toFixed(1);
+      if (multipleEl) multipleEl.textContent = `${netRoi}×`;
+      if (planLabelEl) planLabelEl.textContent = "NET ROI (ON TEAM TIER $249)";
+    } else {
+      const netRoi = ((dollarsSaved - 499) / 499).toFixed(1);
+      if (multipleEl) multipleEl.textContent = `${netRoi}×`;
+      if (planLabelEl) planLabelEl.textContent = "NET ROI (ON ENTERPRISE $499)";
+    }
 
     updateSliderTrack(invocationsSlider);
     updateSliderTrack(toolsSlider);
@@ -1161,12 +1264,205 @@ function initRoiSlider() {
     if (!slider) return;
     const min = parseFloat(slider.min) || 0;
     const max = parseFloat(slider.max) || 100;
-    const val = parseFloat(slider.value) || 0;
-    const pct = ((val - min) / (max - min)) * 100;
-    slider.style.background = `linear-gradient(to right, #ff7a00 0%, #ff5500 ${pct}%, rgba(255,255,255,0.12) ${pct}%, rgba(255,255,255,0.12) 100%)`;
+    const val = Math.min(max, Math.max(min, parseFloat(slider.value) || 0));
+    const pct = max > min ? ((val - min) / (max - min)) * 100 : 0;
+    slider.style.background = `linear-gradient(to right, #0ad7e6 0%, #0284c7 ${pct}%, rgba(255,255,255,0.12) ${pct}%, rgba(255,255,255,0.12) 100%)`;
   }
 
   if (invocationsSlider) invocationsSlider.addEventListener("input", calculate);
   if (toolsSlider) toolsSlider.addEventListener("input", calculate);
   calculate();
+}
+
+// 12. Docs Search & Empty State Filter (docs.html)
+function initDocsSearch() {
+  const input = document.getElementById("docs-search-input");
+  const emptyState = document.getElementById("docs-empty-state");
+  const clearBtn = document.getElementById("docs-clear-search-btn");
+  if (!input) return;
+
+  const sections = Array.from(document.querySelectorAll("[data-doc-section]"));
+
+  function applyFilter(rawQuery) {
+    const query = String(rawQuery || "").trim().toLowerCase();
+    let visibleCount = 0;
+    sections.forEach(sec => {
+      const hay = (sec.textContent || "").toLowerCase();
+      const match = !query || hay.includes(query);
+      sec.style.display = match ? "" : "none";
+      if (match) visibleCount++;
+    });
+
+    if (emptyState) {
+      const p = emptyState.querySelector("p");
+      if (visibleCount === 0) {
+        if (p) {
+          p.textContent = `No documentation sections matched "${String(rawQuery || "").slice(0, 80)}". Try searching for idempotency, shield, GitHub Actions, or AIUC-1.`;
+        }
+        emptyState.classList.remove("hidden");
+      } else {
+        emptyState.classList.add("hidden");
+      }
+    }
+  }
+
+  input.addEventListener("input", (e) => applyFilter(e.target.value));
+  if (clearBtn) {
+    clearBtn.addEventListener("click", () => {
+      input.value = "";
+      applyFilter("");
+      input.focus();
+    });
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const initialSearch = params.get("search") || "";
+  if (initialSearch) {
+    input.value = initialSearch;
+  }
+  applyFilter(initialSearch);
+}
+
+// 13. Pricing Page Server-Aware Positive-Net-ROI Calculator (pricing.html)
+function initPricingPage() {
+  const callsSlider = document.getElementById("calls-slider");
+  const valSlider = document.getElementById("val-slider");
+  const rateSlider = document.getElementById("rate-slider");
+  const serversSlider = document.getElementById("servers-slider");
+  if (!callsSlider || !valSlider || !rateSlider) return;
+
+  const callsDisplay = document.getElementById("calls-display");
+  const valDisplay = document.getElementById("val-display");
+  const rateDisplay = document.getElementById("rate-display");
+  const serversDisplay = document.getElementById("servers-display");
+
+  const statPrevented = document.getElementById("stat-prevented");
+  const statCapital = document.getElementById("stat-capital");
+  const statTokens = document.getElementById("stat-tokens");
+  const statRoi = document.getElementById("stat-roi");
+  const planRec = document.getElementById("pricing-plan-rec");
+
+  const params = new URLSearchParams(window.location.search);
+  if (params.has("invocations")) {
+    const v = Math.max(0, Math.min(250000, parseInt(params.get("invocations") || "0", 10) || 0));
+    callsSlider.value = String(v);
+  }
+  if (params.has("txn")) {
+    const v = Math.max(0, Math.min(2000, parseInt(params.get("txn") || "0", 10) || 0));
+    valSlider.value = String(v);
+  }
+  if (params.has("servers") && serversSlider) {
+    const v = Math.max(0, Math.min(50, parseInt(params.get("servers") || "0", 10) || 0));
+    serversSlider.value = String(v);
+  }
+
+  function updateRoi() {
+    const rawCalls = parseInt(callsSlider.value, 10);
+    const rawVal = parseInt(valSlider.value, 10);
+    const rawRate = parseFloat(rateSlider.value);
+    const rawServers = serversSlider ? parseInt(serversSlider.value, 10) : 8;
+
+    const calls = Number.isFinite(rawCalls) ? Math.max(0, rawCalls) : 0;
+    const val = Number.isFinite(rawVal) ? Math.max(0, rawVal) : 0;
+    const rate = Number.isFinite(rawRate) ? Math.max(0, rawRate) : 0;
+    const servers = Number.isFinite(rawServers) ? Math.max(0, rawServers) : 0;
+
+    if (callsDisplay) callsDisplay.textContent = calls.toLocaleString();
+    if (valDisplay) valDisplay.textContent = `$${val.toLocaleString()} USD`;
+    if (rateDisplay) rateDisplay.textContent = `${rate.toFixed(1)}%`;
+    if (serversDisplay) serversDisplay.textContent = `${servers} ${servers === 1 ? "Server" : "Servers"}`;
+
+    const prevented = Math.round(calls * (rate / 100));
+    const driftTriageSaved = servers * 65;
+    const capital = (prevented * val) + driftTriageSaved;
+    const tokens = Math.round(calls * 56);
+
+    if (statPrevented) statPrevented.textContent = prevented.toLocaleString();
+    if (statCapital) statCapital.textContent = `$${capital.toLocaleString()}`;
+    if (statTokens) {
+      statTokens.textContent = tokens >= 1000000
+        ? `${(tokens / 1000000).toFixed(1)}M tok`
+        : `${Math.round(tokens / 1000)}k tok`;
+    }
+
+    if (capital <= 249) {
+      if (statRoi) statRoi.textContent = "Free ($0/mo)";
+      if (planRec) {
+        planRec.textContent = "Recommended Tier: Free CLI Gate ($0 / forever) — Positive Net Value";
+      }
+    } else if (capital <= 1500) {
+      const netMult = ((capital - 249) / 249).toFixed(1);
+      if (statRoi) statRoi.textContent = `${netMult}×`;
+      if (planRec) {
+        planRec.textContent = `Recommended Tier: Team ($249 / mo) — +$${(capital - 249).toLocaleString()}/mo Net Savings`;
+      }
+    } else {
+      const netMult = ((capital - 499) / 499).toFixed(1);
+      if (statRoi) statRoi.textContent = `${netMult}×`;
+      if (planRec) {
+        planRec.textContent = `Recommended Tier: Runtime Shield ($499 / mo) — +$${(capital - 499).toLocaleString()}/mo Net Savings`;
+      }
+    }
+  }
+
+  callsSlider.addEventListener("input", updateRoi);
+  valSlider.addEventListener("input", updateRoi);
+  rateSlider.addEventListener("input", updateRoi);
+  if (serversSlider) serversSlider.addEventListener("input", updateRoi);
+  updateRoi();
+}
+
+// 14. State of MCP 2026 Search & Empty State Filter (state-of-mcp.html)
+function initStateOfMcpSearch() {
+  const input = document.getElementById("state-mcp-search-input");
+  const emptyState = document.getElementById("state-mcp-empty-state");
+  const clearBtn = document.getElementById("state-mcp-clear-btn");
+  if (!input) return;
+
+  const rows = Array.from(document.querySelectorAll("[data-server-row]"));
+  const cards = Array.from(document.querySelectorAll(".server-deepdive-card"));
+
+  function applyFilter(rawQuery) {
+    const query = String(rawQuery || "").trim().toLowerCase();
+    let visibleRows = 0;
+
+    rows.forEach(row => {
+      const match = !query || (row.textContent || "").toLowerCase().includes(query);
+      row.style.display = match ? "" : "none";
+      if (match) visibleRows++;
+    });
+
+    cards.forEach(card => {
+      const match = !query || (card.textContent || "").toLowerCase().includes(query);
+      card.style.display = match ? "" : "none";
+    });
+
+    if (emptyState) {
+      const p = emptyState.querySelector("p");
+      if (visibleRows === 0) {
+        if (p) {
+          p.textContent = `No benchmarked MCP servers matched "${String(rawQuery || "").slice(0, 80)}". Reset the filter to inspect all 10 audited repositories.`;
+        }
+        emptyState.classList.remove("hidden");
+      } else {
+        emptyState.classList.add("hidden");
+      }
+    }
+  }
+
+  input.addEventListener("input", (e) => applyFilter(e.target.value));
+  if (clearBtn) {
+    clearBtn.addEventListener("click", () => {
+      input.value = "";
+      applyFilter("");
+      input.focus();
+    });
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const initialSearch = params.get("search") || "";
+  if (initialSearch) {
+    input.value = initialSearch;
+  }
+  applyFilter(initialSearch);
 }

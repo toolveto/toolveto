@@ -5,11 +5,11 @@
   "failed": 16,
   "warned": 15,
   "fatalVetoTriggered": true,
-  "fatalVetoCode": "VETO_NONE",
+  "fatalVetoCode": "VETO_IDEMP",
   "phi": 1,
   "score": 63,
-  "tier": "Bronze",
-  "durationMs": 10,
+  "tier": "Failed",
+  "durationMs": 2,
   "llmTokensUsed": 0,
   "dimensionalScores": {
     "D1": {
@@ -681,11 +681,8 @@
       "tool": "list_charges",
       "status": "PASS",
       "severity": "CRITICAL",
-      "description": "Idempotency key parameter found on 'list_charges'",
+      "description": "Read-only tool 'list_charges' requires no mutation replay deduplication",
       "evidence": {
-        "requestsSent": 5,
-        "mutationsCreated": 1,
-        "expectedMutations": 1,
         "evidenceQuality": "STATIC-ONLY"
       },
       "durationMs": 0
@@ -736,7 +733,7 @@
       "evidence": {
         "evidenceQuality": "STATIC-ONLY"
       },
-      "durationMs": 0
+      "durationMs": 1
     },
     {
       "checkId": "TC-FUZZ-002",
@@ -1267,13 +1264,13 @@
     }
   ],
   "statisticalConfidence": {
-    "n": 30,
+    "n": 69,
     "pointEstimate": 63,
     "confidenceInterval95": [
-      54,
-      71
+      53,
+      73
     ],
-    "certifiedLowerBound": 54
+    "certifiedLowerBound": 0
   },
   "aiuc1Compliance": {
     "AIUC-1 §4.2 Idempotency": "FAIL",
@@ -1288,9 +1285,10 @@
     "protocolVersion": "2025-03-26",
     "nodeVersion": "v26.5.0",
     "platform": "darwin",
-    "destructiveAuthorization": "false"
+    "destructiveAuthorization": "false",
+    "llmJudge": "disabled"
   },
-  "expiresAt": "2027-01-12T03:51:50.800Z",
+  "expiresAt": "2027-02-09T05:05:51.445Z",
   "perToolScorecard": {
     "create_payment_intent": {
       "score": 47,

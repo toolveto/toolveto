@@ -1,40 +1,36 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40">
   <defs>
-    <linearGradient id="tv-grad-shield" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#ff9900" />
-      <stop offset="50%" stop-color="#ff3355" />
-      <stop offset="100%" stop-color="#880033" />
+    <linearGradient id="tv-ring-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#09f4f7" />
+      <stop offset="65%" stop-color="#0ad7e6" />
+      <stop offset="100%" stop-color="#1e54bd" />
     </linearGradient>
-    <linearGradient id="tv-grad-core" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#ffffff" />
-      <stop offset="100%" stop-color="#ffa040" />
+    <linearGradient id="tv-wrench-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#dbeafe" />
+      <stop offset="55%" stop-color="#93c5fd" />
+      <stop offset="100%" stop-color="#3b6fd4" />
     </linearGradient>
-    <linearGradient id="tv-grad-border" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.8" />
-      <stop offset="50%" stop-color="#ff7a00" stop-opacity="0.5" />
-      <stop offset="100%" stop-color="#ff0055" stop-opacity="0.9" />
+    <linearGradient id="tv-stamp-body" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#93c5fd" />
+      <stop offset="35%" stop-color="#2563eb" />
+      <stop offset="100%" stop-color="#0f2d6b" />
     </linearGradient>
   </defs>
-
-  <!-- Background Base Badge -->
-  <rect width="40" height="40" rx="10" fill="#07090e" stroke="rgba(255,255,255,0.08)" stroke-width="1" />
-
-  <!-- Outer Ballistic Hexagon Shield Frame -->
-  <path d="M20 4.5 L33 9.5 V21 C33 29 20 35 20 35 C20 35 7 29 7 21 V9.5 L20 4.5 Z" 
-        fill="#0a0d16" stroke="url(#tv-grad-border)" stroke-width="1.75" stroke-linejoin="round" />
-
-  <!-- Shield Facet Geometry (Isometric Left/Right) -->
-  <path d="M20 6 L31.5 10.5 V20.5 C31.5 27 20 32.5 20 32.5 V6 Z" fill="url(#tv-grad-shield)" fill-opacity="0.95" />
-  <path d="M20 6 L8.5 10.5 V20.5 C8.5 27 20 32.5 20 32.5 V6 Z" fill="url(#tv-grad-shield)" fill-opacity="0.65" />
-
-  <!-- Central Laser Circuit Axis -->
-  <path d="M20 8 V31" stroke="rgba(255,255,255,0.35)" stroke-width="0.75" stroke-dasharray="2 2" />
-  <path d="M12 17 L20 22 L28 17" stroke="rgba(255,255,255,0.4)" stroke-width="1" fill="none" stroke-linecap="round" />
-
-  <!-- Dynamic Stylized "V" (Veto) Glyph -->
-  <path d="M14 14.5 L20 25.5 L26 14.5 L23 14.5 L20 20 L17 14.5 Z" 
-        fill="url(#tv-grad-core)" />
-
-  <!-- Central Pulse Node Core -->
-  <circle cx="20" cy="20" r="1.5" fill="#ffffff" />
+  <rect x="0.75" y="0.75" width="38.5" height="38.5" rx="9" fill="#010e21" stroke="#0ad7e6" stroke-opacity="0.38" stroke-width="1.2" />
+  <path d="M 22.5 6.8 A 13.5 13.5 0 1 0 28.5 31.2" fill="none" stroke="url(#tv-ring-grad)" stroke-width="1.8" stroke-linecap="round" />
+  <g transform="rotate(-42 18 22)">
+    <rect x="15.8" y="12.5" width="4.4" height="19" rx="2.2" fill="url(#tv-wrench-grad)" />
+    <path d="M 18 7.2 A 4.8 4.8 0 1 0 21.8 14.8 L 19.8 12.2 L 16.2 12.2 L 16.2 8.8 Z" fill="url(#tv-wrench-grad)" />
+    <circle cx="18" cy="29.2" r="1.2" fill="#010e21" />
+  </g>
+  <g transform="rotate(22 23.5 20.5)">
+    <path d="M 21.2 14.2 L 25.8 14.2 L 25.2 11.5 C 27.2 9.8 27.4 6.2 23.5 6.2 C 19.6 6.2 19.8 9.8 21.8 11.5 Z" fill="url(#tv-stamp-body)" />
+    <rect x="20" y="13.8" width="7" height="1.8" rx="0.9" fill="#60a5fa" />
+    <rect x="13" y="15.4" width="21" height="9.8" rx="2.6" fill="url(#tv-stamp-body)" />
+    <rect x="13.8" y="17.2" width="19.4" height="8.2" rx="2" fill="#011836" stroke="#c5dcfa" stroke-width="1.1" />
+    <text x="23.5" y="23.1" text-anchor="middle" font-family="'Outfit', 'Inter', system-ui, sans-serif" font-weight="900" font-size="5.6" letter-spacing="0.04em" fill="#e0f2fe">VETO</text>
+  </g>
+  <line x1="34.2" y1="15.8" x2="36.6" y2="13.6" stroke="#09f4f7" stroke-width="1.5" stroke-linecap="round" />
+  <line x1="35.0" y1="18.8" x2="37.8" y2="18.0" stroke="#09f4f7" stroke-width="1.5" stroke-linecap="round" />
+  <line x1="34.6" y1="21.6" x2="37.4" y2="22.4" stroke="#09f4f7" stroke-width="1.5" stroke-linecap="round" />
 </svg>

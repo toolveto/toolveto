@@ -360,6 +360,67 @@ upstreams:
     await assert.rejects(() => validateUpstreamDns('100.64.0.1', false), /SSRF DNS check blocked/);
     await assert.rejects(() => validateUpstreamDns('[::ffff:127.0.0.1]', false), /SSRF DNS check blocked/);
   });
+
+  it('should enforce per-upstream and per-tool toolOverrides (loopLimit and tokenBudget) in createGatewayServer', async () => {
+    const customGateway = createGatewayServer({
+      auth: { type: 'none' },
+      allowLocal: true,
+      defaultPolicy: 'standard',
+      tokenBudget: 4000,
+      upstreams: {
+        default: {
+          name: 'default',
+          url: `http://localhost:${defaultPort}/mcp`,
+          policy: 'standard',
+          allowLocal: true,
+          toolOverrides: {
+            // Strict 1-call loop limit on strict_op
+            strict_op: {
+              idempotency: false,
+              loopLimit: { count: 1, windowMs: 30_000 },
+            },
+          },
+        },
+      },
+    });
+
+    await new Promise<void>((resolve) => customGateway.listen(0, () => resolve()));
+    const customPort = (customGateway.address() as any).port;
+
+    try {
+      const reqBody = {
+        jsonrpc: '2.0',
+        id: 'override_1',
+        method: 'tools/call',
+        params: {
+          name: 'strict_op',
+          arguments: { target: 'x' },
+        },
+      };
+
+      const r1 = await fetch(`http://localhost:${customPort}/mcp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(reqBody),
+      });
+      assert.strictEqual(r1.status, 200);
+      assert.strictEqual(r1.headers.get('x-toolveto-action'), 'PASS');
+
+      // 2nd identical call must trip the per-tool loopLimit (count: 1)
+      const r2 = await fetch(`http://localhost:${customPort}/mcp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(reqBody),
+      });
+      assert.strictEqual(r2.status, 200);
+      assert.strictEqual(r2.headers.get('x-toolveto-action'), 'LOOP_BROKEN');
+      const r2Json = (await r2.json()) as any;
+      assert.strictEqual(r2Json.result.isError, true);
+      assert.ok(r2Json.result.content[0].text.includes('Loop detected'));
+    } finally {
+      await new Promise<void>((resolve) => customGateway.close(() => resolve()));
+    }
+  });
 });
 
 
