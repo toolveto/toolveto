@@ -130,7 +130,9 @@ main().catch((err) => {
       'utf-8'
     );
 
-    const cliBinPath = path.resolve(process.cwd(), 'dist', 'bin', 'toolveto.js');
+    const cliBinPath = fs.existsSync(path.resolve(__dirname, '..', '..', 'bin', 'toolveto.js'))
+      ? path.resolve(__dirname, '..', '..', 'bin', 'toolveto.js')
+      : path.resolve(process.cwd(), 'dist', 'bin', 'toolveto.js');
     const lockPath = path.join(tmpDir, 'toolveto.lock.json');
     const cedarPath = path.join(tmpDir, 'erp.cedar');
 
