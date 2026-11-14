@@ -23,7 +23,7 @@ export async function runConcurrentBurstCheck(
       dimension: 'D1',
       tool: tool.name,
       status: 'PASS',
-      severity: 'CRITICAL',
+      severity: 'INFO',
       description: `Pure query tool '${tool.name}' is free from concurrent mutation race conditions`,
       evidence: {
         evidenceQuality: 'STATIC-ONLY',
@@ -192,7 +192,7 @@ export async function runConcurrentBurstCheck(
     dimension: 'D1',
     tool: tool.name,
     status: 'PASS',
-    severity: 'CRITICAL',
+    severity: 'INFO',
     description: `Schema declares explicit idempotency parameter on '${tool.name}' for concurrent burst safety`,
     evidence: {
       evidenceQuality: 'STATIC-ONLY',

@@ -852,11 +852,39 @@ export class ShieldMiddleware {
       const argsHash = crypto.createHash('sha256').update(canonicalArgs).digest('hex');
       const loopTrackingKey = `loop:${agentId}:${toolName}:${argsHash}`;
 
-      const recentCallCount = await this.storage.recordCall(
-        loopTrackingKey,
-        now,
-        effectiveLoopLimit.windowMs
-      );
+      let recentCallCount = 1;
+      try {
+        recentCallCount = await this.storage.recordCall(
+          loopTrackingKey,
+          now,
+          effectiveLoopLimit.windowMs
+        );
+      } catch (err: any) {
+        if (this.options.failClosed) {
+          this.emitSpan(toolName, 'STORAGE_ERROR', now, true, {
+            operation: 'recordCall',
+            error: err?.message || 'Service Unavailable',
+          });
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text',
+                text: `[ToolVeto Shield Veto] Storage failure recording call for loop breaker: ${err?.message || 'Service Unavailable'}. Fail-closed strict policy enforced.`,
+              },
+            ],
+            _shield: {
+              loopChecked: false,
+              timestamp: now,
+            },
+          };
+        }
+        this.emitSpan(toolName, 'STORAGE_DEGRADED', now, false, {
+          operation: 'recordCall',
+          error: err?.message || 'Service Unavailable',
+        });
+        recentCallCount = 1;
+      }
 
       if (recentCallCount > effectiveLoopLimit.count) {
         this.metrics.loopsBroken++;
@@ -1134,7 +1162,35 @@ export class ShieldMiddleware {
 
     if (effectiveIdempotency && idempKey && toolName) {
       const cacheKey = `idemp:${toolName}:${idempKey}`;
-      const cachedResponse = await this.storage.get(cacheKey);
+      let cachedResponse: any = null;
+      try {
+        cachedResponse = await this.storage.get(cacheKey);
+      } catch (err: any) {
+        if (this.options.failClosed) {
+          this.emitSpan(toolName, 'STORAGE_ERROR', now, true, {
+            operation: 'get',
+            error: err?.message || 'Service Unavailable',
+          });
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text',
+                text: `[ToolVeto Shield Veto] Storage failure checking idempotency cache for '${idempKey}': ${err?.message || 'Service Unavailable'}. Fail-closed strict policy enforced.`,
+              },
+            ],
+            _shield: {
+              idempotencyKey: idempKey,
+              timestamp: now,
+            },
+          };
+        }
+        this.emitSpan(toolName, 'STORAGE_DEGRADED', now, false, {
+          operation: 'get',
+          error: err?.message || 'Service Unavailable',
+        });
+        cachedResponse = null;
+      }
 
       if (cachedResponse) {
         this.metrics.deduplicatedCalls++;
@@ -1225,7 +1281,15 @@ export class ShieldMiddleware {
             const ttl = isFingerprintFallback
               ? (this.options.autoFingerprintWindowMs ?? this.options.idempotencyTtlMs ?? 2000)
               : (this.options.idempotencyTtlMs || 24 * 60 * 60 * 1000); // default 24h for explicit keys, 2s coalescing window for un-keyed fingerprint
-            await this.storage.set(cacheKey, res, ttl);
+            try {
+              await this.storage.set(cacheKey, res, ttl);
+            } catch (err: any) {
+              this.emitSpan(toolName, 'STORAGE_CACHE_ERROR', now, false, {
+                operation: 'set',
+                cacheKey,
+                error: err?.message || String(err),
+              });
+            }
           }
           return res;
         } finally {

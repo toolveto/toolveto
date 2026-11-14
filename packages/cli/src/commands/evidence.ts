@@ -166,7 +166,7 @@ export async function evidenceCommand(
       if (relevantResults.length === 0) {
         status = 'NOT_APPLICABLE';
       } else if (failed.length > 0) {
-        status = relevantResults.some((r) => r.severity === 'CRITICAL') ? 'NON_COMPLIANT' : 'AT_RISK';
+        status = relevantResults.some((r) => r.status === 'FAIL' && r.severity === 'CRITICAL') ? 'NON_COMPLIANT' : 'AT_RISK';
       } else if (passed.length > 0) {
         status = 'COMPLIANT';
       } else {

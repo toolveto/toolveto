@@ -183,7 +183,7 @@ export async function runSequentialReplayCheck(
     dimension: 'D1',
     tool: tool.name,
     status: 'PASS',
-    severity: 'CRITICAL',
+    severity: 'INFO',
     description: tool.isMutation
       ? `Idempotency key parameter found on '${tool.name}'`
       : `Read-only tool '${tool.name}' requires no mutation replay deduplication`,
