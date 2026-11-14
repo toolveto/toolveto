@@ -125,7 +125,7 @@ export async function verifyCommand(tokenArg?: string, options: VerifyCommandOpt
       isValidSignature =
         crypto.verify('sha256', signingInput, { key: pubKey, dsaEncoding: 'ieee-p1363' }, sigBytes) ||
         crypto.verify('sha256', signingInput, pubKey, sigBytes);
-    } else {
+    } else if (header.alg === 'HS256') {
       const resolvedSecret = options.secret || process.env.TOOLVETO_SIGNING_SECRET;
       if (!resolvedSecret || resolvedSecret.length < 32) {
         console.error('\n❌ Error: TOOLVETO_SIGNING_SECRET environment variable or --secret option (>=32 chars) is required.');
@@ -140,6 +140,10 @@ export async function verifyCommand(tokenArg?: string, options: VerifyCommandOpt
       const sigBuf = Buffer.from(signature);
       const expBuf = Buffer.from(expectedSig);
       isValidSignature = sigBuf.length === expBuf.length && crypto.timingSafeEqual(sigBuf, expBuf);
+    } else {
+      console.error(`\n❌ Error: Unsupported JWS algorithm '${header.alg}'. Only 'ES256' and 'HS256' are supported.`);
+      process.exitCode = 1;
+      return;
     }
 
     const nowSec = Math.floor(Date.now() / 1000);

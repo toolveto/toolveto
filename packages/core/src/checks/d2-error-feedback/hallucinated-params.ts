@@ -127,7 +127,7 @@ export async function runHallucinatedParamsCheck(
     dimension: 'D2',
     tool: tool.name,
     status: 'PASS',
-    severity: 'MEDIUM',
+    severity: 'INFO',
     description: `Tool '${tool.name}' safely tolerates or rejects hallucinated arguments`,
     evidence: { evidenceQuality: canInvoke ? 'VERIFIED' : 'STATIC-ONLY' },
     durationMs: Date.now() - startTime,

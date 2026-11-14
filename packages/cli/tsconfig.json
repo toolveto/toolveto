@@ -6,7 +6,9 @@
     "composite": true
   },
   "references": [
-    { "path": "../core" }
+    { "path": "../core" },
+    { "path": "../shield" },
+    { "path": "../gateway" }
   ],
   "include": ["src/**/*", "bin/**/*"]
 }

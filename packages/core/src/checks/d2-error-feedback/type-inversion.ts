@@ -152,7 +152,7 @@ export async function runTypeInversionFuzzCheck(
     dimension: 'D2',
     tool: tool.name,
     status: 'PASS',
-    severity: 'HIGH',
+    severity: 'INFO',
     description: `Fuzz tests on '${tool.name}' parameters conform to schema contracts`,
     evidence: {
       evidenceQuality: client ? 'VERIFIED' : 'STATIC-ONLY',

@@ -390,15 +390,15 @@ export async function runSuite(
   );
 
   const hasTenantLeak = results.some(
-    (r) => r.checkId === 'TC-AUTH-001' && r.description.includes('VETO_TENANT_LEAK')
+    (r) => r.status === 'FAIL' && r.checkId === 'TC-AUTH-001' && r.description.includes('VETO_TENANT_LEAK')
   );
 
   const hasExfil = results.some(
-    (r) => r.checkId === 'TC-VETO-EXFIL-001' || r.description.includes('VETO_EXFIL')
+    (r) => r.status === 'FAIL' && (r.checkId === 'TC-VETO-EXFIL-001' || r.description.includes('VETO_EXFIL'))
   );
 
   const hasTraversal = results.some(
-    (r) => r.checkId === 'TC-AUTH-003' && r.description.includes('VETO_TRAVERSAL')
+    (r) => r.status === 'FAIL' && r.checkId === 'TC-AUTH-003' && r.description.includes('VETO_TRAVERSAL')
   );
 
   const hasContextBomb = results.some(
@@ -408,12 +408,17 @@ export async function runSuite(
       r.severity === 'CRITICAL'
   );
 
-  const hasDataLoss = results.some(
-    (r) =>
-      hasContextBomb ||
-      r.description.includes('VETO_DATALOSS') ||
-      (r.severity === 'CRITICAL' && (r.description.includes('bulk delete') || r.description.includes('bulk update') || r.description.includes('bulk send')))
-  );
+  const hasDataLoss =
+    hasContextBomb ||
+    results.some(
+      (r) =>
+        r.status === 'FAIL' &&
+        (r.description.includes('VETO_DATALOSS') ||
+          (r.severity === 'CRITICAL' &&
+            (r.description.includes('bulk delete') ||
+              r.description.includes('bulk update') ||
+              r.description.includes('bulk send'))))
+    );
 
   const idempFailures = results.filter(
     (r) =>

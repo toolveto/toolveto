@@ -1064,4 +1064,81 @@ describe('ToolVeto Shield Runtime Middleware', () => {
     assert.ok(pagesFetched >= 2, 'Should paginate across multiple pages');
     assert.deepStrictEqual(collectedRecords, allRecords, 'All 12 records must be recovered losslessly across cursor pages');
   });
+
+  it('should handle distributed storage outages according to failClosed and preserve committed responses on cache write errors', async () => {
+    const failingStorage = {
+      async get() {
+        throw new Error('redis socket closed');
+      },
+      async set() {
+        throw new Error('redis socket closed');
+      },
+      async recordCall() {
+        throw new Error('redis socket closed');
+      },
+    };
+
+    // 1. failClosed: false (default) degrades gracefully and preserves committed upstream mutation on set() error
+    const failOpenSpans: string[] = [];
+    const openMw = new ShieldMiddleware({
+      storage: failingStorage,
+      loopLimit: { count: 3, windowMs: 5000 },
+      idempotency: true,
+      failClosed: false,
+      onSpan: (s) => failOpenSpans.push(s.action),
+    });
+    let upstreamCallsOpen = 0;
+    const openRes = await openMw.intercept(
+      { method: 'tools/call', params: { name: 'create_charge', arguments: { idempotency_key: 'ik_open_1' } } },
+      async () => {
+        upstreamCallsOpen++;
+        return { content: [{ type: 'text', text: '{"charged":true}' }] };
+      }
+    );
+    assert.strictEqual(upstreamCallsOpen, 1);
+    assert.strictEqual(openRes.isError, undefined);
+    assert.strictEqual(openRes.content[0].text, '{"charged":true}');
+    assert.ok(failOpenSpans.includes('STORAGE_DEGRADED'));
+    assert.ok(failOpenSpans.includes('STORAGE_CACHE_ERROR'));
+
+    // 2. failClosed: true vetoes on recordCall() outage without hitting upstream
+    const closedLoopSpans: string[] = [];
+    const closedLoopMw = new ShieldMiddleware({
+      storage: failingStorage,
+      loopLimit: { count: 3, windowMs: 5000 },
+      failClosed: true,
+      onSpan: (s) => closedLoopSpans.push(s.action),
+    });
+    let upstreamCallsClosedLoop = 0;
+    const closedLoopRes = await closedLoopMw.intercept(
+      { method: 'tools/call', params: { name: 'create_charge', arguments: {} } },
+      async () => {
+        upstreamCallsClosedLoop++;
+        return { content: [{ type: 'text', text: 'ok' }] };
+      }
+    );
+    assert.strictEqual(upstreamCallsClosedLoop, 0);
+    assert.strictEqual(closedLoopRes.isError, true);
+    assert.ok(closedLoopSpans.includes('STORAGE_ERROR'));
+
+    // 3. failClosed: true vetoes on idempotency get() outage without hitting upstream
+    const closedGetSpans: string[] = [];
+    const closedGetMw = new ShieldMiddleware({
+      storage: failingStorage,
+      idempotency: true,
+      failClosed: true,
+      onSpan: (s) => closedGetSpans.push(s.action),
+    });
+    let upstreamCallsClosedGet = 0;
+    const closedGetRes = await closedGetMw.intercept(
+      { method: 'tools/call', params: { name: 'create_charge', arguments: { idempotency_key: 'ik_closed_1' } } },
+      async () => {
+        upstreamCallsClosedGet++;
+        return { content: [{ type: 'text', text: 'ok' }] };
+      }
+    );
+    assert.strictEqual(upstreamCallsClosedGet, 0);
+    assert.strictEqual(closedGetRes.isError, true);
+    assert.ok(closedGetSpans.includes('STORAGE_ERROR'));
+  });
 });

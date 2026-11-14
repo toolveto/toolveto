@@ -1147,5 +1147,29 @@ describe('ToolVeto CLI Commands', () => {
       fs.rmSync(tmpHome, { recursive: true, force: true });
     }
   });
+
+  it('should reject unsupported JWS algorithms (alg: none and RS256) in verifyCommand', async () => {
+    const payloadB64 = Buffer.from(JSON.stringify({ sub: 'acme/mcp-server', score: 95, tier: 'PLATINUM' })).toString(
+      'base64url'
+    );
+    const noneHdr = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url');
+    const rsHdr = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
+    const prevExit = process.exitCode;
+    try {
+      process.exitCode = 0;
+      await verifyCommand(`${noneHdr}.${payloadB64}.`, {
+        secret: 'test-signing-secret-used-only-for-alg-rejection',
+      });
+      assert.strictEqual(process.exitCode, 1, 'alg=none must fail closed with exitCode 1');
+
+      process.exitCode = 0;
+      await verifyCommand(`${rsHdr}.${payloadB64}.forged_signature`, {
+        secret: 'test-signing-secret-used-only-for-alg-rejection',
+      });
+      assert.strictEqual(process.exitCode, 1, 'alg=RS256 must fail closed with exitCode 1');
+    } finally {
+      process.exitCode = prevExit ?? 0;
+    }
+  });
 });
 

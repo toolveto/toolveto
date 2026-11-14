@@ -83,7 +83,7 @@ export async function runOutputSchemaFidelityCheck(
       } catch {
         return {
           checkId: 'TC-OUTPUT-001',
-          dimension: 'D4',
+          dimension: 'D2',
           tool: tool.name,
           status: 'WARN',
           severity: 'MEDIUM',
@@ -106,7 +106,7 @@ export async function runOutputSchemaFidelityCheck(
       if (missingFields.length > 0) {
         return {
           checkId: 'TC-OUTPUT-001',
-          dimension: 'D4',
+          dimension: 'D2',
           tool: tool.name,
           status: 'FAIL',
           severity: 'HIGH',
