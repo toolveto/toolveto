@@ -159,6 +159,11 @@ export function createProgram(): Command {
     .option('--allow-exec', 'Authorize spawning local server entrypoint scripts discovered inside target directory')
     .option('--demo', 'Allow synthetic demo tool when target has zero tools')
     .option('--weaveproof', 'Emit WeaveProof Enterprise Genome import instructions for L3-L7 runtime enforcement')
+    .option('--sync-cloud', 'Check or register schema baseline against ToolVeto Cloud (/api/v1/drift/check)')
+    .option('--approve-cloud', 'Promote current tool definitions as the certified ToolVeto Cloud baseline (/api/v1/drift/approve)')
+    .option('--repo <name>', 'Repository / service slug for Cloud baseline sync (e.g. acme/fintech-mcp)')
+    .option('--api-url <url>', 'ToolVeto Cloud API URL')
+    .option('--license-key <key>', 'ToolVeto Cloud license key or API token')
     .action(async (target, options) => {
       await lockCommand(target, options);
     });

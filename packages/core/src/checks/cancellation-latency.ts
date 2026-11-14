@@ -23,8 +23,9 @@ export async function runCancellationCheck(
     }
 
     try {
-      // Launch tool call asynchronously and capture actual JSON-RPC wire request ID
+      // Launch tool call asynchronously, immediately guarding rejection while sendNotification awaits
       const callPromise = client.callTool(tool.name, samplePayload);
+      callPromise.catch(() => {});
       const wireRequestId = client.getLastRequestId?.() ?? cancelRequestId;
 
       // Immediately issue cancellation notification referencing the in-flight wire request ID
@@ -101,15 +102,22 @@ export async function runLatencyProfilingCheck(
 
     for (let i = 0; i < trials; i++) {
       const t0 = Date.now();
+      let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
       try {
+        const probePromise = client.callTool(tool.name, {});
+        probePromise.catch(() => {});
         await Promise.race([
-          client.callTool(tool.name, {}),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('TIMEOUT')), 2000)),
+          probePromise,
+          new Promise((_, reject) => {
+            timeoutHandle = setTimeout(() => reject(new Error('TIMEOUT')), 2000);
+          }),
         ]);
         durations.push(Date.now() - t0);
       } catch (err: any) {
         if (err.message === 'TIMEOUT') timeouts++;
         else durations.push(Date.now() - t0);
+      } finally {
+        if (timeoutHandle) clearTimeout(timeoutHandle);
       }
     }
 

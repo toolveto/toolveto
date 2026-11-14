@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "stripe-payments": {
+      "command": "npx",
+      "args": ["-y", "@stripe/mcp@latest"],
+      "env": {
+        "STRIPE_API_KEY": "demo_unencrypted_live_credential_in_ide_config"
+      }
+    }
+  }
+}

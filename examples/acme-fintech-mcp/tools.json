@@ -1,0 +1,55 @@
+[
+  {
+    "name": "charge_customer_card",
+    "description": "Charges a customer credit card for an invoice (requires write:payments scope)",
+    "isMutation": true,
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "customer_id": {
+          "type": "string",
+          "description": "Customer UUID (e.g. usr_123e4567-e89b-12d3-a456-426614174000)"
+        },
+        "amount_cents": {
+          "type": "number",
+          "description": "Charge amount in cents (e.g. 2500)"
+        },
+        "settlement_date": {
+          "type": "string",
+          "description": "Settlement date in YYYY-MM-DD format (e.g. 2026-11-15)"
+        }
+      },
+      "required": ["customer_id", "amount_cents"]
+    }
+  },
+  {
+    "name": "get_charge_customer_card",
+    "description": "Retrieves status of a customer card charge by ID",
+    "isMutation": false,
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "charge_id": {
+          "type": "string",
+          "description": "Charge ID (e.g. ch_998877)"
+        }
+      },
+      "required": ["charge_id"]
+    }
+  },
+  {
+    "name": "list_all_transactions",
+    "description": "Fetches historical ledger transactions",
+    "isMutation": false,
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "account_id": {
+          "type": "string",
+          "description": "Account UUID (e.g. acc_123e4567)"
+        }
+      }
+    }
+  }
+]
