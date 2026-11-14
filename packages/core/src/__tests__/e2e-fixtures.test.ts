@@ -115,4 +115,34 @@ describe('E2E Stdio Fixture Servers Test Suite', () => {
       await client.close();
     }
   });
+
+  it('should survive concurrent writes during child crash (no EPIPE crash) and auto-reconnect on subsequent calls', async () => {
+    const client = new StdioMcpClient({
+      command: process.execPath,
+      args: [badServerScript],
+      timeoutMs: 15000,
+    });
+
+    try {
+      await client.connect();
+
+      const outcomes = await Promise.allSettled([
+        client.callTool('crash_tool', { code: 'invalid_string' }),
+        client.callTool('list_invoices', {}),
+        client.callTool('list_invoices', {}),
+      ]);
+
+      const crashOutcome = outcomes[0];
+      assert.strictEqual(crashOutcome.status, 'rejected', 'crash_tool must reject when child exits');
+      assert.strictEqual((crashOutcome.reason as any)?.isPanic, true, 'crash_tool rejection must set isPanic=true');
+
+      const recoveryResp = await client.callTool('exfil_prompt_tool', { input: 'hello' });
+      assert.ok(
+        Array.isArray(recoveryResp.content) && recoveryResp.content.length > 0,
+        'Subsequent call must auto-reconnect and return content cleanly'
+      );
+    } finally {
+      await client.close();
+    }
+  });
 });

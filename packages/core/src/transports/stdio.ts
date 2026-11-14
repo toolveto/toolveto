@@ -20,6 +20,7 @@ export interface StdioOptions {
 
 export class StdioMcpClient implements McpClient {
   private childProcess: ChildProcess | null = null;
+  private connectPromise: Promise<void> | null = null;
   private pendingRequests: Map<number, { resolve: (val: any) => void; reject: (err: any) => void }> = new Map();
   private rawResponseResolvers: Array<(msg: any) => void> = [];
   private nextId = 1;
@@ -33,10 +34,27 @@ export class StdioMcpClient implements McpClient {
   constructor(private options: StdioOptions) {}
 
   public async connect(): Promise<void> {
-    if (this.childProcess) {
+    if (
+      this.childProcess &&
+      this.childProcess.exitCode === null &&
+      !this.childProcess.killed &&
+      this.childProcess.stdin &&
+      !this.childProcess.stdin.destroyed
+    ) {
       return;
     }
 
+    if (this.connectPromise) {
+      return this.connectPromise;
+    }
+
+    this.connectPromise = this.doConnect().finally(() => {
+      this.connectPromise = null;
+    });
+    return this.connectPromise;
+  }
+
+  private async doConnect(): Promise<void> {
     const { command, args = [], cwd, env, timeoutMs = 15000 } = this.options;
 
     return new Promise((resolve, reject) => {
@@ -54,38 +72,64 @@ export class StdioMcpClient implements McpClient {
         }
       }
 
-      this.childProcess = spawn(command, args, {
+      const proc = spawn(command, args, {
         cwd,
         env: { ...sanitizedEnv, ...env },
         stdio: ['pipe', 'pipe', 'pipe'],
       });
+      this.childProcess = proc;
 
-      this.childProcess.on('error', (err) => {
+      proc.stdin?.on('error', () => {});
+      proc.stdout?.on('error', () => {});
+      proc.stderr?.on('error', () => {});
+
+      const reader = readline.createInterface({
+        input: proc.stdout!,
+        terminal: false,
+      });
+      reader.on('error', () => {});
+      this.stdoutReader = reader;
+
+      proc.on('error', (err) => {
+        if (this.childProcess === proc) {
+          this.childProcess = null;
+          this.isInitialized = false;
+        }
         if (!resolved) {
           resolved = true;
           reject(new Error(`Failed to spawn MCP server '${command}': ${err.message}`));
         }
       });
 
-      this.childProcess.stderr?.on('data', (chunk) => {
+      proc.stderr?.on('data', (chunk) => {
         const text = chunk.toString();
         this.serverErrorLog.push(text);
       });
 
-      this.childProcess.on('exit', (code, signal) => {
+      proc.on('exit', (code, signal) => {
         const err = new Error(`MCP server process exited unexpectedly with code ${code}, signal ${signal}. Stderr: ${this.serverErrorLog.slice(-5).join('')}`);
         for (const { reject: pendingReject } of this.pendingRequests.values()) {
           pendingReject(err);
         }
         this.pendingRequests.clear();
+        while (this.rawResponseResolvers.length > 0) {
+          this.rawResponseResolvers.shift()?.(undefined);
+        }
+        if (this.childProcess === proc) {
+          try {
+            reader.close();
+          } catch {
+            // Ignore reader close errors
+          }
+          if (this.stdoutReader === reader) {
+            this.stdoutReader = null;
+          }
+          this.childProcess = null;
+          this.isInitialized = false;
+        }
       });
 
-      this.stdoutReader = readline.createInterface({
-        input: this.childProcess.stdout!,
-        terminal: false,
-      });
-
-      this.stdoutReader.on('line', (line) => {
+      reader.on('line', (line) => {
         const trimmed = line.trim();
         if (!trimmed) return;
         try {
@@ -219,8 +263,11 @@ export class StdioMcpClient implements McpClient {
       };
     } catch (err: any) {
       const isProcessExit =
-        this.childProcess?.exitCode !== null ||
-        this.childProcess?.killed ||
+        (this.childProcess !== null && (this.childProcess.exitCode !== null || this.childProcess.killed)) ||
+        err?.code === 'EPIPE' ||
+        err?.code === 'ECONNRESET' ||
+        err?.code === 'ERR_STREAM_DESTROYED' ||
+        err?.code === 'ERR_STREAM_WRITE_AFTER_END' ||
         err.message?.includes('exited unexpectedly') ||
         err.message?.includes('dropped transport') ||
         err.message?.includes('not connected');
@@ -248,7 +295,16 @@ export class StdioMcpClient implements McpClient {
 
   private sendRequest(method: string, params: Record<string, any>, timeoutMs = 10000): Promise<any> {
     return new Promise((resolve, reject) => {
-      if (!this.childProcess || !this.childProcess.stdin) {
+      const proc = this.childProcess;
+      if (
+        !proc ||
+        !proc.stdin ||
+        proc.exitCode !== null ||
+        proc.signalCode !== null ||
+        proc.killed ||
+        proc.stdin.destroyed ||
+        !proc.stdin.writable
+      ) {
         return reject(new Error('MCP server process is not connected'));
       }
 
@@ -279,13 +335,19 @@ export class StdioMcpClient implements McpClient {
         params,
       }) + '\n';
 
-      this.childProcess.stdin.write(payload, 'utf-8', (err) => {
-        if (err) {
-          clearTimeout(timer);
-          this.pendingRequests.delete(id);
-          reject(err);
-        }
-      });
+      try {
+        proc.stdin.write(payload, 'utf-8', (err) => {
+          if (err) {
+            clearTimeout(timer);
+            this.pendingRequests.delete(id);
+            reject(err);
+          }
+        });
+      } catch (err) {
+        clearTimeout(timer);
+        this.pendingRequests.delete(id);
+        reject(err);
+      }
     });
   }
 
@@ -326,7 +388,16 @@ export class StdioMcpClient implements McpClient {
     if (!this.childProcess) {
       await this.connect();
     }
-    if (!this.childProcess || !this.childProcess.stdin) {
+    const proc = this.childProcess;
+    if (
+      !proc ||
+      !proc.stdin ||
+      proc.exitCode !== null ||
+      proc.signalCode !== null ||
+      proc.killed ||
+      proc.stdin.destroyed ||
+      !proc.stdin.writable
+    ) {
       throw new Error('MCP server process is not connected');
     }
 
@@ -345,26 +416,48 @@ export class StdioMcpClient implements McpClient {
       this.rawResponseResolvers.push(resolver);
 
       const line = (typeof rawJson === 'string' ? rawJson : JSON.stringify(rawJson)) + '\n';
-      this.childProcess!.stdin!.write(line, 'utf-8', (err) => {
-        if (err) {
-          clearTimeout(timer);
-          const idx = this.rawResponseResolvers.indexOf(resolver);
-          if (idx >= 0) this.rawResponseResolvers.splice(idx, 1);
-          reject(err);
-        }
-      });
+      try {
+        proc.stdin!.write(line, 'utf-8', (err) => {
+          if (err) {
+            clearTimeout(timer);
+            const idx = this.rawResponseResolvers.indexOf(resolver);
+            if (idx >= 0) this.rawResponseResolvers.splice(idx, 1);
+            reject(err);
+          }
+        });
+      } catch (err) {
+        clearTimeout(timer);
+        const idx = this.rawResponseResolvers.indexOf(resolver);
+        if (idx >= 0) this.rawResponseResolvers.splice(idx, 1);
+        reject(err);
+      }
     });
   }
 
   public async sendNotification(method: string, params?: Record<string, unknown>): Promise<void> {
-    if (!this.childProcess || !this.childProcess.stdin) return;
+    const proc = this.childProcess;
+    if (
+      !proc ||
+      !proc.stdin ||
+      proc.exitCode !== null ||
+      proc.signalCode !== null ||
+      proc.killed ||
+      proc.stdin.destroyed ||
+      !proc.stdin.writable
+    ) {
+      return;
+    }
     const payload = JSON.stringify({
       jsonrpc: '2.0',
       method,
       params,
     }) + '\n';
     return new Promise((res) => {
-      this.childProcess?.stdin?.write(payload, 'utf-8', () => res());
+      try {
+        proc.stdin?.write(payload, 'utf-8', () => res());
+      } catch {
+        res();
+      }
     });
   }
 
@@ -447,6 +540,7 @@ export class StdioMcpClient implements McpClient {
   }
 
   public async close(): Promise<void> {
+    this.isInitialized = false;
     if (this.stdoutReader) {
       this.stdoutReader.close();
       this.stdoutReader = null;
