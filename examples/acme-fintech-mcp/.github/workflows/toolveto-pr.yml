@@ -1,0 +1,40 @@
+name: ToolVeto MCP Reliability & Chaos PR Gate
+
+on:
+  pull_request:
+    branches: [main, master]
+  push:
+    branches: [main, master]
+
+concurrency:
+  group: toolveto-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  security-events: write
+
+jobs:
+  toolveto-gate:
+    name: ToolVeto Deterministic MCP Audit ($0, Zero LLM, Zero Egress)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      DO_NOT_TRACK: '1'
+      TOOLVETO_NO_TELEMETRY: '1'
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run ToolVeto Chaos Gate & Lockfile Verification
+        run: |
+          npx --yes toolveto@latest check . --ephemeral-mock --threshold 80 --fail-on-severity CRITICAL --no-telemetry --skip-update-check
+          if [ -f "toolveto.lock.json" ]; then
+            npx --yes toolveto@latest lock . --verify
+          fi

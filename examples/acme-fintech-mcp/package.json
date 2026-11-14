@@ -1,0 +1,16 @@
+{
+  "name": "acme-fintech-mcp",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Acme FinTech Reference MCP Server — Dual-Transport (Streamable HTTP + Stdio) Showcase for ToolVeto Free PR Gate, Team & Shield",
+  "scripts": {
+    "start": "node ./server.mjs",
+    "start:stdio": "node ./server.mjs --stdio",
+    "start:hardened": "MCP_SERVER_MODE=v1-hardened node ./server.mjs",
+    "start:drifted": "MCP_SERVER_MODE=v2-drifted node ./server.mjs"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

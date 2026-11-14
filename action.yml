@@ -17,6 +17,18 @@ inputs:
     description: 'Minimum failure severity to block PR merge (CRITICAL | HIGH | MEDIUM)'
     required: false
     default: 'CRITICAL'
+  threshold:
+    description: 'Minimum certification score threshold (0-100)'
+    required: false
+    default: '80'
+  ephemeral-mock:
+    description: 'Enable zero-setup ephemeral mock chaos evaluation on static manifests'
+    required: false
+    default: 'true'
+  lockfile-verify:
+    description: 'Verify toolveto.lock.json against schema drift / rug-pulls if present'
+    required: false
+    default: 'true'
   toolveto-token:
     description: 'ToolVeto Cloud token for continuous drift monitoring and audit history'
     required: false
@@ -51,7 +63,10 @@ runs:
         TARGET="${{ inputs.server-url || inputs.server-path }}"
         echo "🛡️ Running ToolVeto Check on: $TARGET"
 
-        ARGS=("$TARGET" "--format" "json" "--fail-on-severity" "${{ inputs.fail-on-severity }}")
+        ARGS=("$TARGET" "--format" "json" "--fail-on-severity" "${{ inputs.fail-on-severity }}" "--threshold" "${{ inputs.threshold }}")
+        if [ -z "${{ inputs.server-url }}" ] && [ "${{ inputs.ephemeral-mock }}" = "true" ]; then
+          ARGS+=("--ephemeral-mock")
+        fi
         if [ "${{ inputs.with-llm }}" = "true" ]; then
           ARGS+=("--with-llm")
         fi
@@ -63,8 +78,40 @@ runs:
           CLI_CMD="npx --yes toolveto@0.2.0"
         fi
 
+        set +e
         REPORT_JSON=$($CLI_CMD check "${ARGS[@]}" 2>&1)
         EXIT_CODE=$?
+        set -e
+
+        # Emit GitHub Actions file annotations & readable summary from JSON report
+        REPORT_RAW="$REPORT_JSON" TARGET_URI="$TARGET" node -e '
+          try {
+            const raw = process.env.REPORT_RAW || "";
+            const idx = raw.indexOf("{");
+            const d = JSON.parse(idx >= 0 ? raw.slice(idx) : raw);
+            const results = Array.isArray(d.results) ? d.results : [];
+            const failed = results.filter((r) => r.status === "FAIL");
+            const passed = results.filter((r) => r.status === "PASS");
+            console.log(`📊 Score: ${d.score ?? 0}/100 [${d.tier || "REJECTED"}] • Passed: ${passed.length} • Failed: ${failed.length}`);
+            for (const r of failed) {
+              const lvl = r.severity === "CRITICAL" || r.severity === "HIGH" ? "error" : "warning";
+              const msg = String(r.description || "").replace(/\r?\n/g, " ");
+              console.log(`::${lvl} title=${r.checkId} (${r.tool})::${msg}`);
+            }
+          } catch {}
+        '
+
+        # Optional rug-pull lockfile verification when toolveto.lock.json is committed
+        LOCK_EXIT=0
+        if [ "${{ inputs.lockfile-verify }}" = "true" ] && [ -f "${TARGET%/}/toolveto.lock.json" ]; then
+          set +e
+          $CLI_CMD lock "$TARGET" --verify --output "${TARGET%/}/toolveto.lock.json"
+          LOCK_EXIT=$?
+          set -e
+          if [ "$LOCK_EXIT" -ne 0 ]; then
+            EXIT_CODE=$LOCK_EXIT
+          fi
+        fi
 
         # Parse output fields safely from pretty-printed JSON
         SCORE=$(REPORT_RAW="$REPORT_JSON" node -e 'try { const raw = process.env.REPORT_RAW || ""; const idx = raw.indexOf("{"); const d = JSON.parse(idx >= 0 ? raw.slice(idx) : raw); console.log(d.score ?? 0); } catch { console.log(0); }')
