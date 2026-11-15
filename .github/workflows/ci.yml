@@ -99,11 +99,35 @@ jobs:
             exit 1
           fi
           echo "✔ fixtures/bad-server --threshold 80 exited non-zero as expected."
-          ACME_MCP_MODE=v1-hardened node packages/cli/dist/bin/toolveto.js check examples/acme-fintech-mcp/server.mjs --allow-exec --threshold 80 --skip-update-check --no-telemetry
-          if ACME_MCP_MODE=v1-vulnerable GITHUB_ACTIONS=false node packages/cli/dist/bin/toolveto.js check examples/acme-fintech-mcp/server.mjs --allow-exec --threshold 80 --skip-update-check --no-telemetry ; then
+          ACME_PID=""
+          acme_cleanup() {
+            if [ -n "$ACME_PID" ]; then kill "$ACME_PID" >/dev/null 2>&1 || true; fi
+          }
+          trap acme_cleanup EXIT
+          MCP_SERVER_MODE=v1-hardened PORT=4110 node examples/acme-fintech-mcp/server.mjs >/tmp/acme-ci.log 2>&1 &
+          ACME_PID=$!
+          ACME_READY=false
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:4110/health >/dev/null 2>&1; then
+              ACME_READY=true
+              break
+            fi
+            sleep 0.5
+          done
+          if [ "$ACME_READY" != "true" ]; then
+            echo "❌ Acme FinTech MCP server failed to start on :4110"
+            cat /tmp/acme-ci.log || true
+            exit 1
+          fi
+          node packages/cli/dist/bin/toolveto.js check http://127.0.0.1:4110/mcp --allow-destructive --threshold 80 --skip-update-check --no-telemetry
+          curl -fsS -X POST http://127.0.0.1:4110/admin/mode -H 'Content-Type: application/json' -d '{"mode":"v1-vulnerable"}' >/dev/null
+          if GITHUB_ACTIONS=false node packages/cli/dist/bin/toolveto.js check http://127.0.0.1:4110/mcp --threshold 80 --skip-update-check --no-telemetry ; then
             echo "❌ Expected examples/acme-fintech-mcp (v1-vulnerable) --threshold 80 to exit non-zero!"
             exit 1
           fi
+          acme_cleanup
+          ACME_PID=""
+          trap - EXIT
           echo "✔ Acme FinTech MCP hardened passed & vulnerable vetoed as expected."
 
       - name: Clean Customer Tarball Install Smoke Test (pnpm pack)

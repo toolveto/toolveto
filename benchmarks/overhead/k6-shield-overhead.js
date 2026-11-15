@@ -1,9 +1,10 @@
 import http from 'k6/http';
 import { check } from 'k6';
 import exec from 'k6/execution';
-import { Trend } from 'k6/metrics';
+import { Trend, Counter } from 'k6/metrics';
 
 const shieldAirbagLatency = new Trend('shield_airbag_latency_ms', true);
+const shieldAirbagSamples = new Counter('shield_airbag_samples');
 const GATEWAY_SECRET = __ENV.TOOLVETO_GATEWAY_SECRET || 'bench-gateway-secret-minimum-32-chars';
 const gatewayHeaders = {
   'Content-Type': 'application/json',
@@ -47,7 +48,8 @@ export const options = {
     checks: ['rate==1.0'],
     'http_req_duration{scenario:shielded_cache_miss}': ['p(50)<5', 'p(95)<15', 'p(99)<25'],
     'http_req_duration{scenario:shielded_cache_hit}': ['p(50)<2', 'p(95)<5', 'p(99)<10'],
-    shield_airbag_latency_ms: ['count>1000', 'p(50)>0', 'p(50)<1.8', 'p(95)<1.8'],
+    shield_airbag_samples: ['count>1000'],
+    shield_airbag_latency_ms: ['p(50)>0', 'p(50)<1.8', 'p(95)<1.8'],
   },
 };
 
@@ -72,6 +74,7 @@ function recordAirbagHeader(res) {
   if (hdr) {
     const val = parseFloat(String(hdr).replace('ms', ''));
     if (!Number.isNaN(val)) {
+      shieldAirbagSamples.add(1);
       shieldAirbagLatency.add(val);
     }
   }
