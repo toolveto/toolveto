@@ -557,7 +557,7 @@
               <strong>Responsible External Scope:</strong> In strict compliance with security standards, all third-party external repositories in this benchmark were evaluated exclusively using <strong>Stages 1 and 2 (Schema Introspection &amp; Static Contract Verification)</strong>. Zero live mutation probes or burst calls were sent to live infrastructure.
             </p>
             <p>
-              The ToolVeto static checker parses the declared tool signatures and evaluates them against 12 core reliability invariants:
+              The ToolVeto static checker parses the declared tool signatures and evaluates them against 32 deterministic checks across 14 invariant families:
             </p>
             <ul style="margin-left: 24px;">
               <li><code>TC-IDEMP-003</code>: Presence of client-controlled idempotency tokens on mutating tools.</li>
@@ -599,9 +599,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: toolveto/action@v1
+      - uses: toolveto/toolveto@v1
         with:
-          server: "stdio://./dist/index.js"</pre>
+          target: "./src/mcp-server.ts"</pre>
           </div>
         </section>
 
@@ -660,7 +660,7 @@ jobs:
       </div>
 
       <div class="footer-bottom">
-        <div>&copy; 2026 ToolVeto Technologies Inc. Open-source core under MIT License.</div>
+        <div>&copy; 2026 ToolVeto Inc. Open-source licenses: MIT CLI &amp; Core &middot; Apache 2.0 Shield.</div>
         <div>Built for the Model Context Protocol ecosystem.</div>
       </div>
     </div>

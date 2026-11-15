@@ -63,7 +63,8 @@ export class StdioMcpClient implements McpClient {
       // Sanitize environment variables passed to untrusted MCP server to prevent secret exfiltration
       const safeEnvKeys = [
         'PATH', 'HOME', 'TMPDIR', 'USER', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TERM',
-        'SHELL', 'SYSTEMROOT', 'WINDIR', 'NODE_ENV', 'LOCALAPPDATA', 'APPDATA'
+        'SHELL', 'SYSTEMROOT', 'WINDIR', 'NODE_ENV', 'LOCALAPPDATA', 'APPDATA',
+        'VIRTUAL_ENV', 'PYTHONPATH', 'CONDA_PREFIX', 'UV_CACHE_DIR',
       ];
       const sanitizedEnv: Record<string, string> = {};
       for (const k of safeEnvKeys) {
@@ -76,6 +77,7 @@ export class StdioMcpClient implements McpClient {
         cwd,
         env: { ...sanitizedEnv, ...env },
         stdio: ['pipe', 'pipe', 'pipe'],
+        ...(process.platform === 'win32' && /\.(cmd|bat)$/i.test(command) ? { shell: true } : {}),
       });
       this.childProcess = proc;
 

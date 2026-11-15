@@ -68,21 +68,52 @@ describe('ToolVeto CLI Commands', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('should generate toolveto-remediation.patch when running fix on code repositories', async () => {
+  it('should write zero patch files on dry-run and emit a git-apply-valid unified diff when --output is passed', async () => {
+    const { execFileSync } = await import('node:child_process');
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tv-patch-test-'));
     const originalCwd = process.cwd();
+    const srcFile = path.join(tmpDir, 'server.ts');
+    fs.writeFileSync(
+      srcFile,
+      [
+        `import { z } from 'zod';`,
+        `export const CreateOrderSchema = z.object({`,
+        `  orderId: z.string(),`,
+        `});`,
+        ``,
+      ].join('\n'),
+      'utf-8'
+    );
     process.chdir(tmpDir);
 
     try {
+      // 1. Dry-run without --output MUST NOT pollute disk with toolveto-remediation.patch
       await fixCommand(tmpDir, {
         suggest: true,
       });
+      const defaultPatchFile = path.join(tmpDir, 'toolveto-remediation.patch');
+      assert.strictEqual(
+        fs.existsSync(defaultPatchFile),
+        false,
+        'Dry-run must not write toolveto-remediation.patch unless --output is explicitly passed'
+      );
 
-      const patchFile = path.join(tmpDir, 'toolveto-remediation.patch');
-      assert.ok(fs.existsSync(patchFile), 'toolveto-remediation.patch must be generated on disk');
-      const patchContent = fs.readFileSync(patchFile, 'utf-8');
-      assert.ok(patchContent.includes('diff --git') || patchContent.includes('--- a/'), 'Patch must follow git diff unified format');
+      // 2. Dry-run with explicit --output writes real unified diff against actual file (no synthetic a/src/tools.ts)
+      const explicitPatchFile = path.join(tmpDir, 'custom-fix.patch');
+      await fixCommand(tmpDir, {
+        suggest: true,
+        output: explicitPatchFile,
+      });
+
+      assert.ok(fs.existsSync(explicitPatchFile), 'Explicit --output patch file must be created');
+      const patchContent = fs.readFileSync(explicitPatchFile, 'utf-8');
+      assert.ok(patchContent.includes('diff --git a/server.ts b/server.ts'), 'Patch must target real server.ts');
+      assert.ok(!patchContent.includes('a/src/tools.ts'), 'Patch must never emit synthetic a/src/tools.ts');
       assert.ok(patchContent.includes('idempotencyKey: z.string()'), 'Patch must include Zod idempotency definition');
+
+      // Verify git apply --check succeeds cleanly
+      execFileSync('git', ['init'], { cwd: tmpDir, stdio: 'ignore' });
+      execFileSync('git', ['apply', '--check', explicitPatchFile], { cwd: tmpDir });
     } finally {
       process.chdir(originalCwd);
       fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -228,41 +259,76 @@ describe('ToolVeto CLI Commands', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('should enforce high-entropy secret in evidence generation (toolveto evidence)', async () => {
+  it('should enforce high-entropy secret cleanly without unhandled rejection and evaluate tools.json in evidence generation', async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tv-evid-test-'));
     const manifestPath = path.join(tmpDir, 'tools.json');
-    fs.writeFileSync(manifestPath, JSON.stringify([{
-      name: 'get_status',
-      description: 'Reads current system operational status',
-      isMutation: false,
-      inputSchema: { type: 'object', properties: {} },
-    }]));
+    fs.writeFileSync(
+      manifestPath,
+      JSON.stringify([
+        {
+          name: 'get_status',
+          description: 'Reads current system operational status safely with bounded payload',
+          isMutation: false,
+          inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+        },
+      ])
+    );
 
-    // Without secret, evidenceCommand must throw fatal security violation
     const oldSecret = process.env.TOOLVETO_SIGNING_SECRET;
     delete process.env.TOOLVETO_SIGNING_SECRET;
 
-    await assert.rejects(
-      async () => {
-        await evidenceCommand({ target: manifestPath, format: 'json' });
-      },
-      /FATAL SECURITY VIOLATION: TOOLVETO_SIGNING_SECRET/
-    );
+    const capturedErrors: string[] = [];
+    const prevErr = console.error;
+    console.error = (...args: any[]) => {
+      capturedErrors.push(args.map(String).join(' '));
+    };
 
-    // With 32+ char secret, evidenceCommand succeeds
-    const outputPath = path.join(tmpDir, 'evidence.json');
-    await evidenceCommand({
-      target: manifestPath,
-      format: 'json',
-      secret: 'secure-high-entropy-attestation-secret-32chars',
-      output: outputPath,
-    });
-    assert.ok(fs.existsSync(outputPath), 'Evidence output file must be created');
-    const content = JSON.parse(fs.readFileSync(outputPath, 'utf-8'));
-    assert.ok(content.jws, 'Generated evidence packet must include cryptographic JWS signature');
+    try {
+      // 1. Without secret and without --demo, evidenceCommand prints actionable error and sets exitCode = 1 (never throws!)
+      process.exitCode = 0;
+      await evidenceCommand({ target: manifestPath, format: 'json' });
+      assert.strictEqual(process.exitCode, 1, 'Missing signing secret without --demo must set process.exitCode = 1');
+      assert.ok(
+        capturedErrors.some((line) => line.includes('TOOLVETO_SIGNING_SECRET') || line.includes('--demo')),
+        'Must print actionable TOOLVETO_SIGNING_SECRET / --demo guidance'
+      );
 
-    if (oldSecret) process.env.TOOLVETO_SIGNING_SECRET = oldSecret;
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+      // 2. With --demo on tools.json, runs static evaluation and produces non-production preview packet
+      process.exitCode = 0;
+      const demoPath = path.join(tmpDir, 'evidence-demo.json');
+      await evidenceCommand({
+        target: manifestPath,
+        format: 'json',
+        demo: true,
+        output: demoPath,
+      });
+      assert.strictEqual(process.exitCode, 0);
+      const demoContent = JSON.parse(fs.readFileSync(demoPath, 'utf-8'));
+      assert.strictEqual(demoContent.demo, true);
+      assert.ok(demoContent.resultsCount > 0, 'Static evaluation must compute real check results from tools.json');
+      assert.ok(demoContent.jws, 'Demo packet must include ephemeral JWS preview token');
+
+      // 3. With 32+ char secret, evidenceCommand produces production-signed JWS packet
+      process.exitCode = 0;
+      const outputPath = path.join(tmpDir, 'evidence.json');
+      await evidenceCommand({
+        target: manifestPath,
+        format: 'json',
+        secret: 'secure-high-entropy-attestation-secret-32chars',
+        output: outputPath,
+      });
+      assert.strictEqual(process.exitCode, 0);
+      assert.ok(fs.existsSync(outputPath), 'Evidence output file must be created');
+      const content = JSON.parse(fs.readFileSync(outputPath, 'utf-8'));
+      assert.strictEqual(content.demo, false);
+      assert.ok(content.jws, 'Generated evidence packet must include cryptographic JWS signature');
+      assert.ok(typeof content.score === 'number' && content.score > 0, 'Must compute real score from tools.json');
+    } finally {
+      console.error = prevErr;
+      process.exitCode = 0;
+      if (oldSecret) process.env.TOOLVETO_SIGNING_SECRET = oldSecret;
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 
   it('should authenticate and write credentials to ~/.toolveto/config.json with 0o600 permissions (toolveto login)', async () => {
@@ -918,6 +984,9 @@ describe('ToolVeto CLI Commands', () => {
     await new Promise<void>((resolve) => mockRegistry.listen(0, () => resolve()));
     const regPort = (mockRegistry.address() as any).port;
 
+    const oldHome = process.env.HOME;
+    process.env.HOME = tmpDir;
+
     try {
       process.exitCode = 0;
       const reportBefore = await doctorCommand(mcpJsonPath, { json: true });
@@ -933,27 +1002,37 @@ describe('ToolVeto CLI Commands', () => {
         registryUrl: `http://127.0.0.1:${regPort}`,
       });
       assert.ok(reportFixed, 'doctorCommand --fix must return report');
-      assert.strictEqual(reportFixed.fixedCount, 2, 'Both floating package and plaintext secret must be fixed');
+      assert.strictEqual(reportFixed.fixedCount, 3, 'Floating package, unwrapped server, and plaintext secret must be fixed');
 
-      const fixedConfig = JSON.parse(fs.readFileSync(mcpJsonPath, 'utf-8'));
-      assert.strictEqual(
-        fixedConfig.mcpServers.github.args[1],
-        '@modelcontextprotocol/server-github@2026.4.1',
-        '@latest must be pinned to verified registry semver'
+      const rawFixedText = fs.readFileSync(mcpJsonPath, 'utf-8');
+      assert.ok(
+        !rawFixedText.includes('${ENV:'),
+        'doctor --fix must NEVER inject broken ${ENV:...} placeholders into Cursor/Claude configs'
+      );
+      const fixedConfig = JSON.parse(rawFixedText);
+      assert.ok(
+        fixedConfig.mcpServers.github.args.includes('@modelcontextprotocol/server-github@2026.4.1'),
+        '@latest must be pinned to verified registry semver inside wrapped args'
+      );
+      assert.ok(
+        fixedConfig.mcpServers.github.args.includes('proxy') &&
+          fixedConfig.mcpServers.github.args.includes('--stdio'),
+        'Unwrapped server must be safely wrapped with toolveto proxy --stdio'
       );
       assert.strictEqual(
-        fixedConfig.mcpServers.github.env.GITHUB_PERSONAL_ACCESS_TOKEN,
-        '${ENV:GITHUB_PERSONAL_ACCESS_TOKEN}',
-        'Plaintext secret must be replaced with env var reference'
+        fixedConfig.mcpServers.github.env?.GITHUB_PERSONAL_ACCESS_TOKEN,
+        undefined,
+        'Plaintext secret must be removed from mcp.json'
       );
-      const vaultPath = path.join(cursorDir, '.env.toolveto.secrets');
-      assert.ok(fs.existsSync(vaultPath), 'Extracted secret must be preserved in .env.toolveto.secrets');
+      const vaultPath = path.join(tmpDir, '.toolveto', 'secrets.env');
+      assert.ok(fs.existsSync(vaultPath), 'Extracted secret must be preserved in ~/.toolveto/secrets.env');
       assert.ok(fs.readFileSync(vaultPath, 'utf-8').includes(secretVal), 'Vault must preserve secret value');
       if (process.platform !== 'win32') {
         assert.strictEqual(fs.statSync(vaultPath).mode & 0o777, 0o600, 'Vault must enforce 0600 permissions');
       }
       assert.ok(fs.existsSync(path.join(cursorDir, 'toolveto-ide.lock.json')), 'toolveto-ide.lock.json must be emitted');
     } finally {
+      process.env.HOME = oldHome;
       await new Promise<void>((resolve) => mockRegistry.close(() => resolve()));
       process.exitCode = 0;
       fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -1169,6 +1248,379 @@ describe('ToolVeto CLI Commands', () => {
       assert.strictEqual(process.exitCode, 1, 'alg=RS256 must fail closed with exitCode 1');
     } finally {
       process.exitCode = prevExit ?? 0;
+    }
+  });
+
+  it('should enforce --upload auth, resolve git remote repo slugs, and upload dimensionalScores & drift payloads', async () => {
+    const { execFileSync } = await import('node:child_process');
+    const { parseGitRemoteSlug, resolveRepoSlug } = await import('../telemetry.js');
+
+    // 1. Unit assertions for git remote slug parsing & fallback resolution
+    assert.strictEqual(parseGitRemoteSlug('git@github.com:acme-corp/payments-mcp.git'), 'acme-corp/payments-mcp');
+    assert.strictEqual(parseGitRemoteSlug('https://github.com/acme-corp/payments-mcp.git'), 'acme-corp/payments-mcp');
+    assert.strictEqual(parseGitRemoteSlug('https://github.com/acme-corp/payments-mcp/'), 'acme-corp/payments-mcp');
+
+    const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'tv-upload-home-'));
+    const repoDir = path.join(tmpHome, 'stripe-mcp-repo');
+    fs.mkdirSync(repoDir, { recursive: true });
+    execFileSync('git', ['init'], { cwd: repoDir, stdio: 'ignore' });
+    execFileSync('git', ['remote', 'add', 'origin', 'git@github.com:stripe-labs/mcp-billing.git'], {
+      cwd: repoDir,
+      stdio: 'ignore',
+    });
+
+    const oldHome = process.env.HOME;
+    const oldLic = process.env.TOOLVETO_LICENSE_KEY;
+    const oldTok = process.env.TOOLVETO_TOKEN;
+    const oldRepoEnv = process.env.TOOLVETO_REPO;
+    const oldGhRepo = process.env.GITHUB_REPOSITORY;
+    process.env.HOME = tmpHome;
+    delete process.env.TOOLVETO_LICENSE_KEY;
+    delete process.env.TOOLVETO_TOKEN;
+    delete process.env.TOOLVETO_REPO;
+    delete process.env.GITHUB_REPOSITORY;
+
+    const manifestPath = path.join(repoDir, 'tools.json');
+    fs.writeFileSync(
+      manifestPath,
+      JSON.stringify([
+        {
+          name: 'create_invoice',
+          description: 'Creates a verified customer invoice with idempotency and limit controls',
+          isMutation: true,
+          inputSchema: {
+            type: 'object',
+            properties: {
+              customer_id: { type: 'string', description: 'Customer identifier' },
+              idempotency_key: { type: 'string', description: 'Idempotency key' },
+              dry_run: { type: 'boolean', description: 'Preview simulation flag' },
+            },
+            required: ['customer_id', 'idempotency_key'],
+            additionalProperties: false,
+          },
+        },
+        {
+          name: 'get_invoice',
+          description: 'Reads customer invoice details before or after mutation',
+          isMutation: false,
+          inputSchema: {
+            type: 'object',
+            properties: {
+              customer_id: { type: 'string', description: 'Customer identifier' },
+            },
+            required: ['customer_id'],
+            additionalProperties: false,
+          },
+        },
+      ])
+    );
+
+    const auditPayloads: any[] = [];
+    const driftPayloads: any[] = [];
+    const mockCloud = http.createServer((req, res) => {
+      let body = '';
+      req.on('data', (c) => (body += c));
+      req.on('end', () => {
+        if (req.method === 'POST' && req.url === '/api/v1/audits') {
+          auditPayloads.push({ headers: req.headers, body: JSON.parse(body) });
+          res.writeHead(201, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ id: 'aud_123', reportUrl: 'https://toolveto.ai/r/aud_123' }));
+          return;
+        }
+        if (req.method === 'POST' && req.url === '/api/v1/drift/check') {
+          driftPayloads.push({ headers: req.headers, body: JSON.parse(body) });
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ drifted: false }));
+          return;
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end('{}');
+      });
+    });
+    await new Promise<void>((resolve) => mockCloud.listen(0, () => resolve()));
+    const cloudPort = (mockCloud.address() as any).port;
+
+    const capturedErrs: string[] = [];
+    const prevErr = console.error;
+    console.error = (...args: any[]) => capturedErrs.push(args.map(String).join(' '));
+
+    try {
+      assert.strictEqual(resolveRepoSlug(manifestPath), 'stripe-labs/mcp-billing');
+      assert.strictEqual(resolveRepoSlug(manifestPath, 'explicit-org/explicit-repo'), 'explicit-org/explicit-repo');
+      const nonGitDir = path.join(tmpHome, 'standalone-mcp');
+      fs.mkdirSync(nonGitDir, { recursive: true });
+      assert.strictEqual(resolveRepoSlug(nonGitDir), 'local/standalone-mcp');
+
+      // 2. --upload without credentials MUST fail cleanly with exitCode = 1
+      process.exitCode = 0;
+      await checkCommand(manifestPath, {
+        upload: true,
+        noTelemetry: true,
+        skipUpdateCheck: true,
+        apiUrl: `http://127.0.0.1:${cloudPort}`,
+      });
+      assert.strictEqual(process.exitCode, 1, '--upload without token must set process.exitCode = 1');
+      assert.ok(
+        capturedErrs.some((e) => e.includes('--upload requires TOOLVETO_LICENSE_KEY')),
+        'Must print actionable --upload authentication message'
+      );
+      assert.strictEqual(auditPayloads.length, 0);
+
+      // 3. Authenticated --upload resolves git remote slug and includes dimensionalScores & dimensions
+      process.exitCode = 0;
+      process.env.TOOLVETO_LICENSE_KEY = 'tv_live_customer1_key';
+      await checkCommand(manifestPath, {
+        upload: true,
+        noTelemetry: true,
+        skipUpdateCheck: true,
+        apiUrl: `http://127.0.0.1:${cloudPort}`,
+      });
+      assert.strictEqual(auditPayloads.length, 1, 'POST /api/v1/audits must be called');
+      assert.strictEqual(auditPayloads[0].body.repo, 'stripe-labs/mcp-billing');
+      assert.ok(auditPayloads[0].body.dimensionalScores, 'Upload payload must include dimensionalScores');
+      assert.ok(
+        typeof auditPayloads[0].body.dimensions?.d1 === 'number' &&
+          typeof auditPayloads[0].body.dimensions?.d5 === 'number',
+        'Upload payload must include dimensions { d1..d5 }'
+      );
+      assert.strictEqual(driftPayloads.length, 1, 'POST /api/v1/drift/check must be called');
+      assert.strictEqual(driftPayloads[0].body.repo, 'stripe-labs/mcp-billing');
+    } finally {
+      console.error = prevErr;
+      process.exitCode = 0;
+      process.env.HOME = oldHome;
+      if (oldLic === undefined) delete process.env.TOOLVETO_LICENSE_KEY;
+      else process.env.TOOLVETO_LICENSE_KEY = oldLic;
+      if (oldTok === undefined) delete process.env.TOOLVETO_TOKEN;
+      else process.env.TOOLVETO_TOKEN = oldTok;
+      if (oldRepoEnv === undefined) delete process.env.TOOLVETO_REPO;
+      else process.env.TOOLVETO_REPO = oldRepoEnv;
+      if (oldGhRepo === undefined) delete process.env.GITHUB_REPOSITORY;
+      else process.env.GITHUB_REPOSITORY = oldGhRepo;
+      await new Promise<void>((resolve) => mockCloud.close(() => resolve()));
+      fs.rmSync(tmpHome, { recursive: true, force: true });
+    }
+  });
+
+  it('should support Go static tool discovery, strip stdio:// prefixes, and execute compiled binaries with allowExec', async () => {
+    const { extractToolsStaticallyFromDir, discoverToolsFromTarget } = await import('../discovery.js');
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tv-go-stdio-'));
+
+    try {
+      // 1. Go static discovery (mcp.NewTool, RegisterTool, mcp.Tool{Name:...}) excluding *_test.go and vendor/
+      const goSrc = path.join(tmpDir, 'main.go');
+      fs.writeFileSync(
+        goSrc,
+        [
+          `package main`,
+          `func register(s *Server) {`,
+          `  t1 := mcp.NewTool("charge_card", mcp.WithDescription("Charges customer card"))`,
+          `  s.RegisterTool("list_ledgers", handleLedgers)`,
+          `  t3 := mcp.Tool{Name: "get_ledger", Description: "Reads ledger entry by ID"}`,
+          `}`,
+        ].join('\n'),
+        'utf-8'
+      );
+      fs.writeFileSync(
+        path.join(tmpDir, 'main_test.go'),
+        `package main\nfunc testFake() { mcp.NewTool("ignored_test_tool") }\n`,
+        'utf-8'
+      );
+      fs.mkdirSync(path.join(tmpDir, 'vendor', 'pkg'), { recursive: true });
+      fs.writeFileSync(
+        path.join(tmpDir, 'vendor', 'pkg', 'dep.go'),
+        `package pkg\nfunc vendorFake() { mcp.NewTool("ignored_vendor_tool") }\n`,
+        'utf-8'
+      );
+
+      const goTools = extractToolsStaticallyFromDir(tmpDir);
+      const goNames = goTools.map((t) => t.name).sort();
+      assert.deepStrictEqual(goNames, ['charge_card', 'get_ledger', 'list_ledgers']);
+
+      // 2. stdio:// prefix stripping on target path
+      const toolsJson = path.join(tmpDir, 'tools.json');
+      fs.writeFileSync(
+        toolsJson,
+        JSON.stringify([
+          {
+            name: 'ping_health',
+            description: 'Checks server health status',
+            isMutation: false,
+            inputSchema: { type: 'object', properties: {} },
+          },
+        ])
+      );
+      const strippedDiscovered = await discoverToolsFromTarget(`stdio://${toolsJson}`);
+      assert.ok(strippedDiscovered, 'discoverToolsFromTarget must strip stdio:// prefix');
+      assert.strictEqual(strippedDiscovered?.tools[0]?.name, 'ping_health');
+
+      // 3. Extensionless executable binary discovery when allowExec === true
+      if (process.platform !== 'win32') {
+        const binPath = path.join(tmpDir, 'mock-mcp-bin');
+        fs.writeFileSync(
+          binPath,
+          [
+            `#!/usr/bin/env node`,
+            `const readline = require('node:readline');`,
+            `const rl = readline.createInterface({ input: process.stdin });`,
+            `rl.on('line', (line) => {`,
+            `  if (!line.trim()) return;`,
+            `  const msg = JSON.parse(line);`,
+            `  if (msg.method === 'initialize') {`,
+            `    process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { protocolVersion: '2025-03-26', capabilities: { tools: {} }, serverInfo: { name: 'bin-mcp', version: '1.0.0' } } }) + '\\n');`,
+            `  } else if (msg.method === 'tools/list') {`,
+            `    process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { tools: [{ name: 'binary_tool', description: 'Discovered from extensionless binary', inputSchema: { type: 'object', properties: {} } }] } }) + '\\n');`,
+            `  }`,
+            `});`,
+          ].join('\n'),
+          { encoding: 'utf-8', mode: 0o755 }
+        );
+        fs.chmodSync(binPath, 0o755);
+
+        await assert.rejects(
+          async () => {
+            await discoverToolsFromTarget(binPath, { allowExec: false });
+          },
+          /Refusing to auto-exec/,
+          'Executable binary must refuse auto-exec unless allowExec: true is passed'
+        );
+
+        const execDiscovered = await discoverToolsFromTarget(binPath, { allowExec: true });
+        assert.ok(execDiscovered, 'Extensionless executable binary must be discovered with allowExec: true');
+        assert.strictEqual(execDiscovered?.tools[0]?.name, 'binary_tool');
+        if (execDiscovered?.client) {
+          await execDiscovered.client.close();
+        }
+      }
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('should gate WeaveProof banners strictly behind explicit flags, auto-sync onboarding checklist steps, and hydrate badge from toolveto-report.json', async () => {
+    const { lockCommand } = await import('../commands/lock.js');
+    const { exportPolicyCommand } = await import('../commands/export-policy.js');
+    const { initCommand } = await import('../commands/init.js');
+    const { wrapCommand } = await import('../commands/wrap.js');
+    const { formatTrivyStyleNotice } = await import('../telemetry.js');
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tv-onboard-wp-'));
+    const oldCwd = process.cwd();
+    const oldLic = process.env.TOOLVETO_LICENSE_KEY;
+    process.env.TOOLVETO_LICENSE_KEY = 'tv_live_onboard_test';
+
+    const onboardingCalls: any[] = [];
+    const mockCloud = http.createServer((req, res) => {
+      let body = '';
+      req.on('data', (c) => (body += c));
+      req.on('end', () => {
+        if (req.method === 'POST' && req.url === '/api/v1/onboarding/checklist') {
+          onboardingCalls.push({
+            license: req.headers['x-toolveto-license'],
+            body: JSON.parse(body),
+          });
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true }));
+          return;
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end('{}');
+      });
+    });
+    await new Promise<void>((resolve) => mockCloud.listen(0, () => resolve()));
+    const port = (mockCloud.address() as any).port;
+    const apiUrl = `http://127.0.0.1:${port}`;
+
+    const logs: string[] = [];
+    const prevLog = console.log;
+    console.log = (...args: any[]) => logs.push(args.map(String).join(' '));
+
+    try {
+      const toolsPath = path.join(tmpDir, 'tools.json');
+      fs.writeFileSync(
+        toolsPath,
+        JSON.stringify([
+          {
+            name: 'create_payout',
+            description: 'Creates a verified vendor payout with idempotency key',
+            isMutation: true,
+            inputSchema: {
+              type: 'object',
+              properties: { amount: { type: 'number' }, idempotency_key: { type: 'string' } },
+              required: ['amount', 'idempotency_key'],
+            },
+          },
+        ])
+      );
+
+      // 1. Default lock, export-policy (cedar), and formatTrivyStyleNotice emit ZERO WeaveProof strings
+      logs.length = 0;
+      await initCommand(tmpDir, { ci: 'github-actions', apiUrl });
+      await lockCommand(toolsPath, { output: path.join(tmpDir, 'toolveto.lock.json'), apiUrl });
+      await exportPolicyCommand(toolsPath, { format: 'cedar', output: path.join(tmpDir, 'policy.cedar'), apiUrl });
+
+      const mcpCfgPath = path.join(tmpDir, 'mcp.json');
+      fs.writeFileSync(mcpCfgPath, JSON.stringify({ mcpServers: { demo: { command: 'npx', args: ['-y', '@demo/mcp'] } } }));
+      await wrapCommand(mcpCfgPath, { apiUrl });
+
+      const defaultNotice = formatTrivyStyleNotice({
+        currentVersion: '0.2.0',
+        latestVersion: '0.2.0',
+        summary: {
+          score: 70,
+          tier: 'Silver',
+          fatalVetoTriggered: false,
+          phiMultiplier: 1,
+          dimensionalScores: {},
+          results: [{ checkId: 'TC-IDEMP-001', status: 'FAIL', severity: 'CRITICAL', tool: 'create_payout', message: 'fail' }],
+        } as any,
+        authenticated: false,
+        runNumber: 1,
+      });
+
+      const combinedDefaultLogs = logs.join('\n') + '\n' + defaultNotice;
+      assert.ok(
+        !/weaveproof/i.test(combinedDefaultLogs),
+        'Default lock, export-policy, and telemetry notices must NOT mention WeaveProof unless explicitly requested'
+      );
+      assert.ok(defaultNotice.includes('https://toolveto.ai'), 'Default advisory must point to https://toolveto.ai');
+
+      // Explicit --weaveproof DOES print WeaveProof hint
+      logs.length = 0;
+      await lockCommand(toolsPath, { output: path.join(tmpDir, 'wp.lock.json'), weaveproof: true, apiUrl });
+      assert.ok(logs.some((l) => /WeaveProof/i.test(l)), 'Explicit --weaveproof must print WeaveProof integration message');
+
+      // 2. Verify all 4 onboarding steps auto-synced to /api/v1/onboarding/checklist
+      const syncedSteps = onboardingCalls.map((c) => c.body.stepId);
+      assert.ok(syncedSteps.includes('step_1_ci_gate'), 'init must auto-verify step_1_ci_gate');
+      assert.ok(syncedSteps.includes('step_2_lockfile'), 'lock must auto-verify step_2_lockfile');
+      assert.ok(syncedSteps.includes('step_3_policy_export'), 'export-policy must auto-verify step_3_policy_export');
+      assert.ok(syncedSteps.includes('step_4_runtime_shield'), 'wrap must auto-verify step_4_runtime_shield');
+      assert.ok(onboardingCalls.every((c) => c.license === 'tv_live_onboard_test' && c.body.completed === true));
+
+      // 3. Verify initCommand includes TOOLVETO_LICENSE_KEY and --repo "${{ github.repository }}"
+      const ghWf = fs.readFileSync(path.join(tmpDir, '.github', 'workflows', 'toolveto.yml'), 'utf-8');
+      assert.ok(ghWf.includes('TOOLVETO_LICENSE_KEY: ${{ secrets.TOOLVETO_LICENSE_KEY }}'));
+      assert.ok(ghWf.includes('--repo "${{ github.repository }}"'));
+
+      // 4. Verify badgeCommand hydrates score & tier from toolveto-report.json in cwd
+      process.chdir(tmpDir);
+      fs.writeFileSync(
+        path.join(tmpDir, 'toolveto-report.json'),
+        JSON.stringify({ score: 92, tier: 'PLATINUM' }),
+        'utf-8'
+      );
+      const badgeOut = path.join(tmpDir, 'auto-badge.svg');
+      await badgeCommand({ output: badgeOut });
+      const badgeSvg = fs.readFileSync(badgeOut, 'utf-8');
+      assert.ok(badgeSvg.includes('PLATINUM 92/100'), 'badgeCommand must hydrate score & tier from toolveto-report.json');
+    } finally {
+      console.log = prevLog;
+      process.chdir(oldCwd);
+      if (oldLic === undefined) delete process.env.TOOLVETO_LICENSE_KEY;
+      else process.env.TOOLVETO_LICENSE_KEY = oldLic;
+      await new Promise<void>((resolve) => mockCloud.close(() => resolve()));
+      fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
 });

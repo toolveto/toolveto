@@ -5,6 +5,9 @@ on:
     - cron: '0 0 * * 1' # Weekly on Monday
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 concurrency:
   group: shield-benchmark-${{ github.ref }}
   cancel-in-progress: true
@@ -13,18 +16,20 @@ jobs:
   k6-benchmark:
     name: k6 500 RPS Shield Overhead Benchmark
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
+        uses: actions/checkout@v6
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: 'pnpm'
 
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
@@ -37,28 +42,54 @@ jobs:
 
       - name: Start Mock Upstream and ToolVeto Gateway
         run: |
+          GATEWAY_SECRET="bench-gateway-secret-minimum-32-chars"
+          echo "TOOLVETO_GATEWAY_SECRET=$GATEWAY_SECRET" >> "$GITHUB_ENV"
+
           # 1. Start lightweight mock upstream MCP server on port 3000
           node -e '
             const http = require("http");
             http.createServer((req, res) => {
-              res.writeHead(200, { "Content-Type": "application/json" });
-              res.end(JSON.stringify({ jsonrpc: "2.0", id: "bench", result: { content: [{ type: "text", text: "upstream ok" }] } }));
+              req.resume();
+              req.on("end", () => {
+                res.writeHead(200, { "Content-Type": "application/json" });
+                res.end(JSON.stringify({ jsonrpc: "2.0", id: "bench", result: { content: [{ type: "text", text: "upstream ok" }] } }));
+              });
             }).listen(3000);
-          ' &
+          ' > /tmp/mock-upstream.log 2>&1 &
           echo "Mock upstream server started on port 3000"
 
           # 2. Start ToolVeto Gateway in standalone mode on port 8080
-          RUN_STANDALONE=true UPSTREAM_URL="http://localhost:3000" PORT=8080 node packages/gateway/dist/index.js &
+          TOOLVETO_GATEWAY_SECRET="$GATEWAY_SECRET" \
+          TOOLVETO_ALLOW_LOCAL_UPSTREAMS=true \
+          RUN_STANDALONE=true \
+          UPSTREAM_URL="http://127.0.0.1:3000" \
+          PORT=8080 \
+          node packages/gateway/dist/index.js > /tmp/gateway-bench.log 2>&1 &
           echo "ToolVeto Gateway started on port 8080"
 
-          # 3. Wait for endpoints to become responsive
+          # 3. Wait for endpoints to become responsive and fail closed on timeout
+          READY=false
           for i in {1..30}; do
-            if curl -s http://localhost:8080/health | grep -q "healthy"; then
+            if curl -fsS http://127.0.0.1:8080/health | grep -q "healthy"; then
               echo "Gateway is ready!"
+              READY=true
               break
             fi
             sleep 1
           done
+          if [ "$READY" != "true" ]; then
+            echo "❌ Gateway failed to become healthy within 30s"
+            cat /tmp/mock-upstream.log || true
+            cat /tmp/gateway-bench.log || true
+            exit 1
+          fi
+
+          # 4. Pre-flight authenticated MCP call to verify end-to-end forwarding before load test
+          curl -fsS -X POST http://127.0.0.1:8080/mcp \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $GATEWAY_SECRET" \
+            -d '{"jsonrpc":"2.0","id":"preflight","method":"tools/call","params":{"name":"create_payment","arguments":{"amount":100,"currency":"USD","idempotency_key":"preflight-0"}}}' \
+            | grep -q '"upstream ok"'
 
       - name: Execute Overhead Verification
         run: |

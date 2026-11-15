@@ -3,6 +3,31 @@
   "version": "0.2.0",
   "description": "ToolVeto Shield — Runtime Idempotency Deduplication, Loop Protection, and Token Budgeting Middleware for MCP Servers",
   "license": "Apache-2.0",
+  "homepage": "https://toolveto.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/toolveto/toolveto.git",
+    "directory": "packages/shield"
+  },
+  "bugs": {
+    "url": "https://github.com/toolveto/toolveto/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "toolveto",
+    "middleware",
+    "idempotency",
+    "loop-breaker",
+    "token-budget",
+    "ai-safety"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -21,7 +46,10 @@
     "./package.json": "./package.json"
   },
   "files": [
-    "dist"
+    "dist",
+    "!dist/**/__tests__/**",
+    "LICENSE",
+    "README.md"
   ],
   "scripts": {
     "build": "tsc -b",
@@ -29,6 +57,22 @@
     "lint": "tsc --noEmit",
     "test": "node --test dist/**/*.test.js",
     "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "pg": ">=8.0.0",
+    "ioredis": ">=5.0.0",
+    "redis": ">=4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "pg": {
+      "optional": true
+    },
+    "ioredis": {
+      "optional": true
+    },
+    "redis": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@types/node": "^22.13.1",

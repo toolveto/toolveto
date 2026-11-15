@@ -51,19 +51,22 @@ jobs:
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node.js 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: 'pnpm'
 
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Supply-Chain Vulnerability Gate (pnpm audit)
+        run: pnpm audit --audit-level=high
 
       - name: Verify No Hardcoded Default Secrets
         run: |
@@ -86,16 +89,46 @@ jobs:
           node --test packages/gateway/dist/__tests__/real-mcp-sdk-e2e.test.js
           node --test packages/cli/dist/src/__tests__/real-stdio-proxy.test.js
 
-      - name: Verify Bad Server Gate Rejects & Lockfile Integrity
+      - name: Verify Bad Server Gate Rejects, Lockfile Integrity & Acme Showcase
         run: |
           node packages/cli/dist/bin/toolveto.js check fixtures/good-server --allow-exec --skip-update-check --no-telemetry
           node packages/cli/dist/bin/toolveto.js lock fixtures/good-server -o /tmp/good-server.lock.json
           node packages/cli/dist/bin/toolveto.js lock fixtures/good-server -o /tmp/good-server.lock.json --verify
-          if node packages/cli/dist/bin/toolveto.js check fixtures/bad-server --threshold 80 --allow-exec --skip-update-check --no-telemetry ; then
+          if GITHUB_ACTIONS=false node packages/cli/dist/bin/toolveto.js check fixtures/bad-server --threshold 80 --allow-exec --skip-update-check --no-telemetry ; then
             echo "❌ Expected fixtures/bad-server --threshold 80 to exit non-zero!"
             exit 1
           fi
           echo "✔ fixtures/bad-server --threshold 80 exited non-zero as expected."
+          ACME_PID=""
+          acme_cleanup() {
+            if [ -n "$ACME_PID" ]; then kill "$ACME_PID" >/dev/null 2>&1 || true; fi
+          }
+          trap acme_cleanup EXIT
+          MCP_SERVER_MODE=v1-hardened PORT=4110 node examples/acme-fintech-mcp/server.mjs >/tmp/acme-ci.log 2>&1 &
+          ACME_PID=$!
+          ACME_READY=false
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:4110/health >/dev/null 2>&1; then
+              ACME_READY=true
+              break
+            fi
+            sleep 0.5
+          done
+          if [ "$ACME_READY" != "true" ]; then
+            echo "❌ Acme FinTech MCP server failed to start on :4110"
+            cat /tmp/acme-ci.log || true
+            exit 1
+          fi
+          node packages/cli/dist/bin/toolveto.js check http://127.0.0.1:4110/mcp --allow-destructive --threshold 80 --skip-update-check --no-telemetry
+          curl -fsS -X POST http://127.0.0.1:4110/admin/mode -H 'Content-Type: application/json' -d '{"mode":"v1-vulnerable"}' >/dev/null
+          if GITHUB_ACTIONS=false node packages/cli/dist/bin/toolveto.js check http://127.0.0.1:4110/mcp --threshold 80 --skip-update-check --no-telemetry ; then
+            echo "❌ Expected examples/acme-fintech-mcp (v1-vulnerable) --threshold 80 to exit non-zero!"
+            exit 1
+          fi
+          acme_cleanup
+          ACME_PID=""
+          trap - EXIT
+          echo "✔ Acme FinTech MCP hardened passed & vulnerable vetoed as expected."
 
       - name: Clean Customer Tarball Install Smoke Test (pnpm pack)
         run: |
@@ -113,19 +146,73 @@ jobs:
           node -e "const s = require('@toolveto/shield'); const pg = require('@toolveto/shield/stores/postgres'); const rd = require('@toolveto/shield/stores/redis'); if (!s.ShieldMiddleware || !pg.PostgresShieldStorage || !rd.RedisShieldStorage) process.exit(1);"
           echo "✔ Clean npm tarball installation verified for all 4 published packages."
 
+      - name: Production Gateway Container Build & Live Runtime Boot Gate
+        run: |
+          docker build -f packages/gateway/Dockerfile -t toolveto-gateway:ci-verify .
+          GW_SECRET="$(openssl rand -hex 32)"
+          UPSTREAM_PID=""
+          cleanup() {
+            docker rm -f tv-gw-ci >/dev/null 2>&1 || true
+            if [ -n "$UPSTREAM_PID" ]; then kill "$UPSTREAM_PID" >/dev/null 2>&1 || true; fi
+          }
+          trap cleanup EXIT
+          node -e '
+            const http = require("http");
+            http.createServer((req, res) => {
+              req.resume();
+              req.on("end", () => {
+                res.writeHead(200, { "Content-Type": "application/json" });
+                res.end(JSON.stringify({ jsonrpc: "2.0", id: 1, result: { content: [{ type: "text", text: "ok" }] } }));
+              });
+            }).listen(3000, "127.0.0.1");
+          ' &
+          UPSTREAM_PID=$!
+          docker run -d --name tv-gw-ci --network host \
+            -e TOOLVETO_GATEWAY_SECRET="$GW_SECRET" \
+            -e TOOLVETO_ALLOW_LOCAL_UPSTREAMS=true \
+            toolveto-gateway:ci-verify
+          READY=false
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:8080/health | grep -q "healthy"; then
+              READY=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$READY" != "true" ]; then
+            echo "❌ Gateway container failed to become healthy on :8080"
+            docker logs tv-gw-ci || true
+            exit 1
+          fi
+          UNAUTH_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://127.0.0.1:8080/mcp -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"create_payment","arguments":{"amount":10}}}')
+          if [ "$UNAUTH_STATUS" != "401" ]; then
+            echo "❌ Expected unauthenticated container request to return 401, got $UNAUTH_STATUS"
+            docker logs tv-gw-ci || true
+            exit 1
+          fi
+          AUTH_HDR=$(curl -fsS -D - -X POST http://127.0.0.1:8080/mcp \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $GW_SECRET" \
+            -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"create_payment","arguments":{"amount":10,"idempotency_key":"ci-container-1"}}}')
+          echo "$AUTH_HDR" | grep -iq "X-ToolVeto-Shield: active"
+          echo "$AUTH_HDR" | grep -q '"ok"'
+          echo "✔ Gateway Docker container booted, enforced 401 auth, and proxied authenticated Shield traffic."
+
       - name: Run Latency Micro-Benchmark
         run: pnpm run bench
 
       - name: Publish CI Verification Summary
-        if: always()
+        if: success()
         run: |
           {
             echo "## 🛡️ ToolVeto OSS Monorepo Real-Stack CI Summary"
             echo "| Gate | Scope | Status |"
             echo "| :--- | :--- | :--- |"
+            echo "| Supply-Chain Audit | \`pnpm audit --audit-level=high\` (0 high/critical advisories) | ✅ Passed |"
             echo "| Secret Hygiene Scan | Zero hardcoded fallback secrets across \`packages/\` | ✅ Passed |"
             echo "| Live Distributed Stores | \`PostgresShieldStorage\` (Postgres 16) + \`RedisShieldStorage\` (Redis 7 Lua) | ✅ Passed |"
             echo "| Official MCP SDK E2E | \`StreamableHTTPServerTransport\` + SSE + \`StdioServerTransport\` Proxy | ✅ Passed |"
             echo "| Clean Customer Tarball Smoke | \`pnpm pack\` + isolated \`npm install\` of all 4 packages | ✅ Passed |"
+            echo "| Production Container Boot | \`packages/gateway/Dockerfile\` live \`/health\`, 401 fail-closed & \`/mcp\` proxy | ✅ Passed |"
             echo "| Shield Sub-2ms Micro-Benchmark | Inline interception latency SLA | ✅ Passed |"
           } >> "$GITHUB_STEP_SUMMARY"

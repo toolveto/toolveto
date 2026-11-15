@@ -298,7 +298,7 @@ export class CloudTelemetrySyncer {
   private flushTimer: NodeJS.Timeout | null = null;
 
   constructor(cfg?: GatewayCloudConfig) {
-    this.apiUrl = (cfg?.apiUrl || process.env.TOOLVETO_API_URL || '').replace(/\/+$/, '');
+    this.apiUrl = (cfg?.apiUrl || process.env.TOOLVETO_API_URL || 'https://toolveto.ai').replace(/\/+$/, '');
     this.licenseKey = cfg?.licenseKey || process.env.TOOLVETO_LICENSE_KEY || process.env.TOOLVETO_TOKEN || '';
     this.customerId = cfg?.customerId || process.env.TOOLVETO_CUSTOMER_ID;
     this.repo = cfg?.repo || process.env.TOOLVETO_REPO || 'gateway/default';

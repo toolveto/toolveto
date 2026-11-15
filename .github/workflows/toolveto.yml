@@ -5,6 +5,10 @@ on:
     branches: [main, master, develop]
   push:
     branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
   group: toolveto-${{ github.ref }}
@@ -14,22 +18,22 @@ jobs:
   toolveto-gate:
     name: ToolVeto CI Merge-Blocking Gate
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
-      pull-requests: write
-      checks: write
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js Environment
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
+        uses: actions/checkout@v6
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js Environment
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: 'pnpm'
 
       - name: Install & Build Local Monorepo
         run: |
@@ -37,33 +41,41 @@ jobs:
           pnpm run build
 
       - name: Run Deterministic ToolVeto Battery
-        id: toolveto
-        continue-on-error: true
         run: |
           echo "Executing ToolVeto 14-Check Battery on Fixture Server..."
-          node packages/cli/dist/bin/toolveto.js check fixtures/good-server/index.js --format github-pr
+          node packages/cli/dist/bin/toolveto.js check fixtures/good-server/index.js --allow-exec --threshold 80 --no-telemetry --skip-update-check
 
-      - name: Generate Actionable AST Patch (If Failed)
-        if: steps.toolveto.outcome == 'failure'
+      - name: Emit & Validate SARIF 2.1.0 Report
         run: |
-          echo "Generating 3-line AST drop-in patches for Zod/Pydantic/Go..."
-          node packages/cli/dist/bin/toolveto.js fix . || true
+          node packages/cli/dist/bin/toolveto.js check fixtures/good-server/index.js --allow-exec --format sarif --no-telemetry --skip-update-check > toolveto-good.sarif
+          node -e "
+            const fs = require('fs');
+            const sarif = JSON.parse(fs.readFileSync('toolveto-good.sarif', 'utf8'));
+            if (sarif.version !== '2.1.0') throw new Error('Expected SARIF version 2.1.0, got ' + sarif.version);
+            if (!Array.isArray(sarif.runs) || sarif.runs.length === 0) throw new Error('Expected non-empty SARIF runs');
+            if (!sarif.runs[0].tool?.driver?.rules?.length) throw new Error('Expected SARIF driver rules');
+            console.log('✔ Verified SARIF 2.1.0 schema with', sarif.runs[0].tool.driver.rules.length, 'rules');
+          "
 
-      - name: Mint RFC 7515 JWS Compliance Attestation
+      - name: Mint & Verify RFC 7515 JWS Compliance Attestation
         run: |
-          node packages/cli/dist/bin/toolveto.js evidence --demo -o toolveto-attestation.jws || true
+          SIGN_SECRET="$(openssl rand -hex 32)"
+          WRONG_SECRET="$(openssl rand -hex 32)"
+          node packages/cli/dist/bin/toolveto.js evidence fixtures/good-server/index.js --allow-exec -s "$SIGN_SECRET" -o toolveto-attestation.jws
+          test -s toolveto-attestation.jws
+          node packages/cli/dist/bin/toolveto.js verify -f toolveto-attestation.jws -s "$SIGN_SECRET"
+          if node packages/cli/dist/bin/toolveto.js verify -f toolveto-attestation.jws -s "$WRONG_SECRET" ; then
+            echo "❌ Expected offline verification with wrong signing secret to fail!"
+            exit 1
+          fi
+          echo "✔ Real JWS attestation minted, verified offline, and fail-closed tamper check passed."
 
-      - name: Upload Compliance Attestation Token
-        uses: actions/upload-artifact@v4
+      - name: Upload Compliance Attestation & SARIF Artifacts
+        uses: actions/upload-artifact@v6
         with:
           name: toolveto-attestation-evidence
-          path: toolveto-attestation.jws
+          path: |
+            toolveto-attestation.jws
+            toolveto-good.sarif
           retention-days: 90
-          if-no-files-found: ignore
-
-      - name: Fail CI Job on Invariant Violation
-        if: steps.toolveto.outcome == 'failure'
-        run: |
-          echo "⛔ ToolVeto Gate Blocked: Critical invariant violation detected."
-          echo "Review the PR comments and run 'npx toolveto fix --apply' to resolve."
-          exit 1
+          if-no-files-found: error

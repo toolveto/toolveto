@@ -36,8 +36,8 @@
     "@graph": [
       {
         "@type": "Organization",
-        "name": "ToolVeto",
-        "url": "https://github.com/toolveto/toolveto",
+        "name": "ToolVeto Inc.",
+        "url": "https://toolveto.ai",
         "sameAs": [
           "https://github.com/toolveto/toolveto"
         ]
@@ -180,7 +180,7 @@
             <div class="terminal-body">
               <div class="terminal-line" tabindex="0" role="region" aria-label="Quickstart CLI command">
                 <span class="terminal-prompt">$</span>
-                <span id="hero-cmd-text">npx toolveto@latest check stdio://path/to/server</span>
+                <span id="hero-cmd-text">npx toolveto@latest check ./src/mcp-server.ts</span>
               </div>
               <button type="button" class="btn-copy" id="hero-copy-btn">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
@@ -555,7 +555,7 @@
             <span class="arch-tag">LAYER 01: PRE-MERGE CRASH TEST</span>
             <h3 class="arch-title">ToolVeto CI Gate</h3>
             <p style="color: var(--text-secondary); font-size: 0.95rem;">
-              Runs deterministically in your GitHub Action, GitLab CI, or local terminal. Evaluates 12 stateful chaos invariants in under 90 seconds.
+              Runs deterministically in your GitHub Action, GitLab CI, or local terminal. Evaluates 32 deterministic checks across 14 invariant families in under 90 seconds.
             </p>
             <ul class="arch-features">
               <li>
@@ -653,11 +653,11 @@
         </div>
 
         <div class="pricing-grid">
-          <!-- Community -->
+          <!-- Free OSS -->
           <div class="pricing-card tier-community spotlight-card">
             <div class="tier-pill tier-pill-green">Open Source Core</div>
-            <h3 class="tier-name">Community</h3>
-            <p class="tier-desc">For individual open-source maintainers and developers building MCP servers.</p>
+            <h3 class="tier-name">Free OSS</h3>
+            <p class="tier-desc">For open-source maintainers and developers building MCP servers.</p>
             <div class="tier-price-row">
               <span class="price-num">$0</span>
               <span class="price-cycle">/ forever</span>
@@ -669,7 +669,7 @@
               </li>
               <li>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                <span>Static schema contract linter</span>
+                <span>32 deterministic checks across 14 invariant families</span>
               </li>
               <li>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>
@@ -687,7 +687,7 @@
           <div class="pricing-card featured spotlight-card">
             <div class="pricing-featured-badge">MOST POPULAR</div>
             <div class="tier-pill tier-pill-orange">Recommended For Teams</div>
-            <h3 class="tier-name">Team &amp; Pro</h3>
+            <h3 class="tier-name">Team</h3>
             <p class="tier-desc">For fast-moving AI product teams shipping production agents and tools.</p>
             <div class="tier-price-row">
               <span class="price-num">$249</span>
@@ -696,7 +696,7 @@
             <ul class="pricing-features">
               <li>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                <span>Everything in Community</span>
+                <span>Everything in Free OSS</span>
               </li>
               <li>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>
@@ -718,11 +718,11 @@
             <a href="./pricing.html" class="btn-pricing btn-pricing-featured">Start 14-Day Free Trial &rarr;</a>
           </div>
 
-          <!-- Enterprise -->
-          <div class="pricing-card tier-enterprise spotlight-card">
-            <div class="tier-pill tier-pill-cyan">Mission Critical &amp; HA</div>
-            <h3 class="tier-name">Enterprise</h3>
-            <p class="tier-desc">For platform teams and enterprises requiring SLA, CISO compliance, and runtime gateways.</p>
+          <!-- Runtime Shield -->
+          <div class="pricing-card tier-cyan spotlight-card">
+            <div class="tier-pill tier-pill-cyan">Runtime Airbag</div>
+            <h3 class="tier-name">Runtime Shield</h3>
+            <p class="tier-desc">Active reverse-proxy airbag for third-party and production MCP servers.</p>
             <div class="tier-price-row">
               <span class="price-num">$499</span>
               <span class="price-cycle">/ month</span>
@@ -734,7 +734,45 @@
               </li>
               <li>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                <span>Self-hosted ToolVeto Shield Gateway</span>
+                <span><code>@toolveto/shield</code> &amp; Gateway proxy</span>
+              </li>
+              <li>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                <span>Redis/Postgres idempotency dedup</span>
+              </li>
+              <li>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                <span>Sliding-window 47&times; loop breaker</span>
+              </li>
+              <li>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                <span>Response token budget context clipper</span>
+              </li>
+            </ul>
+            <a href="./docs.html#shield-middleware" class="btn-pricing btn-pricing-enterprise">Deploy Runtime Shield &rarr;</a>
+          </div>
+
+          <!-- Enterprise -->
+          <div class="pricing-card tier-purple spotlight-card">
+            <div class="tier-pill tier-pill-purple">Mission Critical &amp; HA</div>
+            <h3 class="tier-name">Enterprise</h3>
+            <p class="tier-desc">For platform teams requiring custom SLAs, VPC clusters, and CISO attestations.</p>
+            <div class="tier-price-row">
+              <span class="price-num">Custom</span>
+              <span class="price-cycle">/ annual</span>
+            </div>
+            <ul class="pricing-features">
+              <li>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                <span>Everything in Runtime Shield</span>
+              </li>
+              <li>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                <span>RFC 7515 JWS AIUC-1 evidence packets</span>
+              </li>
+              <li>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                <span>Dedicated hermetic gVisor VPC fleet</span>
               </li>
               <li>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>
@@ -742,14 +780,10 @@
               </li>
               <li>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                <span>Cryptographic SOC2 compliance evidence</span>
-              </li>
-              <li>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                <span>99.9% uptime SLA &amp; dedicated engineer</span>
+                <span>99.99% SLA &amp; dedicated security engineer</span>
               </li>
             </ul>
-            <a href="mailto:enterprise@toolveto.dev" class="btn-pricing btn-pricing-enterprise">Contact Enterprise Sales &rarr;</a>
+            <a href="mailto:enterprise@toolveto.ai" class="btn-pricing btn-pricing-purple">Contact Enterprise Sales &rarr;</a>
           </div>
         </div>
 
@@ -757,12 +791,12 @@
         <div class="roi-calculator-box spotlight-card" id="roi-simulator">
           <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; flex-wrap: wrap; gap: 12px;">
             <div>
-              <span class="section-tag">GUARANTEED RISK QUANTIFICATION</span>
+              <span class="section-tag">EMPIRICAL RISK QUANTIFICATION</span>
               <h3 style="font-size: 1.8rem; font-weight: 800; margin: 8px 0;">Interactive Incident &amp; ROI Simulator</h3>
               <p style="color: var(--text-secondary); font-size: 0.95rem;">Model your team's monthly financial risk exposure vs. ToolVeto automated protection.</p>
             </div>
             <div style="padding: 6px 14px; background: rgba(0, 245, 160, 0.1); border: 1px solid rgba(0, 245, 160, 0.35); border-radius: 8px; font-family: var(--font-mono); font-size: 0.8rem; color: var(--accent-green); font-weight: 700;">
-              &check; 100% IDEMPOTENCY GUARANTEE
+              &check; DETERMINISTIC IDEMPOTENCY ENFORCEMENT
             </div>
           </div>
 
@@ -799,7 +833,7 @@
             </div>
             <div class="roi-stat-tile">
               <div class="roi-stat-num" id="roi-multiple-val" style="color: #38bdf8; text-shadow: 0 0 16px rgba(56, 189, 248, 0.45);">10.8&times;</div>
-              <div id="roi-plan-label" style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-mono); margin-top: 6px; letter-spacing: 0.05em;">NET ROI (ON ENTERPRISE $499)</div>
+              <div id="roi-plan-label" style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-mono); margin-top: 6px; letter-spacing: 0.05em;">NET ROI (ON RUNTIME SHIELD $499)</div>
             </div>
           </div>
         </div>
@@ -885,7 +919,7 @@
       </div>
 
       <div class="footer-bottom">
-        <div>&copy; 2026 ToolVeto Inc. Distributed under Apache 2.0 / Business Source License 1.1.</div>
+        <div>&copy; 2026 ToolVeto Inc. Open-source licenses: MIT CLI &amp; Core &middot; Apache 2.0 Shield.</div>
         <div>Built for the Model Context Protocol ecosystem.</div>
       </div>
     </div>

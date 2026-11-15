@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { notifyOnboardingStep } from '../telemetry.js';
 
 export interface WrapCommandOptions {
   client?: 'cursor' | 'claude' | 'windsurf' | 'vscode' | 'auto' | string;
@@ -9,6 +10,8 @@ export interface WrapCommandOptions {
   lockfile?: string;
   unwrap?: boolean;
   dryRun?: boolean;
+  apiUrl?: string;
+  licenseKey?: string;
 }
 
 export interface WrapResult {
@@ -91,6 +94,7 @@ export async function wrapCommand(
   const clientType = options.client || 'auto';
   const tokenBudget = options.tokenBudget !== undefined ? Number(options.tokenBudget) || 4000 : 4000;
   const configPath = resolveConfigFile(targetPath, clientType);
+  const npxBin = process.platform === 'win32' ? 'npx.cmd' : 'npx';
 
   if (!configPath) {
     console.error(`\n❌ Error: Could not locate MCP client configuration file (checked Cursor, VS Code, Claude Desktop, Windsurf).`);
@@ -145,10 +149,26 @@ export async function wrapCommand(
       }
     }
 
+    // Fallback: if no _toolvetoOriginal metadata was present, check for .bak backup
+    const existingBak = `${configPath}.bak`;
+    if (unwrappedServers.length === 0 && fs.existsSync(existingBak)) {
+      try {
+        const bakParsed = JSON.parse(fs.readFileSync(existingBak, 'utf-8'));
+        if (bakParsed && typeof bakParsed.mcpServers === 'object') {
+          parsed = bakParsed;
+          unwrappedServers.push(...Object.keys(bakParsed.mcpServers));
+        }
+      } catch {
+        // Ignore unreadable backup
+      }
+    }
+
     if (options.dryRun) {
       console.log(JSON.stringify(parsed, null, 2));
     } else {
-      backupPath = writeConfigWithBackupAndAtomicRename(configPath, JSON.stringify(parsed, null, 2) + '\n');
+      const tmpPath = `${configPath}.${process.pid}.${Date.now()}.tmp`;
+      fs.writeFileSync(tmpPath, JSON.stringify(parsed, null, 2) + '\n', { encoding: 'utf-8', mode: 0o600 });
+      fs.renameSync(tmpPath, configPath);
       console.log(`\n🔓 ToolVeto Unwrap Complete: Restored ${unwrappedServers.length} MCP server(s) in ${configPath}`);
       for (const name of unwrappedServers) {
         console.log(`   - ${name}`);
@@ -241,13 +261,11 @@ export async function wrapCommand(
     ];
 
     if (hasHttpUrl && !hasStdioCommand) {
-      // Bridge IDE stdio -> Streamable HTTP/SSE upstream through Shield (removing raw url so IDE cannot bypass Shield)
       delete entry.url;
-      entry.command = 'npx';
+      entry.command = npxBin;
       entry.args = [...baseProxyArgs, '--upstream', origUrl!];
     } else {
-      // Wrap local stdio MCP server process (`-- <origCommand> <origArgs...>`)
-      entry.command = 'npx';
+      entry.command = npxBin;
       entry.args = [...baseProxyArgs, '--', origCommand, ...origArgs];
     }
 
@@ -260,6 +278,7 @@ export async function wrapCommand(
     backupPath = writeConfigWithBackupAndAtomicRename(configPath, JSON.stringify(parsed, null, 2) + '\n');
     console.log(`\n🛡️  ToolVeto Shield Wrapper Active (${configPath})`);
     console.log(`Wrapped ${wrappedServers.length} MCP server(s): ${wrappedServers.join(', ') || 'none (already wrapped)'}`);
+    console.log(`Backup saved: ${backupPath}`);
     console.log(`Active @toolveto/shield Protections (Stdio & Streamable HTTP):`);
     console.log(`   ✓ RFC 8785 Canonical SHA-256 Idempotency Deduplication`);
     console.log(`   ✓ 5-call / 30s Runaway Retry Loop Circuit Breaker`);
@@ -275,6 +294,10 @@ export async function wrapCommand(
       }
     }
     console.log('');
+    await notifyOnboardingStep('step_4_runtime_shield', 'shield-gateway-active', {
+      apiUrl: options.apiUrl,
+      licenseKey: options.licenseKey,
+    });
   }
 
   return {

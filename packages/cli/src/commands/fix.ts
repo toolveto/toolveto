@@ -4,6 +4,7 @@ import path from 'path';
 export interface FixOptions {
   apply?: boolean;
   suggest?: boolean;
+  output?: string;
   check?: string;
   lang?: 'typescript' | 'python' | 'go' | 'auto' | string;
   withLlm?: boolean;
@@ -24,6 +25,83 @@ function matchesCheckFilter(filter: string | undefined, checkIds: string[]): boo
   return checkIds.some((id) => id.toUpperCase() === upper);
 }
 
+/**
+ * Generates a real, git-apply-valid unified diff between `original` and `modified` file contents.
+ * Uses exact line counts and context lines — never fabricates line numbers or file paths.
+ */
+export function buildUnifiedDiff(relPath: string, original: string, modified: string): string {
+  if (original === modified) return '';
+  const normOrig = original.replace(/\r\n/g, '\n');
+  const normMod = modified.replace(/\r\n/g, '\n');
+  const origHadTrailingNl = normOrig.endsWith('\n');
+  const modHadTrailingNl = normMod.endsWith('\n');
+
+  const origLines = origHadTrailingNl ? normOrig.slice(0, -1).split('\n') : normOrig.length ? normOrig.split('\n') : [];
+  const modLines = modHadTrailingNl ? normMod.slice(0, -1).split('\n') : normMod.length ? normMod.split('\n') : [];
+
+  let prefixLen = 0;
+  while (
+    prefixLen < origLines.length &&
+    prefixLen < modLines.length &&
+    origLines[prefixLen] === modLines[prefixLen]
+  ) {
+    prefixLen++;
+  }
+
+  let suffixLen = 0;
+  while (
+    suffixLen < origLines.length - prefixLen &&
+    suffixLen < modLines.length - prefixLen &&
+    origLines[origLines.length - 1 - suffixLen] === modLines[modLines.length - 1 - suffixLen]
+  ) {
+    suffixLen++;
+  }
+
+  const contextBefore = Math.min(3, prefixLen);
+  const contextAfter = Math.min(3, suffixLen);
+
+  const origStartIdx = prefixLen - contextBefore;
+  const origEndIdx = origLines.length - suffixLen + contextAfter;
+  const modStartIdx = prefixLen - contextBefore;
+  const modEndIdx = modLines.length - suffixLen + contextAfter;
+
+  const origCount = origEndIdx - origStartIdx;
+  const modCount = modEndIdx - modStartIdx;
+  const origLineNum = origCount === 0 ? 0 : origStartIdx + 1;
+  const modLineNum = modCount === 0 ? 0 : modStartIdx + 1;
+
+  const hunkLines: string[] = [];
+  for (let i = origStartIdx; i < prefixLen; i++) {
+    hunkLines.push(` ${origLines[i]}`);
+  }
+  for (let i = prefixLen; i < origLines.length - suffixLen; i++) {
+    hunkLines.push(`-${origLines[i]}`);
+  }
+  if (!origHadTrailingNl && suffixLen === 0 && origLines.length > prefixLen) {
+    hunkLines.push(`\\ No newline at end of file`);
+  }
+  for (let i = prefixLen; i < modLines.length - suffixLen; i++) {
+    hunkLines.push(`+${modLines[i]}`);
+  }
+  for (let i = origLines.length - suffixLen; i < origEndIdx; i++) {
+    hunkLines.push(` ${origLines[i]}`);
+  }
+  if (!modHadTrailingNl && contextAfter > 0 && origEndIdx === origLines.length) {
+    hunkLines.push(`\\ No newline at end of file`);
+  } else if (!modHadTrailingNl && suffixLen === 0 && modLines.length > prefixLen) {
+    hunkLines.push(`\\ No newline at end of file`);
+  }
+
+  const cleanRel = relPath.replace(/\\/g, '/').replace(/^\.\//, '');
+  return [
+    `diff --git a/${cleanRel} b/${cleanRel}`,
+    `--- a/${cleanRel}`,
+    `+++ b/${cleanRel}`,
+    `@@ -${origLineNum},${origCount} +${modLineNum},${modCount} @@`,
+    ...hunkLines,
+  ].join('\n');
+}
+
 function scanSourceFiles(dirOrFile: string): string[] {
   const results: string[] = [];
   if (!fs.existsSync(dirOrFile)) return results;
@@ -39,7 +117,7 @@ function scanSourceFiles(dirOrFile: string): string[] {
   if (stat.isDirectory()) {
     const entries = fs.readdirSync(dirOrFile, { withFileTypes: true });
     for (const entry of entries) {
-      if (['node_modules', 'dist', '.git', '.turbo', 'build', 'coverage'].includes(entry.name)) {
+      if (['node_modules', 'dist', '.git', '.turbo', 'build', 'coverage', 'vendor'].includes(entry.name)) {
         continue;
       }
       const full = path.join(dirOrFile, entry.name);
@@ -422,22 +500,30 @@ function patchSourceFileContent(
 }
 
 export async function fixCommand(targetPath?: string, options: FixOptions = {}): Promise<void> {
-  const resolvedTarget = path.resolve(process.cwd(), targetPath || '.');
+  const cleanTarget = (targetPath || '.').replace(/^stdio:\/\//i, '');
+  const resolvedTarget = path.resolve(process.cwd(), cleanTarget);
+  const diffRoot =
+    fs.existsSync(resolvedTarget) && fs.statSync(resolvedTarget).isDirectory()
+      ? resolvedTarget
+      : process.cwd();
 
   console.log(`\n🔧 ToolVeto Remediation Engine (${options.withLlm ? 'Tier-1 Deterministic AST + Tier-2 LLM Handler Synthesis' : 'Tier-1 Deterministic AST'})`);
   console.log(`Target: ${resolvedTarget}`);
 
   let schemaToFix: any = null;
   let schemaFilePath: string | null = null;
+  let originalSchemaRaw = '';
 
   if (fs.existsSync(resolvedTarget)) {
     const stat = fs.statSync(resolvedTarget);
     if (stat.isFile() && resolvedTarget.endsWith('.json')) {
       schemaFilePath = resolvedTarget;
       try {
-        schemaToFix = JSON.parse(fs.readFileSync(resolvedTarget, 'utf8'));
+        originalSchemaRaw = fs.readFileSync(resolvedTarget, 'utf8');
+        schemaToFix = JSON.parse(originalSchemaRaw);
       } catch (err: any) {
         console.error(`❌ Failed to parse JSON schema: ${err.message}`);
+        process.exitCode = 1;
         return;
       }
     } else if (stat.isDirectory()) {
@@ -447,7 +533,8 @@ export async function fixCommand(targetPath?: string, options: FixOptions = {}):
         if (fs.existsSync(full)) {
           schemaFilePath = full;
           try {
-            schemaToFix = JSON.parse(fs.readFileSync(full, 'utf8'));
+            originalSchemaRaw = fs.readFileSync(full, 'utf8');
+            schemaToFix = JSON.parse(originalSchemaRaw);
             break;
           } catch {
             // continue
@@ -457,8 +544,8 @@ export async function fixCommand(targetPath?: string, options: FixOptions = {}):
     }
   }
 
-  // 1. Direct JSON Schema Auto-Patcher (fully working in-place modification)
-  if (schemaToFix) {
+  // 1. Direct JSON Schema Auto-Patcher
+  if (schemaToFix && schemaFilePath) {
     const tools = Array.isArray(schemaToFix) ? schemaToFix : (schemaToFix.tools || [schemaToFix]);
     let patchesApplied = 0;
 
@@ -558,14 +645,27 @@ export async function fixCommand(targetPath?: string, options: FixOptions = {}):
       }
     }
 
-    if (options.apply && schemaFilePath) {
-      fs.writeFileSync(schemaFilePath, JSON.stringify(schemaToFix, null, 2), 'utf8');
+    const updatedSchemaRaw = JSON.stringify(schemaToFix, null, 2) + (originalSchemaRaw.endsWith('\n') ? '\n' : '');
+
+    if (options.output && updatedSchemaRaw !== originalSchemaRaw) {
+      const outPatchFile = path.resolve(process.cwd(), options.output);
+      const relSchema = path.relative(diffRoot, schemaFilePath) || path.basename(schemaFilePath);
+      const diffText = buildUnifiedDiff(relSchema, originalSchemaRaw, updatedSchemaRaw);
+      if (diffText) {
+        fs.mkdirSync(path.dirname(outPatchFile), { recursive: true });
+        fs.writeFileSync(outPatchFile, diffText + '\n', 'utf8');
+        console.log(`\n📄 Wrote unified git patch to: ${outPatchFile}`);
+      }
+    }
+
+    if (options.apply) {
+      fs.writeFileSync(schemaFilePath, updatedSchemaRaw, 'utf8');
       console.log(`\n💾 Saved ${patchesApplied} patch(es) directly to: ${schemaFilePath}`);
       console.log(`✅ Run 'npx toolveto check ${schemaFilePath}' to verify compliance.\n`);
     } else {
-      console.log(`\n📋 Preview: ${patchesApplied} schema patch(es) ready.`);
+      console.log(`\n📋 Preview: ${patchesApplied} schema patch(es) ready (0 files modified on disk).`);
       console.log(`Run with '--apply' to write directly to the JSON manifest:`);
-      console.log(`  npx toolveto fix ${schemaFilePath || '.'} --apply\n`);
+      console.log(`  npx toolveto fix ${schemaFilePath} --apply\n`);
     }
     return;
   }
@@ -580,6 +680,7 @@ export async function fixCommand(targetPath?: string, options: FixOptions = {}):
     if (langFilter === 'go' || langFilter === 'golang') return ext === '.go';
     return true;
   });
+
   const unifiedDiffBlocks: string[] = [];
   let sourceFilesModified = 0;
 
@@ -589,23 +690,23 @@ export async function fixCommand(targetPath?: string, options: FixOptions = {}):
       const tier1 = patchSourceFileContent(srcFile, original, options.check);
       let finalPatched = tier1.patched;
       let totalApplied = tier1.appliedCount;
-      const allHunks = [...tier1.diffHunks];
 
       if (options.withLlm) {
         const tier2 = await synthesizeHandlerPatchWithLlm(srcFile, finalPatched, options.check, options);
         if (tier2.appliedCount > 0 && tier2.patched !== finalPatched) {
           finalPatched = tier2.patched;
           totalApplied += tier2.appliedCount;
-          allHunks.push(...tier2.diffHunks);
           console.log(`  + [TIER-2 LLM SYNTHESIS] Synthesized handler guard via ${tier2.engineUsed}`);
         }
       }
 
       if (totalApplied > 0 && finalPatched !== original) {
-        const relPath = path.relative(process.cwd(), srcFile).replace(/\\/g, '/') || path.basename(srcFile);
-        unifiedDiffBlocks.push(
-          `diff --git a/${relPath} b/${relPath}\n--- a/${relPath}\n+++ b/${relPath}\n@@ -1,3 +1,${3 + totalApplied} @@\n${allHunks.join('\n')}`
-        );
+        const relPath =
+          path.relative(diffRoot, srcFile).replace(/\\/g, '/') || path.basename(srcFile);
+        const fileDiff = buildUnifiedDiff(relPath, original, finalPatched);
+        if (fileDiff) {
+          unifiedDiffBlocks.push(fileDiff);
+        }
         if (options.apply) {
           fs.writeFileSync(srcFile, finalPatched, 'utf8');
           sourceFilesModified++;
@@ -617,26 +718,21 @@ export async function fixCommand(targetPath?: string, options: FixOptions = {}):
     }
   }
 
-  const patchContent =
-    unifiedDiffBlocks.length > 0
-      ? unifiedDiffBlocks.join('\n\n') + '\n'
-      : `--- a/src/tools.ts
-+++ b/src/tools.ts
-@@ -10,3 +10,6 @@
-+ // ToolVeto Auto-Remediation: Idempotency Protection
-+ idempotencyKey: z.string().uuid().describe("Unique client idempotency token preventing duplicate mutations on retry"),
-+ limit: z.number().int().min(1).max(100).default(25).describe("Max items to protect LLM context window"),
-+ cursor: z.string().optional().describe("Forward pagination cursor token"),
-`;
+  // Only write a patch file to disk when `--output <patchFile>` is explicitly requested!
+  if (options.output) {
+    const outPatchPath = path.resolve(process.cwd(), options.output);
+    if (unifiedDiffBlocks.length > 0) {
+      fs.mkdirSync(path.dirname(outPatchPath), { recursive: true });
+      fs.writeFileSync(outPatchPath, unifiedDiffBlocks.join('\n\n') + '\n', 'utf8');
+      console.log(`\n📄 Generated git-apply-ready patch: ${outPatchPath}`);
+    } else {
+      console.log(`\nℹ️  No AST diff hunks matched source files in ${resolvedTarget}; skipped writing empty patch to ${outPatchPath}.`);
+    }
+  } else if (unifiedDiffBlocks.length > 0 && !options.apply) {
+    console.log('\n--- Unified Diff Preview (Dry-Run — 0 files written) ---');
+    console.log(unifiedDiffBlocks.join('\n\n'));
+  }
 
-  const patchBaseDir =
-    fs.existsSync(resolvedTarget) && fs.statSync(resolvedTarget).isDirectory()
-      ? resolvedTarget
-      : process.cwd();
-  const patchFile = path.join(patchBaseDir, 'toolveto-remediation.patch');
-  fs.writeFileSync(patchFile, patchContent, 'utf8');
-
-  console.log('\n📄 Generated standard git patch: toolveto-remediation.patch');
   console.log('\nSuggested AST Patches by Language:');
   console.log('\n[TypeScript / Zod — Tier-1 Schema + Tier-2 Handler]');
   console.log('+ idempotencyKey: z.string().uuid().describe("Unique token for atomic deduplication")');
@@ -659,9 +755,9 @@ export async function fixCommand(targetPath?: string, options: FixOptions = {}):
     if (sourceFilesModified > 0) {
       console.log(`\n💾 Applied source patches directly to ${sourceFilesModified} file(s).`);
     } else {
-      console.log(`\n💡 To apply this patch to your git workspace, run:\n  git apply toolveto-remediation.patch\n`);
+      console.log(`\nℹ️  No matching AST patterns required modification in ${resolvedTarget}.`);
     }
   } else {
-    console.log(`\n💡 Copy the lines above into your schema, or run with --apply (and --with-llm for handler synthesis) to patch files directly.`);
+    console.log(`\n💡 Dry-run complete (no files written). Pass --apply to patch files in-place, or --output <patchFile> to export a unified diff.`);
   }
 }

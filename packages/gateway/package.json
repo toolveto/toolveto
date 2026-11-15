@@ -2,7 +2,32 @@
   "name": "toolveto-gateway",
   "version": "0.2.0",
   "description": "ToolVeto Gateway — Enterprise MCP Reverse Proxy with Centralized Idempotency and Loop Shielding",
-  "license": "BSL-1.1",
+  "license": "BUSL-1.1",
+  "homepage": "https://toolveto.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/toolveto/toolveto.git",
+    "directory": "packages/gateway"
+  },
+  "bugs": {
+    "url": "https://github.com/toolveto/toolveto/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "toolveto",
+    "gateway",
+    "reverse-proxy",
+    "idempotency",
+    "ai-agents",
+    "security"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
@@ -16,10 +41,13 @@
     "./package.json": "./package.json"
   },
   "files": [
-    "dist"
+    "dist",
+    "!dist/**/__tests__/**",
+    "LICENSE",
+    "README.md"
   ],
   "scripts": {
-    "build": "tsc -b",
+    "build": "tsc -b && chmod +x dist/bin.js",
     "clean": "rm -rf dist tsconfig.tsbuildinfo",
     "lint": "tsc --noEmit",
     "start": "node dist/bin.js",

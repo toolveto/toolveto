@@ -1,6 +1,4 @@
 import * as fs from 'node:fs';
-import * as os from 'node:os';
-import * as path from 'node:path';
 import {
   runSuite,
   evaluateServer,
@@ -11,7 +9,12 @@ import {
   McpClient,
   SuiteSummary,
 } from '@toolveto/core';
-import { runPlgTelemetryAndUpdateCheck, isTelemetryDryRun } from '../telemetry.js';
+import {
+  runPlgTelemetryAndUpdateCheck,
+  isTelemetryDryRun,
+  resolveCloudCredentials,
+  resolveRepoSlug,
+} from '../telemetry.js';
 import { discoverToolsFromTarget } from '../discovery.js';
 
 export interface CheckCommandOptions {
@@ -25,6 +28,10 @@ export interface CheckCommandOptions {
   ephemeralMock?: boolean;
   threshold?: string | number;
   failOnSeverity?: string;
+  failOnVeto?: boolean;
+  upload?: boolean;
+  repo?: string;
+  apiUrl?: string;
   skipUpdateCheck?: boolean;
   noTelemetry?: boolean;
   telemetryDryRun?: boolean;
@@ -266,9 +273,20 @@ export async function checkCommand(
   targetPath: string,
   options: CheckCommandOptions = {}
 ): Promise<SuiteSummary | undefined> {
+  const { apiUrl, token: cloudToken } = resolveCloudCredentials({ apiUrl: options.apiUrl });
+
+  if (options.upload && !cloudToken) {
+    console.error(
+      `❌ --upload requires TOOLVETO_LICENSE_KEY or 'npx toolveto login --token <tv_live_...>'\n`
+    );
+    process.exitCode = 1;
+    return undefined;
+  }
+
   let tools: McpToolDefinition[] = [];
   let client: McpClient | null = null;
-  const targetDisplay = targetPath || '.';
+  const cleanTarget = (targetPath || '.').replace(/^stdio:\/\//i, '');
+  const targetDisplay = cleanTarget || '.';
 
   try {
     const discovered = await discoverToolsFromTarget(targetPath || '.', {
@@ -293,6 +311,7 @@ export async function checkCommand(
     }
 
     const checkStartMs = Date.now();
+    const localTargetDir = cleanTarget && !cleanTarget.startsWith('http') ? cleanTarget : '.';
     const summary =
       options.ephemeralMock && client
         ? await evaluateServer(client, {
@@ -300,59 +319,69 @@ export async function checkCommand(
             target: targetDisplay,
             withLlm: options.withLlm,
             destructiveAuthorization: true,
-            targetDir: targetPath && !targetPath.startsWith('http') ? targetPath : '.',
+            targetDir: localTargetDir,
           })
         : await runSuite(targetDisplay, tools, {
             client: client || undefined,
             withLlm: options.withLlm,
             destructiveAuthorization: options.allowDestructive,
-            targetDir: targetPath && !targetPath.startsWith('http') ? targetPath : '.',
+            targetDir: localTargetDir,
           });
     const durationMs = Date.now() - checkStartMs;
 
-    // Optional Cloud Telemetry Upload when TOOLVETO_TOKEN or ~/.toolveto/config.json is configured
-    let cloudToken = process.env.TOOLVETO_TOKEN || process.env.TOOLVETO_LICENSE_KEY || '';
-    let cloudApiUrl = process.env.TOOLVETO_API_URL || '';
-    if (!cloudToken) {
-      try {
-        const configPath = path.join(os.homedir(), '.toolveto', 'config.json');
-        if (fs.existsSync(configPath)) {
-          const savedCfg = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-          if (savedCfg && typeof savedCfg.token === 'string' && savedCfg.token.trim()) {
-            cloudToken = savedCfg.token.trim();
-          }
-          if (!cloudApiUrl && savedCfg && typeof savedCfg.apiUrl === 'string' && savedCfg.apiUrl.trim()) {
-            cloudApiUrl = savedCfg.apiUrl.trim();
-          }
-        }
-      } catch {
-        // Ignore config read errors
-      }
-    }
-    if (cloudToken && !options.noTelemetry && !isTelemetryDryRun(options)) {
-      const apiUrl = (cloudApiUrl || 'https://api.toolveto.ai').replace(/\/+$/, '');
+    // Cloud Audit Scorecard + Drift Check Upload when authenticated (or explicitly requested via --upload)
+    const shouldUploadToCloud =
+      Boolean(cloudToken) &&
+      (Boolean(options.upload) || (!options.noTelemetry && !isTelemetryDryRun(options)));
+
+    if (shouldUploadToCloud) {
+      const resolvedRepo = resolveRepoSlug(targetPath || '.', options.repo);
+      const dimensions = {
+        d1: summary.dimensionalScores?.D1?.score ?? 0,
+        d2: summary.dimensionalScores?.D2?.score ?? 0,
+        d3: summary.dimensionalScores?.D3?.score ?? 0,
+        d4: summary.dimensionalScores?.D4?.score ?? 0,
+        d5: summary.dimensionalScores?.D5?.score ?? 0,
+      };
+      const authHeaders = {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${cloudToken}`,
+        'X-ToolVeto-License': cloudToken,
+      };
+
       try {
         await fetch(`${apiUrl}/api/v1/audits`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${cloudToken}`,
-            'X-ToolVeto-License': cloudToken,
-          },
+          headers: authHeaders,
           body: JSON.stringify({
-            repo: summary.target,
-            serverName: summary.target,
+            repo: resolvedRepo,
+            serverName: resolvedRepo,
             commitSha: process.env.GITHUB_SHA || process.env.CI_COMMIT_SHA || 'local',
             score: summary.score,
             tier: summary.tier,
             vetoTriggered: Boolean(summary.fatalVetoTriggered),
             phi: summary.phi,
+            dimensionalScores: summary.dimensionalScores,
+            dimensions,
             results: summary.results,
             summary,
           }),
         });
       } catch {
-        // Silently continue if telemetry endpoint is unreachable
+        // Silently continue if audit endpoint is unreachable
+      }
+
+      try {
+        await fetch(`${apiUrl}/api/v1/drift/check`, {
+          method: 'POST',
+          headers: authHeaders,
+          body: JSON.stringify({
+            repo: resolvedRepo,
+            tools,
+          }),
+        });
+      } catch {
+        // Silently continue if drift endpoint is unreachable
       }
     }
 
@@ -428,6 +457,7 @@ export async function checkCommand(
         noTelemetry: options.noTelemetry,
         skipUpdateCheck: options.skipUpdateCheck,
         telemetryDryRun: options.telemetryDryRun,
+        apiUrl: options.apiUrl,
       },
     });
 
@@ -440,7 +470,7 @@ export async function checkCommand(
       }
     }
 
-    if (summary.fatalVetoTriggered) {
+    if (summary.fatalVetoTriggered && options.failOnVeto !== false) {
       process.exitCode = 1;
     }
 

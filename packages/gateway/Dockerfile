@@ -2,18 +2,18 @@
 FROM node:22-alpine AS builder
 
 WORKDIR /app
-RUN npm install -g pnpm@10.5.2
+RUN corepack enable && corepack prepare pnpm@10.5.2 --activate
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.base.json tsconfig.json ./
 COPY packages/core ./packages/core
 COPY packages/shield ./packages/shield
 COPY packages/gateway ./packages/gateway
 
-RUN pnpm install --frozen-lockfile || pnpm install
+RUN pnpm install --frozen-lockfile
 RUN pnpm --filter @toolveto/core run build
 RUN pnpm --filter @toolveto/shield run build
 RUN pnpm --filter toolveto-gateway run build
-RUN pnpm --filter toolveto-gateway deploy --prod /app/deployed-gateway
+RUN pnpm --filter toolveto-gateway --legacy deploy --prod /app/deployed-gateway || pnpm --filter toolveto-gateway deploy --prod /app/deployed-gateway
 
 FROM node:22-alpine AS runner
 WORKDIR /app

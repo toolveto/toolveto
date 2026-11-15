@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { readStoredCloudConfig } from '../telemetry.js';
 
 export interface VerifyCommandOptions {
   secret?: string;
@@ -28,11 +29,17 @@ function resolveEs256PublicKey(rawOrPath?: string): crypto.KeyObject | null {
   const trimmed = raw.trim();
   if (trimmed.startsWith('{')) {
     const parsed = JSON.parse(trimmed);
+    if (typeof parsed.publicKeyPem === 'string') {
+      return crypto.createPublicKey(parsed.publicKeyPem);
+    }
     if (parsed.publicKey && typeof parsed.publicKey === 'string') {
       return crypto.createPublicKey(parsed.publicKey);
     }
     if (parsed.publicKey && typeof parsed.publicKey === 'object') {
       return crypto.createPublicKey({ key: parsed.publicKey, format: 'jwk' });
+    }
+    if (parsed.jwk && typeof parsed.jwk === 'object') {
+      return crypto.createPublicKey({ key: parsed.jwk, format: 'jwk' });
     }
     if (Array.isArray(parsed.keys) && parsed.keys[0]) {
       return crypto.createPublicKey({ key: parsed.keys[0], format: 'jwk' });
@@ -43,38 +50,38 @@ function resolveEs256PublicKey(rawOrPath?: string): crypto.KeyObject | null {
   return crypto.createPublicKey(trimmed);
 }
 
-async function fetchEs256PublicKeyFromJwks(kid?: string, explicitApiUrl?: string): Promise<crypto.KeyObject | null> {
-  let apiUrl = explicitApiUrl || process.env.TOOLVETO_API_URL || '';
-  if (!apiUrl) {
+export async function fetchEs256PublicKeyFromJwks(
+  kid?: string,
+  explicitApiUrl?: string
+): Promise<crypto.KeyObject | null> {
+  const storedConfig = readStoredCloudConfig();
+  const baseUrl = (
+    explicitApiUrl ||
+    process.env.TOOLVETO_API_URL ||
+    storedConfig.apiUrl ||
+    'https://toolveto.ai'
+  ).replace(/\/+$/, '');
+
+  const candidateUrls = [`${baseUrl}/.well-known/jwks.json`, `${baseUrl}/api/v1/jwks`];
+
+  for (const jwksUrl of candidateUrls) {
     try {
-      const cfgPath = path.join(os.homedir(), '.toolveto', 'config.json');
-      if (fs.existsSync(cfgPath)) {
-        const saved = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
-        if (typeof saved?.apiUrl === 'string' && saved.apiUrl.trim()) {
-          apiUrl = saved.apiUrl.trim();
-        }
-      }
+      const res = await fetch(jwksUrl, { signal: AbortSignal.timeout(4000) });
+      if (!res.ok) continue;
+      const jwks = (await res.json()) as { keys?: Array<Record<string, any>> };
+      if (!Array.isArray(jwks.keys) || jwks.keys.length === 0) continue;
+
+      const matched =
+        (kid ? jwks.keys.find((k) => k.kid === kid && k.kty === 'EC') : undefined) ||
+        jwks.keys.find((k) => k.kty === 'EC');
+      if (!matched) continue;
+      return crypto.createPublicKey({ key: matched as any, format: 'jwk' });
     } catch {
-      // ignore
+      // Try next JWKS endpoint
     }
   }
-  if (!apiUrl) return null;
 
-  try {
-    const jwksUrl = `${apiUrl.replace(/\/+$/, '')}/api/v1/jwks`;
-    const res = await fetch(jwksUrl, { signal: AbortSignal.timeout(4000) });
-    if (!res.ok) return null;
-    const jwks = (await res.json()) as { keys?: Array<Record<string, any>> };
-    if (!Array.isArray(jwks.keys) || jwks.keys.length === 0) return null;
-
-    const matched =
-      (kid ? jwks.keys.find((k) => k.kid === kid && k.kty === 'EC') : undefined) ||
-      jwks.keys.find((k) => k.kty === 'EC');
-    if (!matched) return null;
-    return crypto.createPublicKey({ key: matched as any, format: 'jwk' });
-  } catch {
-    return null;
-  }
+  return null;
 }
 
 export async function verifyCommand(tokenArg?: string, options: VerifyCommandOptions = {}): Promise<void> {
@@ -109,22 +116,41 @@ export async function verifyCommand(tokenArg?: string, options: VerifyCommandOpt
     let isValidSignature = false;
 
     if (header.alg === 'ES256') {
-      let pubKey = resolveEs256PublicKey(options.publicKey);
-      if (!pubKey) {
-        pubKey = await fetchEs256PublicKeyFromJwks(header.kid, options.apiUrl);
+      const signingInput = Buffer.from(`${headerB64}.${payloadB64}`);
+      const sigBytes = Buffer.from(signature, 'base64url');
+      const verifyWithKey = (key: crypto.KeyObject): boolean => {
+        try {
+          if (crypto.verify('sha256', signingInput, { key, dsaEncoding: 'ieee-p1363' }, sigBytes)) {
+            return true;
+          }
+        } catch {
+          // Try DER fallback
+        }
+        try {
+          return crypto.verify('sha256', signingInput, key, sigBytes);
+        } catch {
+          return false;
+        }
+      };
+
+      const candidateKeys: crypto.KeyObject[] = [];
+      const localKey = resolveEs256PublicKey(options.publicKey);
+      if (localKey) candidateKeys.push(localKey);
+
+      // If no explicit --public-key was forced, also allow Cloud JWKS discovery when local key is absent or for a different kid
+      if (!options.publicKey) {
+        const jwksKey = await fetchEs256PublicKeyFromJwks(header.kid, options.apiUrl);
+        if (jwksKey) candidateKeys.push(jwksKey);
       }
-      if (!pubKey) {
+
+      if (candidateKeys.length === 0) {
         console.error(
           '\n❌ Error: ES256 token requires --public-key, --api-url <cloud-url>, TOOLVETO_PUBLIC_KEY, or ~/.toolveto/keys/es256_keypair.json.'
         );
         process.exitCode = 1;
         return;
       }
-      const signingInput = Buffer.from(`${headerB64}.${payloadB64}`);
-      const sigBytes = Buffer.from(signature, 'base64url');
-      isValidSignature =
-        crypto.verify('sha256', signingInput, { key: pubKey, dsaEncoding: 'ieee-p1363' }, sigBytes) ||
-        crypto.verify('sha256', signingInput, pubKey, sigBytes);
+      isValidSignature = candidateKeys.some((k) => verifyWithKey(k));
     } else if (header.alg === 'HS256') {
       const resolvedSecret = options.secret || process.env.TOOLVETO_SIGNING_SECRET;
       if (!resolvedSecret || resolvedSecret.length < 32) {

@@ -3,6 +3,31 @@
   "version": "0.2.0",
   "description": "ToolVeto Core Check Engine, Deterministic Fuzzers, and Sandbox Orchestrator",
   "license": "MIT",
+  "homepage": "https://toolveto.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/toolveto/toolveto.git",
+    "directory": "packages/core"
+  },
+  "bugs": {
+    "url": "https://github.com/toolveto/toolveto/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "toolveto",
+    "chaos-testing",
+    "ai-agents",
+    "idempotency",
+    "security",
+    "fuzzing"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -13,7 +38,10 @@
     "./package.json": "./package.json"
   },
   "files": [
-    "dist"
+    "dist",
+    "!dist/**/__tests__/**",
+    "LICENSE",
+    "README.md"
   ],
   "scripts": {
     "build": "tsc -b",
