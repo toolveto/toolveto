@@ -1,10 +1,13 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { notifyOnboardingStep } from '../telemetry.js';
 
 export interface InitOptions {
   ci?: string;
   output?: string;
   force?: boolean;
+  apiUrl?: string;
+  licenseKey?: string;
 }
 
 const GITHUB_ACTIONS_WORKFLOW = `name: ToolVeto MCP Reliability & Chaos Gate
@@ -31,20 +34,21 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
 
       - name: Run ToolVeto Deterministic Battery & Lockfile Gate
         env:
+          TOOLVETO_LICENSE_KEY: \${{ secrets.TOOLVETO_LICENSE_KEY }}
           TOOLVETO_TOKEN: \${{ secrets.TOOLVETO_LICENSE_KEY }}
         run: |
-          npx --yes toolveto@latest check . --ephemeral-mock --threshold 80
+          npx --yes toolveto@latest check . --ephemeral-mock --threshold 80 --repo "\${{ github.repository }}"
           if [ -f "toolveto.lock.json" ]; then
-            npx --yes toolveto@latest lock . --verify
+            npx --yes toolveto@latest lock . --verify --repo "\${{ github.repository }}"
           fi
 `;
 
@@ -57,11 +61,13 @@ toolveto_reliability_gate:
   image: node:22-alpine
   timeout: 10 minutes
   interruptible: true
+  variables:
+    TOOLVETO_LICENSE_KEY: $TOOLVETO_LICENSE_KEY
   script:
-    - npx --yes toolveto@latest check . --ephemeral-mock --threshold 80
+    - npx --yes toolveto@latest check . --ephemeral-mock --threshold 80 --repo "$CI_PROJECT_PATH"
     - |
       if [ -f "toolveto.lock.json" ]; then
-        npx --yes toolveto@latest lock . --verify
+        npx --yes toolveto@latest lock . --verify --repo "$CI_PROJECT_PATH"
       fi
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
@@ -78,6 +84,10 @@ export async function initCommand(targetDir = '.', options: InitOptions = {}): P
 
   if (fs.existsSync(outPath) && !options.force) {
     console.log(`\n✅ ToolVeto CI gate already exists at ${outPath} (use --force to overwrite).\n`);
+    await notifyOnboardingStep('step_1_ci_gate', '.github/workflows/toolveto.yml', {
+      apiUrl: options.apiUrl,
+      licenseKey: options.licenseKey,
+    });
     return;
   }
 
@@ -86,4 +96,8 @@ export async function initCommand(targetDir = '.', options: InitOptions = {}): P
   fs.writeFileSync(outPath, template, 'utf-8');
   console.log(`\n✅ Initialized ToolVeto ${ciProvider} gate at ${outPath}`);
   console.log(`   Next step: npx toolveto@latest lock . --output toolveto.lock.json\n`);
+  await notifyOnboardingStep('step_1_ci_gate', '.github/workflows/toolveto.yml', {
+    apiUrl: options.apiUrl,
+    licenseKey: options.licenseKey,
+  });
 }

@@ -1,0 +1,162 @@
+name: Release & Publish Packages
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Run verification, tarball packing, and npm publish --dry-run without publishing live artifacts'
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+  packages: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Verify, Publish NPM Packages & Push Gateway Image
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres_ci_password
+          POSTGRES_DB: toolveto_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d toolveto_ci"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      POSTGRES_URL: postgresql://postgres:postgres_ci_password@127.0.0.1:5432/toolveto_ci
+      REDIS_URL: redis://127.0.0.1:6379
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          registry-url: 'https://registry.npmjs.org'
+          cache: 'pnpm'
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run Verification Gate
+        run: ./verify.sh agent
+
+      - name: Build All Packages
+        run: pnpm run build
+
+      - name: Pack & Verify Tarballs
+        id: pack
+        run: |
+          PACK_DIR="$(mktemp -d)"
+          echo "pack_dir=$PACK_DIR" >> "$GITHUB_OUTPUT"
+
+          test -x packages/cli/dist/bin/toolveto.js || { echo "❌ dist/bin/toolveto.js is not executable (0755)"; exit 1; }
+          test -x packages/gateway/dist/bin.js || { echo "❌ dist/bin.js is not executable (0755)"; exit 1; }
+
+          (cd packages/core && pnpm pack --pack-destination "$PACK_DIR")
+          (cd packages/shield && pnpm pack --pack-destination "$PACK_DIR")
+          (cd packages/gateway && pnpm pack --pack-destination "$PACK_DIR")
+          (cd packages/cli && pnpm pack --pack-destination "$PACK_DIR")
+
+          ls -lh "$PACK_DIR"/*.tgz
+
+          CUSTOMER_DIR="$(mktemp -d)"
+          (
+            cd "$CUSTOMER_DIR"
+            npm init -y >/dev/null
+            npm install "$PACK_DIR"/*.tgz
+            npx toolveto --version
+            npx toolveto-gateway --help | grep -q "toolveto-gateway"
+          )
+          rm -rf "$CUSTOMER_DIR"
+          echo "✔ All 4 package tarballs verified cleanly."
+
+      - name: Publish NPM Packages (or Dry-Run)
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          IS_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
+        run: |
+          PACK_DIR="${{ steps.pack.outputs.pack_dir }}"
+          PACKAGES=("packages/core" "packages/shield" "packages/gateway" "packages/cli")
+
+          if [ "$IS_DRY_RUN" = "true" ] || [ -z "${NPM_TOKEN:-}" ]; then
+            echo "🔍 Running in dry-run mode (IS_DRY_RUN=$IS_DRY_RUN, NPM_TOKEN_SET=$([ -n "${NPM_TOKEN:-}" ] && echo yes || echo no))"
+            for tarball in "$PACK_DIR"/*.tgz; do
+              echo "📦 Dry-run validating $tarball ..."
+              npm publish "$tarball" --dry-run --access public
+            done
+          else
+            echo "🚀 Publishing @toolveto/core, @toolveto/shield, toolveto-gateway, and toolveto with provenance..."
+            for pkg_dir in "${PACKAGES[@]}"; do
+              echo "📦 Publishing $pkg_dir ..."
+              (cd "$pkg_dir" && pnpm publish --access public --provenance --no-git-checks)
+            done
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && !inputs.dry_run)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Gateway Version & Tags
+        id: meta
+        run: |
+          PKG_VERSION=$(node -p "require('./packages/gateway/package.json').version")
+          RAW_TAG="${GITHUB_REF_NAME#v}"
+          if [[ "$RAW_TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            VERSION="$RAW_TAG"
+          else
+            VERSION="$PKG_VERSION"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build and Push ghcr.io/toolveto/gateway Docker Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packages/gateway/Dockerfile
+          push: ${{ github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && !inputs.dry_run) }}
+          tags: |
+            ghcr.io/toolveto/gateway:latest
+            ghcr.io/toolveto/gateway:${{ steps.meta.outputs.version }}

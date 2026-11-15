@@ -28,6 +28,7 @@ export function createProgram(): Command {
     .option('--ci <provider>', 'CI provider: github-actions | gitlab', 'github-actions')
     .option('-o, --output <path>', 'Custom output path for CI workflow file')
     .option('-f, --force', 'Overwrite existing CI workflow file')
+    .option('--api-url <url>', 'ToolVeto Cloud API base URL')
     .action(async (target, options) => {
       await initCommand(target, options);
     });
@@ -38,12 +39,17 @@ export function createProgram(): Command {
     .argument('<target>', 'Path to local MCP server directory, binary, or Streamable HTTP URL')
     .option('--with-llm', 'Enable Stage 4 LLM E_heal self-heal judge (requires API key)')
     .option('--allow-destructive', 'Authorize live stateful replay and concurrent burst mutations (D1)')
-    .option('--allow-exec', 'Authorize spawning local server entrypoint scripts discovered inside target directory')
+    .option('--allow-exec', 'Authorize spawning local server entrypoint scripts or binaries discovered inside target directory')
     .option('--ephemeral-mock', 'Zero-setup ephemeral mock evaluation on static manifests with live VERIFIED runtime evidence')
     .option('--json', 'Output machine-readable JSON report')
     .option('-f, --format <format>', 'Output format: terminal, json, github-pr, or sarif', 'terminal')
     .option('-t, --threshold <score>', 'Minimum certification score threshold (0-100)')
     .option('--fail-on-severity <severity>', 'Fail with exit code 1 if any failed check meets or exceeds severity (LOW, MEDIUM, HIGH, CRITICAL)')
+    .option('--fail-on-veto', 'Exit non-zero when fatal safety vetoes are triggered (default behavior)')
+    .option('--no-fail-on-veto', 'Do not exit non-zero solely due to fatal safety vetoes')
+    .option('--upload', 'Explicitly upload scorecard & drift telemetry to ToolVeto Cloud')
+    .option('--repo <slug>', 'Explicit owner/repo slug for Cloud scorecard & badge attribution')
+    .option('--api-url <url>', 'ToolVeto Cloud API base URL')
     .option('--demo', 'Allow synthetic mock tools when target has zero tools (demo mode)')
     .option('--skip-update-check', 'Skip checking for new ToolVeto CLI versions and update notices (Trivy/Grype compatible)')
     .option('--no-telemetry', 'Disable anonymous CLI run telemetry (or set DO_NOT_TRACK=1 / TOOLVETO_NO_TELEMETRY=1)')
@@ -60,8 +66,9 @@ export function createProgram(): Command {
     .option('--token-budget <tokens>', 'Max response tokens per tool call', '4000')
     .option('--strict', 'Enable fail-closed strict mode on Shield proxy')
     .option('--lockfile <path>', 'Pin tool definitions against cryptographic lockfile at runtime')
-    .option('--unwrap', 'Restore original unwrapped server commands from _toolvetoOriginal metadata')
+    .option('--unwrap', 'Restore original unwrapped server commands from _toolvetoOriginal metadata or .bak backup')
     .option('--dry-run', 'Print the wrapped configuration JSON without writing to disk')
+    .option('--api-url <url>', 'ToolVeto Cloud API base URL')
     .action(async (target, options) => {
       await wrapCommand(target, options);
     });
@@ -71,7 +78,8 @@ export function createProgram(): Command {
     .description('Auto-apply deterministic AST schema fixes + optional LLM handler code synthesis (--with-llm)')
     .argument('[target]', 'Path to schema file or server directory')
     .option('--apply', 'Directly modify local JSON schema or source code files on disk')
-    .option('--suggest', 'Print multi-language AST diffs and generate toolveto-remediation.patch')
+    .option('--suggest', 'Print multi-language AST remediation suggestions (dry-run)')
+    .option('-o, --output <path>', 'Write unified git remediation patch to explicit file path')
     .option('-c, --check <checkId>', 'Target a specific check ID for remediation (e.g., TC-IDEMP-001)')
     .option('-l, --lang <lang>', 'Filter source files by language: typescript | python | go | auto', 'auto')
     .option('--with-llm', 'Enable Tier-2 LLM code patch synthesis for imperative tool handler bodies (uses ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY)')
@@ -86,7 +94,7 @@ export function createProgram(): Command {
     .description('Audit local IDE MCP configs (Cursor, Claude Desktop, Windsurf, VS Code) for floating @latest versions, plaintext secrets, and unwrapped servers')
     .argument('[target]', 'Path to MCP client config file or workspace directory', '.')
     .option('--ide <ide>', 'Target IDE config: cursor | claude | windsurf | vscode | auto', 'auto')
-    .option('--fix', 'Pin floating @latest versions, replace plaintext secrets with ${ENV:...} references, and emit toolveto-ide.lock.json')
+    .option('--fix', 'Pin floating @latest versions, migrate plaintext secrets to ~/.toolveto/secrets.env (0600), wrap servers with @toolveto/shield, and emit toolveto-ide.lock.json')
     .option('--registry-url <url>', 'Custom npm registry URL for resolving @latest versions')
     .option('--json', 'Output machine-readable JSON report')
     .action(async (target, options) => {
@@ -126,13 +134,13 @@ export function createProgram(): Command {
   program
     .command('evidence')
     .description('Generate an AIUC-1 / OWASP compliant JWS-signed evidence packet for CISO review')
-    .argument('[target]', 'Target server path, Streamable HTTP URL, or schema file')
+    .argument('[target]', 'Target server path, Streamable HTTP URL, report JSON, or schema file')
     .option('-f, --format <format>', 'Output format: aiuc1, owasp, json', 'aiuc1')
     .option('-t, --target <path>', 'Target server path or schema file', '.')
     .option('-o, --output <path>', 'Output file destination')
     .option('-s, --secret <secret>', 'Signing secret (>= 32 chars) for JWS attestation')
     .option('--allow-exec', 'Authorize spawning local server entrypoint scripts discovered inside target directory')
-    .option('--demo', 'Allow synthetic mock tools when target has zero tools (demo mode)')
+    .option('--demo', 'Generate non-production preview attestation with ephemeral key / demo fallback tools')
     .action(async (target, options) => {
       await evidenceCommand(target, options);
     });
@@ -176,6 +184,7 @@ export function createProgram(): Command {
     .option('-o, --output <path>', 'Output policy file path')
     .option('--allow-exec', 'Authorize spawning local server entrypoint scripts discovered inside target directory')
     .option('--demo', 'Allow synthetic demo tools when target has zero tools')
+    .option('--api-url <url>', 'ToolVeto Cloud API base URL')
     .action(async (target, options) => {
       await exportPolicyCommand(target, options);
     });
@@ -184,7 +193,8 @@ export function createProgram(): Command {
     .command('login')
     .description('Authenticate CLI with ToolVeto Cloud using your license token')
     .argument('[token]', 'Your ToolVeto license token (tv_live_...)')
-    .option('--api-url <url>', 'ToolVeto Cloud API URL', 'https://api.toolveto.ai')
+    .option('-t, --token <token>', 'Your ToolVeto license token (tv_live_...)')
+    .option('--api-url <url>', 'ToolVeto Cloud API URL')
     .action(async (token, options) => {
       await loginCommand(token, options);
     });

@@ -248,9 +248,9 @@
 
       <section data-doc-section id="quickstart">
         <h2>CLI Quickstart</h2>
-        <p>Evaluate any local server directory, binary script, JSON schema manifest, or live Streamable HTTP endpoint in under 90 seconds with zero LLM API costs:</p>
-        <div class="docs-code-block" tabindex="0" role="region" aria-label="CLI quickstart commands"># Audit a local MCP server directory
-npx toolveto@latest check ./my-mcp-server
+        <p>Evaluate any local server directory, TypeScript/Python/Go source, JSON schema manifest, or live Streamable HTTP endpoint in under 90 seconds with zero LLM API costs:</p>
+        <div class="docs-code-block" tabindex="0" role="region" aria-label="CLI quickstart commands"># Audit a local MCP server script or directory
+npx toolveto@latest check ./src/mcp-server.ts
 
 # Audit a static tool schema JSON
 npx toolveto@latest check ./schema.json
@@ -259,12 +259,12 @@ npx toolveto@latest check ./schema.json
 npx toolveto@latest check http://localhost:8080/mcp
 
 # Automatically patch local source files for failed checks
-npx toolveto@latest fix --apply</div>
+npx toolveto@latest fix ./src/mcp-server.ts --apply</div>
       </section>
 
       <section data-doc-section id="core-concepts">
         <h2>The 5 Behavioral Dimensions</h2>
-        <p>ToolVeto tests MCP servers against the exact failure modes discovered in production agent operations:</p>
+        <p>ToolVeto evaluates MCP servers against <strong>32 deterministic checks across 14 invariant families</strong>, targeting the exact failure modes discovered in production agent operations:</p>
 
         <h3 id="d1-idempotency"><span class="check-badge badge-d1">D1</span> Idempotency &amp; Concurrency (Weight: 30%)</h3>
         <p>When an LLM agent times out or receives a transient network error, it immediately replays the tool call. Without explicit idempotency keys and atomic backend deduplication, this leads to double-charges and duplicated database records.</p>
@@ -310,11 +310,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: toolveto/toolveto@v1
         with:
-          node-version: 20
-      - name: Run ToolVeto Reliability Gate
-        run: npx --yes toolveto@latest check .</div>
+          target: "./src/mcp-server.ts"
+          license-key: ${{ secrets.TOOLVETO_LICENSE_KEY }}</div>
       </section>
 
       <section data-doc-section id="shield-middleware">
@@ -332,20 +331,23 @@ export default shield(myMcpServer, {
       </section>
 
       <section data-doc-section id="gateway-proxy">
-        <h2>Reverse Proxy Gateway: @toolveto/gateway</h2>
-        <p>Deploy <code>@toolveto/gateway</code> as an out-of-process JSON-RPC 2.0 proxy in front of any stdio or Streamable HTTP MCP server without touching application code:</p>
-        <div class="docs-code-block" tabindex="0" role="region" aria-label="ToolVeto Reverse Proxy Gateway command"># Launch transparent runtime proxy with Redis deduplication and 8k token clipper
-npx @toolveto/gateway --upstream http://127.0.0.1:8080/mcp --port 9090 --token-budget 8000</div>
+        <h2>Reverse Proxy Gateway: toolveto proxy &amp; toolveto-gateway</h2>
+        <p>Deploy ToolVeto as an out-of-process JSON-RPC 2.0 proxy in front of any stdio or Streamable HTTP MCP server without touching application code (set <code>TOOLVETO_ALLOW_LOCAL_UPSTREAMS=true</code> when proxying localhost dev upstreams):</p>
+        <div class="docs-code-block" tabindex="0" role="region" aria-label="ToolVeto Reverse Proxy Gateway command"># Launch lightweight runtime proxy with 8k token clipper (use TOOLVETO_ALLOW_LOCAL_UPSTREAMS=true for localhost dev)
+TOOLVETO_ALLOW_LOCAL_UPSTREAMS=true npx toolveto proxy --upstream http://127.0.0.1:8080/mcp --port 9090 --token-budget 8000
+
+# Launch production reverse-proxy gateway with YAML policy &amp; Redis/Postgres deduplication
+npx toolveto-gateway --config toolveto-gateway.yml --port 9090</div>
       </section>
 
       <section data-doc-section id="evidence-packet">
         <h2>CISO Evidence Packets &amp; AIUC-1 Compliance</h2>
         <p>Generate RFC 7515 JWS cryptographically signed evidence packets for enterprise security reviews:</p>
-        <div class="docs-code-block" tabindex="0" role="region" aria-label="AIUC-1 evidence packet CLI commands"># Generate terminal compliance report
-npx toolveto evidence --format aiuc1
+        <div class="docs-code-block" tabindex="0" role="region" aria-label="AIUC-1 evidence packet CLI commands"># Generate non-production preview compliance report (--demo)
+npx toolveto evidence ./src/mcp-server.ts --demo --format aiuc1
 
-# Export machine-readable JSON packet with JWS token
-npx toolveto evidence --format json --output evidence.json</div>
+# Export cryptographically signed JSON packet with RFC 7515 JWS token
+TOOLVETO_SIGNING_SECRET="$(openssl rand -base64 32)" npx toolveto evidence ./src/mcp-server.ts --format json --output evidence.json</div>
       </section>
     </main>
   </div>
@@ -401,7 +403,7 @@ npx toolveto evidence --format json --output evidence.json</div>
       </div>
 
       <div class="footer-bottom">
-        <div>&copy; 2026 ToolVeto Technologies Inc. Open-source core under MIT License.</div>
+        <div>&copy; 2026 ToolVeto Inc. Open-source licenses: MIT CLI &amp; Core &middot; Apache 2.0 Shield.</div>
         <div>Built for the Model Context Protocol ecosystem.</div>
       </div>
     </div>

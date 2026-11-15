@@ -37,6 +37,35 @@ export interface StdioProxyHandle {
   middleware: ShieldMiddleware;
 }
 
+export function loadToolVetoSecretsEnv(customHomeDir?: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  try {
+    const home = customHomeDir || process.env.HOME || os.homedir();
+    const secretsPath = path.join(home, '.toolveto', 'secrets.env');
+    if (!fs.existsSync(secretsPath)) return result;
+    const raw = fs.readFileSync(secretsPath, 'utf-8');
+    for (const line of raw.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const m = trimmed.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+      if (!m) continue;
+      const key = m[1];
+      let val = m[2];
+      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+        try {
+          val = val.startsWith('"') ? JSON.parse(val) : val.slice(1, -1);
+        } catch {
+          val = val.slice(1, -1);
+        }
+      }
+      result[key] = val;
+    }
+  } catch {
+    // Ignore unreadable secrets vault
+  }
+  return result;
+}
+
 function resolveSavedCloudCredentials(): { apiUrl?: string; licenseKey?: string; customerId?: string } {
   try {
     const cfgPath = path.join(process.env.HOME || os.homedir(), '.toolveto', 'config.json');
@@ -77,7 +106,12 @@ export async function startStdioShieldProxy(options: StdioShieldProxyOptions): P
   const timeoutMs = options.timeoutMs || 30000;
 
   const savedCloud = resolveSavedCloudCredentials();
-  const apiUrl = options.apiUrl || process.env.TOOLVETO_API_URL || savedCloud.apiUrl;
+  const apiUrl = (
+    options.apiUrl ||
+    process.env.TOOLVETO_API_URL ||
+    savedCloud.apiUrl ||
+    'https://toolveto.ai'
+  ).replace(/\/+$/, '');
   const licenseKey =
     options.licenseKey || process.env.TOOLVETO_LICENSE_KEY || process.env.TOOLVETO_TOKEN || savedCloud.licenseKey;
   const customerId = options.customerId || process.env.TOOLVETO_CUSTOMER_ID || savedCloud.customerId;
@@ -129,9 +163,16 @@ export async function startStdioShieldProxy(options: StdioShieldProxyOptions): P
   >();
 
   if (options.command) {
-    child = spawn(options.command, options.args || [], {
+    const resolvedCmd =
+      process.platform === 'win32' && options.command.toLowerCase() === 'npx'
+        ? 'npx.cmd'
+        : options.command;
+    const vaultSecrets = loadToolVetoSecretsEnv();
+
+    child = spawn(resolvedCmd, options.args || [], {
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, ...(options.env || {}) },
+      env: { ...vaultSecrets, ...process.env, ...(options.env || {}) },
+      ...(process.platform === 'win32' && /\.(cmd|bat)$/i.test(resolvedCmd) ? { shell: true } : {}),
     });
 
     child.stderr.on('data', (chunk: Buffer) => {

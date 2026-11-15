@@ -3,12 +3,15 @@ import * as path from 'node:path';
 import type { McpToolDefinition } from '@toolveto/core';
 import { computeToolDefinitionHash } from '@toolveto/shield';
 import { discoverToolsFromTarget } from '../discovery.js';
+import { notifyOnboardingStep } from '../telemetry.js';
 
 export interface ExportPolicyOptions {
   format?: 'cedar' | 'opa' | 'weaveproof' | 'weaveproof-genome' | string;
   output?: string;
   demo?: boolean;
   allowExec?: boolean;
+  apiUrl?: string;
+  licenseKey?: string;
 }
 
 const DEMO_POLICY_TOOLS: McpToolDefinition[] = [
@@ -255,6 +258,7 @@ export async function exportPolicyCommand(
 ): Promise<void> {
   const target = targetPath || '.';
   const format = (options.format || 'cedar').toLowerCase();
+  const isWeaveProofFormat = format === 'weaveproof' || format === 'weaveproof-genome' || format === 'genome';
 
   let tools: McpToolDefinition[] = [];
   try {
@@ -291,11 +295,25 @@ export async function exportPolicyCommand(
     fs.mkdirSync(path.dirname(outPath), { recursive: true });
     fs.writeFileSync(outPath, policyText, 'utf-8');
     console.log(`\n✅ Exported ${format.toUpperCase()} least-privilege policy to ${outPath}`);
-    console.log(
-      `💡 Enterprise Upgrade: Import into WeaveProof for live @clamp ceilings, 2-of-2 SOX HITL & SOC 2/ISO 42001 audit binders:\n` +
-        `   👉 weaveproof-cli policy plan --file ${path.basename(outPath)}\n`
-    );
+    if (isWeaveProofFormat) {
+      console.log(
+        `💡 Enterprise Upgrade: Import into WeaveProof for live @clamp ceilings, 2-of-2 SOX HITL & SOC 2/ISO 42001 audit binders:\n` +
+          `   👉 weaveproof-cli policy plan --file ${path.basename(outPath)}\n`
+      );
+    } else {
+      console.log(
+        `💡 Enforce least-privilege policies at runtime with @toolveto/shield or ToolVeto Cloud (https://toolveto.ai).\n`
+      );
+    }
+    await notifyOnboardingStep('step_3_policy_export', outPath, {
+      apiUrl: options.apiUrl,
+      licenseKey: options.licenseKey,
+    });
   } else {
     console.log(policyText);
+    await notifyOnboardingStep('step_3_policy_export', `stdout:${format}`, {
+      apiUrl: options.apiUrl,
+      licenseKey: options.licenseKey,
+    });
   }
 }

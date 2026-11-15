@@ -4,6 +4,11 @@ import exec from 'k6/execution';
 import { Trend } from 'k6/metrics';
 
 const shieldAirbagLatency = new Trend('shield_airbag_latency_ms', true);
+const GATEWAY_SECRET = __ENV.TOOLVETO_GATEWAY_SECRET || 'bench-gateway-secret-minimum-32-chars';
+const gatewayHeaders = {
+  'Content-Type': 'application/json',
+  Authorization: `Bearer ${GATEWAY_SECRET}`,
+};
 
 export const options = {
   scenarios: {
@@ -38,9 +43,11 @@ export const options = {
     },
   },
   thresholds: {
+    http_req_failed: ['rate==0'],
+    checks: ['rate==1.0'],
     'http_req_duration{scenario:shielded_cache_miss}': ['p(50)<5', 'p(95)<15', 'p(99)<25'],
     'http_req_duration{scenario:shielded_cache_hit}': ['p(50)<2', 'p(95)<5', 'p(99)<10'],
-    shield_airbag_latency_ms: ['p(50)<1.8', 'p(95)<1.8'],
+    shield_airbag_latency_ms: ['count>1000', 'p(50)>0', 'p(50)<1.8', 'p(95)<1.8'],
   },
 };
 
@@ -81,7 +88,7 @@ export function testBaseline() {
 export function testShieldedMiss() {
   const key = `k-${exec.scenario.iterationInTest}`;
   const res = http.post('http://localhost:8080/mcp', buildPayload(key), {
-    headers: { 'Content-Type': 'application/json' },
+    headers: gatewayHeaders,
   });
   recordAirbagHeader(res);
   check(res, {
@@ -91,12 +98,16 @@ export function testShieldedMiss() {
 }
 
 export function testShieldedHit() {
-  const res = http.post('http://localhost:8080/mcp', buildPayload('k-0'), {
-    headers: { 'Content-Type': 'application/json' },
+  // Cycle across 5,000 keys from the tail window of shielded_cache_miss so they remain in
+  // the 10,000-slot LRU cache and stay well under the 5-call per-key loop breaker limit.
+  const key = `k-${7000 + (exec.scenario.iterationInTest % 5000)}`;
+  const res = http.post('http://localhost:8080/mcp', buildPayload(key), {
+    headers: gatewayHeaders,
   });
   recordAirbagHeader(res);
   check(res, {
     'status is 200': (r) => r.status === 200,
+    'action is DEDUPLICATED': (r) => (r.headers['X-Toolveto-Action'] || r.headers['x-toolveto-action']) === 'DEDUPLICATED',
   });
 }
 

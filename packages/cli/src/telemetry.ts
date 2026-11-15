@@ -2,10 +2,230 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import * as crypto from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import type { SuiteSummary } from '@toolveto/core';
 
 export const CLI_VERSION = '0.2.0';
-export const DEFAULT_CLOUD_API_URL = process.env.TOOLVETO_API_URL || 'https://api.toolveto.ai';
+export const DEFAULT_CLOUD_API_URL = (process.env.TOOLVETO_API_URL || 'https://toolveto.ai').replace(/\/+$/, '');
+
+export interface StoredCloudConfig {
+  token?: string;
+  apiUrl?: string;
+  tier?: string;
+  customerId?: string;
+  expiresAt?: string;
+}
+
+export function readStoredCloudConfig(customHomeDir?: string): StoredCloudConfig {
+  try {
+    const home = customHomeDir || process.env.HOME || os.homedir();
+    const configPath = path.join(home, '.toolveto', 'config.json');
+    if (fs.existsSync(configPath)) {
+      const parsed = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      if (parsed && typeof parsed === 'object') {
+        return {
+          token: typeof parsed.token === 'string' && parsed.token.trim() ? parsed.token.trim() : undefined,
+          apiUrl: typeof parsed.apiUrl === 'string' && parsed.apiUrl.trim() ? parsed.apiUrl.trim() : undefined,
+          tier: typeof parsed.tier === 'string' ? parsed.tier : undefined,
+          customerId: typeof parsed.customerId === 'string' ? parsed.customerId : undefined,
+          expiresAt: typeof parsed.expiresAt === 'string' ? parsed.expiresAt : undefined,
+        };
+      }
+    }
+  } catch {
+    // Ignore unreadable user config
+  }
+  return {};
+}
+
+export function resolveCloudCredentials(options?: {
+  apiUrl?: string;
+  licenseKey?: string;
+  customHomeDir?: string;
+}): { apiUrl: string; token: string; customerId?: string } {
+  const stored = readStoredCloudConfig(options?.customHomeDir);
+  const apiUrl = (
+    options?.apiUrl ||
+    process.env.TOOLVETO_API_URL ||
+    stored.apiUrl ||
+    'https://toolveto.ai'
+  ).replace(/\/+$/, '');
+  const token = (
+    options?.licenseKey ||
+    process.env.TOOLVETO_LICENSE_KEY ||
+    process.env.TOOLVETO_TOKEN ||
+    stored.token ||
+    ''
+  ).trim();
+  return { apiUrl, token, customerId: stored.customerId };
+}
+
+export function parseGitRemoteSlug(remoteUrl: string): string | undefined {
+  const trimmed = (remoteUrl || '').trim();
+  if (!trimmed) return undefined;
+
+  // Handle SCP-style SSH URLs: git@github.com:owner/repo.git
+  const scpMatch = trimmed.match(/^(?:[^@]+@)?[^:/]+:([^/]+\/[^/\s]+?)(?:\.git)?\/?$/);
+  if (scpMatch && scpMatch[1]) {
+    return scpMatch[1];
+  }
+
+  // Handle HTTPS / SSH URLs: https://github.com/owner/repo.git or ssh://git@github.com/owner/repo.git
+  try {
+    const parsed = new URL(trimmed);
+    const segments = parsed.pathname
+      .replace(/\.git$/i, '')
+      .split('/')
+      .filter(Boolean);
+    if (segments.length >= 2) {
+      return `${segments[segments.length - 2]}/${segments[segments.length - 1]}`;
+    }
+  } catch {
+    // Fallback regex
+  }
+
+  return undefined;
+}
+
+function findGitRemoteUrlFromConfig(startDir: string): string | undefined {
+  let current = path.resolve(startDir);
+  for (let depth = 0; depth < 8; depth++) {
+    const gitConfig = path.join(current, '.git', 'config');
+    try {
+      if (fs.existsSync(gitConfig) && fs.statSync(gitConfig).isFile()) {
+        const content = fs.readFileSync(gitConfig, 'utf-8');
+        const match = content.match(/\[remote "origin"\][\s\S]*?url\s*=\s*([^\r\n]+)/);
+        if (match && match[1]) {
+          return match[1].trim();
+        }
+      }
+    } catch {
+      // Ignore read errors
+    }
+    const parent = path.dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return undefined;
+}
+
+/**
+ * Resolves a clean `owner/repo` slug for Cloud audit & drift attribution:
+ * 1. Explicit `options.repo` (`--repo owner/repo`)
+ * 2. `process.env.TOOLVETO_REPO` or `process.env.GITHUB_REPOSITORY`
+ * 3. `git remote get-url origin` in the target directory
+ * 4. `target` if it already matches `owner/repo`, else `local/<basename>`
+ */
+export function resolveRepoSlug(target: string = '.', explicitRepo?: string): string {
+  const explicit = (explicitRepo || '').trim();
+  if (explicit) return explicit;
+
+  const envRepo = (process.env.TOOLVETO_REPO || process.env.GITHUB_REPOSITORY || '').trim();
+  if (envRepo) return envRepo;
+
+  const cleanTarget = (target || '.').trim().replace(/^stdio:\/\//i, '');
+  const isHttp = /^https?:\/\//i.test(cleanTarget);
+
+  let gitCwd = process.cwd();
+  if (!isHttp) {
+    const absTarget = path.resolve(process.cwd(), cleanTarget);
+    if (fs.existsSync(absTarget)) {
+      try {
+        const st = fs.statSync(absTarget);
+        gitCwd = st.isDirectory() ? absTarget : path.dirname(absTarget);
+      } catch {
+        gitCwd = process.cwd();
+      }
+    }
+  }
+
+  try {
+    const remoteOut = execFileSync('git', ['remote', 'get-url', 'origin'], {
+      cwd: gitCwd,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 2000,
+    }).trim();
+    const parsedSlug = parseGitRemoteSlug(remoteOut);
+    if (parsedSlug) return parsedSlug;
+  } catch {
+    const fallbackRemote = findGitRemoteUrlFromConfig(gitCwd);
+    const parsedSlug = fallbackRemote ? parseGitRemoteSlug(fallbackRemote) : undefined;
+    if (parsedSlug) return parsedSlug;
+  }
+
+  if (!isHttp && /^[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(cleanTarget)) {
+    return cleanTarget;
+  }
+
+  if (isHttp) {
+    try {
+      const host = new URL(cleanTarget).hostname.replace(/[^A-Za-z0-9_.-]/g, '-') || 'remote-mcp';
+      return `local/${host}`;
+    } catch {
+      return 'local/remote-mcp';
+    }
+  }
+
+  const resolvedPath = path.resolve(process.cwd(), cleanTarget);
+  let base = path.basename(resolvedPath);
+  if (fs.existsSync(resolvedPath)) {
+    try {
+      if (fs.statSync(resolvedPath).isFile()) {
+        base = path.basename(path.dirname(resolvedPath)) || base;
+      }
+    } catch {
+      // Keep base
+    }
+  }
+  const safeBase = (base || 'mcp-server').replace(/[^A-Za-z0-9_.-]/g, '-') || 'mcp-server';
+  return `local/${safeBase}`;
+}
+
+export type OnboardingStepId =
+  | 'step_1_ci_gate'
+  | 'step_2_lockfile'
+  | 'step_3_policy_export'
+  | 'step_4_runtime_shield';
+
+/**
+ * Non-blocking Cloud onboarding checklist auto-verifier (`POST /api/v1/onboarding/checklist`).
+ * Silently no-ops when unauthenticated or offline.
+ */
+export async function notifyOnboardingStep(
+  stepId: OnboardingStepId | string,
+  artifact: string,
+  options?: {
+    apiUrl?: string;
+    licenseKey?: string;
+    customHomeDir?: string;
+    telemetryDryRun?: boolean;
+  }
+): Promise<boolean> {
+  if (isTelemetryDryRun(options)) return false;
+  const { apiUrl, token } = resolveCloudCredentials(options);
+  if (!token) return false;
+
+  try {
+    const res = await fetch(`${apiUrl}/api/v1/onboarding/checklist`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+        'X-ToolVeto-License': token,
+      },
+      body: JSON.stringify({
+        stepId,
+        completed: true,
+        artifact,
+      }),
+      signal: AbortSignal.timeout(3000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
 
 export interface CliLocalState {
   installId: string;
@@ -256,7 +476,6 @@ export function resolveGitRemoteIdentity(cwd: string = process.cwd()): string | 
       const content = fs.readFileSync(gitConfigPath, 'utf-8');
       const match = content.match(/\[remote "origin"\][\s\S]*?url\s*=\s*([^\r\n]+)/);
       if (match && match[1]) {
-        // Strip credentials from https://token@github.com/org/repo.git and normalize SSH git@github.com:org/repo.git
         return match[1]
           .trim()
           .replace(/^https?:\/\/[^@]+@/, 'https://')
@@ -448,9 +667,6 @@ export function getOrCreateCliState(customHomeDir?: string, cwd: string = proces
     // Fallback to generating or deriving state
   }
 
-  // In ephemeral CI containers or Docker runs where ~/.toolveto/cli-state.json is wiped every job,
-  // derive a deterministic, privacy-preserving installId from CI repository metadata or git remote origin
-  // so 500 CI runs of the same repo don't look like 500 fake "unique installs".
   const ci = detectCiProvider(cwd);
   const gitRemote = resolveGitRemoteIdentity(cwd);
   let deterministicSeed: string | undefined;
@@ -515,6 +731,7 @@ export function formatTrivyStyleNotice(params: {
   summary: SuiteSummary;
   authenticated: boolean;
   runNumber: number;
+  weaveproof?: boolean;
 }): string {
   const lines: string[] = [];
   const hasNewerBinary =
@@ -542,7 +759,7 @@ export function formatTrivyStyleNotice(params: {
     lines.push('├──────────────────────────────────────────────────────────────────────────────┤');
   }
 
-  // 2. PLG Tier Contextual Nudge (Free OSS -> Team CI / Shield Runtime)
+  // 2. PLG Tier Contextual Nudge (Free OSS -> ToolVeto Cloud / @toolveto/shield)
   if (!params.authenticated) {
     if (criticalCount > 0 || params.summary.fatalVetoTriggered) {
       lines.push(
@@ -552,33 +769,35 @@ export function formatTrivyStyleNotice(params: {
         `│    • Local CLI evaluated the 40% public corpus (Run #${params.runNumber}).`.padEnd(79) + '│'
       );
       lines.push(
-        `│    • Unlock the 60% Sealed Honeytrap Corpus, GitHub PR Fix Bot & <1.8ms      │`
+        `│    • Enforce runtime deduplication & loop limits via @toolveto/shield, and   │`
       );
       lines.push(
-        `│      @toolveto/shield runtime airbag for 10 3rd-party MCP servers:           │`
+        `│      unlock the 60% Sealed Corpus & PR Fix Bot on ToolVeto Cloud:            │`
       );
       lines.push(
         `│      👉 https://toolveto.ai/pricing?utm_source=npx_toolveto&utm_medium=cli   │`
       );
-      lines.push('├──────────────────────────────────────────────────────────────────────────────┤');
-      lines.push(
-        `│ 🏛️  Enterprise Runtime & Audit (WeaveProof): Need cross-MCP taint blocking,  │`
-      );
-      lines.push(
-        `│    CRM @clamp dollar caps, 2-of-2 SOX Slack HITL & SOC2/ISO42001 binders?    │`
-      );
-      lines.push(
-        `│    👉 Run \`npx toolveto export-policy --format weaveproof\`                   │`
-      );
+      if (params.weaveproof) {
+        lines.push('├──────────────────────────────────────────────────────────────────────────────┤');
+        lines.push(
+          `│ 🏛️  Enterprise Runtime & Audit (WeaveProof): Need cross-MCP taint blocking,  │`
+        );
+        lines.push(
+          `│    CRM @clamp dollar caps, 2-of-2 SOX Slack HITL & SOC2/ISO42001 binders?    │`
+        );
+        lines.push(
+          `│    👉 Run \`npx toolveto export-policy --format weaveproof\`                   │`
+        );
+      }
     } else {
       lines.push(
         `│ ✨ Passed local public corpus (Score: ${params.summary.score}/100 • Run #${params.runNumber}).`.padEnd(79) + '│'
       );
       lines.push(
-        `│    Automate this gate in GitHub PRs + unlock the 60% Sealed Honeytrap Corpus:│`
+        `│    Automate this gate in GitHub PRs + unlock ToolVeto Cloud & @toolveto/shield:│`
       );
       lines.push(
-        `│    👉 Run \`toolveto login\` or visit https://toolveto.ai/pricing?utm_source=cli│`
+        `│    👉 Run \`toolveto login\` or visit https://toolveto.ai                      │`
       );
     }
   }
@@ -604,6 +823,7 @@ export async function runPlgTelemetryAndUpdateCheck(params: {
     telemetryDryRun?: boolean;
     customHomeDir?: string;
     apiUrl?: string;
+    weaveproof?: boolean;
   };
 }): Promise<{
   telemetrySent: boolean;
@@ -618,16 +838,13 @@ export async function runPlgTelemetryAndUpdateCheck(params: {
   state.totalRuns += 1;
   state.lastRunAt = Date.now();
 
-  const apiUrl = (
-    params.options?.apiUrl ||
-    process.env.TOOLVETO_API_URL ||
-    DEFAULT_CLOUD_API_URL
-  ).replace(/\/+$/, '');
+  const { apiUrl, token: activeLicenseToken } = resolveCloudCredentials({
+    apiUrl: params.options?.apiUrl,
+    customHomeDir: params.options?.customHomeDir,
+  });
 
-  // Check if user is authenticated via env or ~/.toolveto/config.json
   const home = params.options?.customHomeDir || process.env.HOME || os.homedir();
   const configPath = path.join(home, '.toolveto', 'config.json');
-  const activeLicenseToken = (process.env.TOOLVETO_TOKEN || process.env.TOOLVETO_LICENSE_KEY || '').trim();
   const authenticated = Boolean(activeLicenseToken || fs.existsSync(configPath));
 
   const ciInfo = detectCiProvider();
@@ -787,6 +1004,7 @@ export async function runPlgTelemetryAndUpdateCheck(params: {
       summary: params.summary,
       authenticated,
       runNumber: state.totalRuns,
+      weaveproof: params.options?.weaveproof,
     });
     console.error(noticeText);
   }

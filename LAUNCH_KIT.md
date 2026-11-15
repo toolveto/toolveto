@@ -129,7 +129,7 @@ Would love your feedback on our scoring rubric and chaos invariants!
 > Star the repo on GitHub:
 > ⭐️ https://github.com/toolveto/toolveto
 > 
-> Add it to your CI: `uses: toolveto/action@v1`
+> Add it to your CI: `uses: toolveto/toolveto@v1`
 
 ---
 

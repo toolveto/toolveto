@@ -20,6 +20,327 @@ export interface DiscoveredToolsResult {
   client: McpClient | null;
 }
 
+export function resolvePythonInterpreter(baseDir?: string): string {
+  const candidates: string[] = [];
+  if (baseDir) {
+    candidates.push(path.join(baseDir, '.venv', 'bin', 'python'));
+    candidates.push(path.join(baseDir, '.venv', 'Scripts', 'python.exe'));
+  }
+  const activeVenv = (process.env.VIRTUAL_ENV || '').trim();
+  if (activeVenv) {
+    candidates.push(path.join(activeVenv, 'bin', 'python'));
+    candidates.push(path.join(activeVenv, 'Scripts', 'python.exe'));
+  }
+  const activeConda = (process.env.CONDA_PREFIX || '').trim();
+  if (activeConda) {
+    candidates.push(path.join(activeConda, 'bin', 'python'));
+    candidates.push(path.join(activeConda, 'Scripts', 'python.exe'));
+  }
+
+  for (const c of candidates) {
+    try {
+      if (fs.existsSync(c) && fs.statSync(c).isFile()) {
+        return c;
+      }
+    } catch {
+      // Ignore unreadable path
+    }
+  }
+
+  const pathDirs = (process.env.PATH || '').split(path.delimiter).filter(Boolean);
+  const binNames =
+    process.platform === 'win32'
+      ? ['python.exe', 'python3.exe', 'python', 'python3']
+      : ['python3', 'python'];
+
+  for (const bin of binNames) {
+    for (const dir of pathDirs) {
+      const full = path.join(dir, bin);
+      try {
+        if (fs.existsSync(full) && fs.statSync(full).isFile()) {
+          return bin.replace(/\.exe$/i, '') === bin ? bin : full;
+        }
+      } catch {
+        // Continue searching PATH
+      }
+    }
+  }
+
+  return process.platform === 'win32' ? 'python' : 'python3';
+}
+
+function isExecutableBinaryFile(filePath: string): boolean {
+  try {
+    const st = fs.statSync(filePath);
+    if (!st.isFile()) return false;
+    const ext = path.extname(filePath).toLowerCase();
+    if (ext !== '' && ext !== '.exe') return false;
+    if (process.platform === 'win32') {
+      return ext === '.exe' || (st.mode & 0o111) !== 0;
+    }
+    return (st.mode & 0o111) !== 0;
+  } catch {
+    return false;
+  }
+}
+
+function extractBalancedBlock(
+  source: string,
+  openIndex: number,
+  openChar: '(' | '{',
+  closeChar: ')' | '}'
+): string | null {
+  let depth = 0;
+  let inDouble = false;
+  let inBacktick = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+
+  for (let i = openIndex; i < source.length; i++) {
+    const ch = source[i];
+    const next = i + 1 < source.length ? source[i + 1] : '';
+    const prev = i > 0 ? source[i - 1] : '';
+
+    if (inLineComment) {
+      if (ch === '\n') inLineComment = false;
+      continue;
+    }
+    if (inBlockComment) {
+      if (ch === '*' && next === '/') {
+        inBlockComment = false;
+        i++;
+      }
+      continue;
+    }
+    if (!inDouble && !inBacktick) {
+      if (ch === '/' && next === '/') {
+        inLineComment = true;
+        i++;
+        continue;
+      }
+      if (ch === '/' && next === '*') {
+        inBlockComment = true;
+        i++;
+        continue;
+      }
+    }
+
+    if (!inBacktick && ch === '"' && prev !== '\\') {
+      inDouble = !inDouble;
+      continue;
+    }
+    if (!inDouble && ch === '`') {
+      inBacktick = !inBacktick;
+      continue;
+    }
+    if (inDouble || inBacktick) continue;
+
+    if (ch === openChar) depth++;
+    else if (ch === closeChar) {
+      depth--;
+      if (depth === 0) {
+        return source.slice(openIndex + 1, i);
+      }
+    }
+  }
+  return null;
+}
+
+function unescapeGoString(raw: string): string {
+  if (raw.startsWith('`') && raw.endsWith('`')) {
+    return raw.slice(1, -1);
+  }
+  if (raw.startsWith('"') && raw.endsWith('"')) {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return raw.slice(1, -1);
+    }
+  }
+  return raw;
+}
+
+function inferToolMutationFlag(name: string, readOnlyHint?: boolean, destructiveHint?: boolean): boolean {
+  if (readOnlyHint === true) return false;
+  if (destructiveHint === true) return true;
+  return /^(create|update|delete|drop|remove|transfer|charge|pay|send|insert|upsert|mutate|write|post|put|patch|execute|run|settle|refund)/i.test(
+    name
+  );
+}
+
+function parseGoSourceForTools(source: string): McpToolDefinition[] {
+  const discovered = new Map<string, McpToolDefinition>();
+
+  // 1. mcp.NewTool("tool_name", mcp.WithDescription("..."), mcp.WithString("param", mcp.Required(), ...))
+  const newToolRegex = /\b(?:mcp\.)?NewTool\s*\(/g;
+  let match: RegExpExecArray | null;
+  while ((match = newToolRegex.exec(source)) !== null) {
+    const openIdx = match.index + match[0].length - 1;
+    const body = extractBalancedBlock(source, openIdx, '(', ')');
+    if (!body) continue;
+
+    const nameMatch = body.match(/^\s*("(?:[^"\\]|\\.)*"|`[^`]*`)/);
+    if (!nameMatch) continue;
+    const name = unescapeGoString(nameMatch[1]).trim();
+    if (!name) continue;
+
+    let description = '';
+    const descMatch = body.match(/\bWithDescription\s*\(\s*("(?:[^"\\]|\\.)*"|`[^`]*`)/);
+    if (descMatch) {
+      description = unescapeGoString(descMatch[1]);
+    }
+
+    const properties: Record<string, any> = {};
+    const required: string[] = [];
+
+    const propCallRegex = /\bWith(String|Number|Boolean|Array|Object)\s*\(/g;
+    let pm: RegExpExecArray | null;
+    while ((pm = propCallRegex.exec(body)) !== null) {
+      const kind = pm[1].toLowerCase();
+      const propOpenIdx = pm.index + pm[0].length - 1;
+      const propBody = extractBalancedBlock(body, propOpenIdx, '(', ')');
+      if (!propBody) continue;
+      const pNameMatch = propBody.match(/^\s*("(?:[^"\\]|\\.)*"|`[^`]*`)/);
+      if (!pNameMatch) continue;
+      const pName = unescapeGoString(pNameMatch[1]).trim();
+      if (!pName) continue;
+
+      const propSchema: Record<string, any> = { type: kind };
+      const pDescMatch = propBody.match(/\bDescription\s*\(\s*("(?:[^"\\]|\\.)*"|`[^`]*`)/);
+      if (pDescMatch) {
+        propSchema.description = unescapeGoString(pDescMatch[1]);
+      }
+      properties[pName] = propSchema;
+      if (/\bRequired\s*\(\s*\)/.test(propBody)) {
+        required.push(pName);
+      }
+    }
+
+    const readOnlyHint = /ReadOnlyHint\s*:\s*(?:boolPtr\(\s*)?true\b/.test(body) ? true : undefined;
+    const destructiveHint = /DestructiveHint\s*:\s*(?:boolPtr\(\s*)?true\b/.test(body) ? true : undefined;
+    const idempotentHint = /IdempotentHint\s*:\s*(?:boolPtr\(\s*)?true\b/.test(body) ? true : undefined;
+
+    discovered.set(name, {
+      name,
+      description,
+      isMutation: inferToolMutationFlag(name, readOnlyHint, destructiveHint),
+      ...(readOnlyHint !== undefined ? { readOnlyHint } : {}),
+      ...(destructiveHint !== undefined ? { destructiveHint } : {}),
+      ...(idempotentHint !== undefined ? { idempotentHint } : {}),
+      inputSchema: {
+        type: 'object',
+        properties,
+        ...(required.length > 0 ? { required } : {}),
+      },
+    });
+  }
+
+  // 2. RegisterTool("tool_name", ...) / AddTool(server, &mcp.Tool{...}) or RegisterTool("name", "desc", ...)
+  const registerRegex = /\bRegisterTool\s*\(/g;
+  while ((match = registerRegex.exec(source)) !== null) {
+    const openIdx = match.index + match[0].length - 1;
+    const body = extractBalancedBlock(source, openIdx, '(', ')');
+    if (!body) continue;
+
+    const strLiterals = Array.from(body.matchAll(/("(?:[^"\\]|\\.)*"|`[^`]*`)/g)).map((m) =>
+      unescapeGoString(m[1])
+    );
+    const name = strLiterals[0]?.trim();
+    if (!name || discovered.has(name)) continue;
+    const description = strLiterals.length > 1 ? strLiterals[1] : '';
+
+    discovered.set(name, {
+      name,
+      description,
+      isMutation: inferToolMutationFlag(name),
+      inputSchema: { type: 'object', properties: {} },
+    });
+  }
+
+  // 3. Go struct literals: mcp.Tool{Name: "...", Description: "..."} or Tool{Name: "...", Description: "..."}
+  const toolStructRegex = /\b(?:mcp\.)?Tool\s*\{/g;
+  while ((match = toolStructRegex.exec(source)) !== null) {
+    const openIdx = match.index + match[0].length - 1;
+    const body = extractBalancedBlock(source, openIdx, '{', '}');
+    if (!body) continue;
+
+    const nameField = body.match(/\bName\s*:\s*("(?:[^"\\]|\\.)*"|`[^`]*`)/);
+    if (!nameField) continue;
+    const name = unescapeGoString(nameField[1]).trim();
+    if (!name || discovered.has(name)) continue;
+
+    const descField = body.match(/\bDescription\s*:\s*("(?:[^"\\]|\\.)*"|`[^`]*`)/);
+    const description = descField ? unescapeGoString(descField[1]) : '';
+    const readOnlyHint = /ReadOnlyHint\s*:\s*(?:boolPtr\(\s*)?true\b/.test(body) ? true : undefined;
+    const destructiveHint = /DestructiveHint\s*:\s*(?:boolPtr\(\s*)?true\b/.test(body) ? true : undefined;
+
+    discovered.set(name, {
+      name,
+      description,
+      isMutation: inferToolMutationFlag(name, readOnlyHint, destructiveHint),
+      ...(readOnlyHint !== undefined ? { readOnlyHint } : {}),
+      ...(destructiveHint !== undefined ? { destructiveHint } : {}),
+      inputSchema: { type: 'object', properties: {} },
+    });
+  }
+
+  return Array.from(discovered.values());
+}
+
+/**
+ * Statically extracts MCP tool definitions from Go source files (`.go` excluding `*_test.go` and `vendor/`).
+ */
+export function extractToolsStaticallyFromDir(dirPath: string): McpToolDefinition[] {
+  const byName = new Map<string, McpToolDefinition>();
+  const skipDirs = new Set(['vendor', 'node_modules', '.git', 'dist', 'build', '.turbo', 'testdata']);
+
+  const walk = (current: string) => {
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        if (skipDirs.has(entry.name)) continue;
+        walk(path.join(current, entry.name));
+      } else if (entry.isFile() && entry.name.endsWith('.go') && !entry.name.endsWith('_test.go')) {
+        const fullPath = path.join(current, entry.name);
+        try {
+          const content = fs.readFileSync(fullPath, 'utf-8');
+          for (const tool of parseGoSourceForTools(content)) {
+            if (!byName.has(tool.name)) {
+              byName.set(tool.name, tool);
+            }
+          }
+        } catch {
+          // Ignore unreadable Go source file
+        }
+      }
+    }
+  };
+
+  if (fs.existsSync(dirPath)) {
+    const stat = fs.statSync(dirPath);
+    if (stat.isDirectory()) {
+      walk(dirPath);
+    } else if (stat.isFile() && dirPath.endsWith('.go') && !dirPath.endsWith('_test.go')) {
+      try {
+        const content = fs.readFileSync(dirPath, 'utf-8');
+        for (const tool of parseGoSourceForTools(content)) {
+          byName.set(tool.name, tool);
+        }
+      } catch {
+        // Ignore unreadable Go file
+      }
+    }
+  }
+
+  return Array.from(byName.values());
+}
+
 export function extractToolsFromJson(parsed: any, baseDir: string): McpToolDefinition[] {
   if (Array.isArray(parsed)) {
     return parsed;
@@ -109,14 +430,15 @@ export async function discoverToolsFromTarget(
   options: DiscoverToolsOptions = {}
 ): Promise<DiscoveredToolsResult> {
   const timeoutMs = options.timeoutMs || 15000;
+  const normalizedTarget = (targetPath || '.').replace(/^stdio:\/\//i, '');
   let tools: McpToolDefinition[] = [];
   let client: McpClient | null = null;
 
   try {
     // 1. Remote Streamable HTTP MCP Server
-    if (targetPath && (targetPath.startsWith('http://') || targetPath.startsWith('https://'))) {
+    if (normalizedTarget && (normalizedTarget.startsWith('http://') || normalizedTarget.startsWith('https://'))) {
       const httpClient = new HttpMcpClient({
-        baseUrl: targetPath,
+        baseUrl: normalizedTarget,
         timeoutMs,
       });
       await httpClient.connect();
@@ -127,7 +449,7 @@ export async function discoverToolsFromTarget(
         await httpClient.close();
       }
     } else {
-      const resolvedTarget = path.resolve(process.cwd(), targetPath || '.');
+      const resolvedTarget = path.resolve(process.cwd(), normalizedTarget || '.');
 
       if (fs.existsSync(resolvedTarget)) {
         const stat = fs.statSync(resolvedTarget);
@@ -141,20 +463,39 @@ export async function discoverToolsFromTarget(
             tools = await discoverLiveToolsFromMcpConfig(parsed, timeoutMs, options.allowExec);
           }
         }
-        // 3. Executable Server script (Node / Python)
+        // 2b. Direct Go source file (static AST extraction)
+        else if (stat.isFile() && resolvedTarget.endsWith('.go')) {
+          tools = extractToolsStaticallyFromDir(resolvedTarget);
+        }
+        // 3. Executable Server script (Node / Python) or Compiled Binary (with --allow-exec)
         else if (stat.isFile()) {
           const ext = path.extname(resolvedTarget).toLowerCase();
-          if (!new Set(['.js', '.mjs', '.cjs', '.py', '.json']).has(ext)) {
-            throw new Error(`Refusing to auto-exec '${ext}'`);
+          const isScriptExt = new Set(['.js', '.mjs', '.cjs', '.py']).has(ext);
+          const isCompiledBin =
+            (ext === '' || ext === '.exe') &&
+            options.allowExec === true &&
+            process.env.TOOLVETO_DISALLOW_AUTO_EXEC !== '1' &&
+            isExecutableBinaryFile(resolvedTarget);
+
+          if (!isScriptExt && !isCompiledBin) {
+            throw new Error(`Refusing to auto-exec '${ext || path.basename(resolvedTarget)}'`);
           }
           if (options.allowExec === false || process.env.TOOLVETO_DISALLOW_AUTO_EXEC === '1') {
             throw new Error('auto-exec disabled');
           }
 
-          const command = resolvedTarget.endsWith('.py') ? 'python3' : process.execPath;
+          const baseDir = path.dirname(resolvedTarget);
+          const command = isCompiledBin
+            ? resolvedTarget
+            : ext === '.py'
+              ? resolvePythonInterpreter(baseDir)
+              : process.execPath;
+          const args = isCompiledBin ? [] : [resolvedTarget];
+
           const stdioClient = new StdioMcpClient({
             command,
-            args: [resolvedTarget],
+            args,
+            cwd: baseDir,
             timeoutMs,
           });
           await stdioClient.connect();
@@ -165,7 +506,7 @@ export async function discoverToolsFromTarget(
             await stdioClient.close();
           }
         }
-        // 4. Directory containing server files, manifests, or client configs
+        // 4. Directory containing server files, manifests, Go sources, or client configs
         else if (stat.isDirectory()) {
           const jsonCandidates = [
             path.join(resolvedTarget, 'tools.json'),
@@ -266,10 +607,13 @@ export async function discoverToolsFromTarget(
               options.allowExec === false || process.env.TOOLVETO_DISALLOW_AUTO_EXEC === '1';
 
             if (entrypoint && !execDisallowed) {
-              const command = entrypoint.endsWith('.py') ? 'python3' : process.execPath;
+              const command = entrypoint.endsWith('.py')
+                ? resolvePythonInterpreter(resolvedTarget)
+                : process.execPath;
               const stdioClient = new StdioMcpClient({
                 command,
                 args: [entrypoint],
+                cwd: resolvedTarget,
                 timeoutMs,
               });
               await stdioClient.connect();
@@ -278,6 +622,45 @@ export async function discoverToolsFromTarget(
                 client = stdioClient;
               } else {
                 await stdioClient.close();
+              }
+            }
+
+            // Static Go MCP tool discovery (safe, zero execution)
+            if (tools.length === 0) {
+              tools = extractToolsStaticallyFromDir(resolvedTarget);
+            }
+
+            // Optional compiled binary discovery when --allow-exec is explicitly authorized
+            if (tools.length === 0 && options.allowExec === true && !execDisallowed) {
+              const dirBase = path.basename(resolvedTarget);
+              const binaryCandidates = [
+                path.join(resolvedTarget, dirBase),
+                path.join(resolvedTarget, `${dirBase}.exe`),
+                path.join(resolvedTarget, 'server'),
+                path.join(resolvedTarget, 'server.exe'),
+                path.join(resolvedTarget, 'bin', dirBase),
+                path.join(resolvedTarget, 'bin', 'server'),
+              ];
+              for (const bc of binaryCandidates) {
+                if (!isExecutableBinaryFile(bc)) continue;
+                const realBin = fs.realpathSync(bc);
+                const relBin = path.relative(realTargetDir, realBin);
+                if (relBin.startsWith('..') || path.isAbsolute(relBin)) continue;
+
+                const stdioClient = new StdioMcpClient({
+                  command: realBin,
+                  args: [],
+                  cwd: resolvedTarget,
+                  timeoutMs,
+                });
+                await stdioClient.connect();
+                tools = await stdioClient.listTools();
+                if (options.keepClientOpen) {
+                  client = stdioClient;
+                } else {
+                  await stdioClient.close();
+                }
+                if (tools.length > 0) break;
               }
             }
           }

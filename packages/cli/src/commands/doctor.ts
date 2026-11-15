@@ -99,7 +99,6 @@ function resolveIdeConfigFile(targetPath?: string, ide: string = 'auto'): { path
 }
 
 function stripFloatingVersionSuffix(pkgSpec: string): string {
-  // Preserve leading '@' for scoped packages like '@modelcontextprotocol/server-github@latest'
   const lastAt = pkgSpec.lastIndexOf('@');
   if (lastAt > 0) {
     return pkgSpec.slice(0, lastAt);
@@ -129,9 +128,17 @@ async function resolveNpmLatestVersion(pkgName: string, registryBaseUrl: string)
 }
 
 function isFloatingPackageArg(cmd: string, args: string[]): { floating: boolean; pkg?: string } {
-  const normalizedCmd = path.basename(cmd).toLowerCase();
+  const normalizedCmd = path.basename(cmd).toLowerCase().replace(/\.cmd$/i, '');
   if (!['npx', 'uvx', 'bunx', 'pnpx'].includes(normalizedCmd)) {
     return { floating: false };
+  }
+
+  // If already wrapped by `npx -y toolveto proxy --stdio ... -- <origCmd> <origArgs...>`, inspect downstream args if npx
+  const dashDashIdx = args.indexOf('--');
+  if (args.includes('toolveto') && args.includes('proxy') && dashDashIdx >= 0) {
+    const downstreamCmd = args[dashDashIdx + 1] || '';
+    const downstreamArgs = args.slice(dashDashIdx + 2);
+    return isFloatingPackageArg(downstreamCmd, downstreamArgs);
   }
 
   for (const arg of args) {
@@ -154,8 +161,17 @@ function isFloatingPackageArg(cmd: string, args: string[]): { floating: boolean;
   return { floating: false };
 }
 
-function saveExtractedSecretsSecurely(configDir: string, extracted: Map<string, string>): string {
-  const envFilePath = path.join(configDir, '.env.toolveto.secrets');
+function saveSecretsToToolVetoVault(extracted: Map<string, string>): string {
+  const home = process.env.HOME || os.homedir();
+  const vaultDir = path.join(home, '.toolveto');
+  if (!fs.existsSync(vaultDir)) {
+    fs.mkdirSync(vaultDir, { recursive: true, mode: 0o700 });
+  }
+  try {
+    fs.chmodSync(vaultDir, 0o700);
+  } catch {}
+
+  const envFilePath = path.join(vaultDir, 'secrets.env');
   const existingMap = new Map<string, string>();
 
   if (fs.existsSync(envFilePath)) {
@@ -174,8 +190,8 @@ function saveExtractedSecretsSecurely(configDir: string, extracted: Map<string, 
 
   const serialized =
     [
-      '# ToolVeto IDE Doctor — Extracted Secrets Vault (chmod 0600)',
-      '# Source this file or load into your OS keychain before launching your IDE.',
+      '# ToolVeto IDE Doctor — Secrets Vault (chmod 0600)',
+      '# Automatically loaded at runtime by `toolveto proxy --stdio`.',
       ...Array.from(existingMap.entries()).map(([k, v]) => `${k}=${v}`),
     ].join('\n') + '\n';
 
@@ -188,6 +204,37 @@ function saveExtractedSecretsSecurely(configDir: string, extracted: Map<string, 
   return envFilePath;
 }
 
+function wrapEntryWithShieldProxy(entry: Record<string, any>, npxBin: string): boolean {
+  if (entry._toolvetoOriginal) return true;
+  const hasHttpUrl = typeof entry.url === 'string' && /^https?:\/\//i.test(entry.url);
+  const hasStdioCommand = typeof entry.command === 'string' && entry.command.trim().length > 0;
+  if (!hasHttpUrl && !hasStdioCommand) return false;
+
+  const origCommand = typeof entry.command === 'string' ? entry.command : '';
+  const origArgs: string[] = Array.isArray(entry.args) ? entry.args.map(String) : [];
+  const origUrl = typeof entry.url === 'string' ? entry.url : undefined;
+
+  entry._toolvetoOriginal = {
+    hasCommand: 'command' in entry,
+    command: origCommand,
+    hasArgs: 'args' in entry,
+    args: origArgs,
+    hasUrl: 'url' in entry,
+    ...(origUrl !== undefined ? { url: origUrl } : {}),
+  };
+
+  const baseProxyArgs = ['-y', 'toolveto', 'proxy', '--stdio', '--token-budget', '4000'];
+  if (hasHttpUrl && !hasStdioCommand) {
+    delete entry.url;
+    entry.command = npxBin;
+    entry.args = [...baseProxyArgs, '--upstream', origUrl!];
+  } else {
+    entry.command = npxBin;
+    entry.args = [...baseProxyArgs, '--', origCommand, ...origArgs];
+  }
+  return true;
+}
+
 export async function doctorCommand(
   targetPath?: string,
   options: DoctorCommandOptions = {}
@@ -196,6 +243,7 @@ export async function doctorCommand(
   const registryUrl =
     options.registryUrl || process.env.TOOLVETO_NPM_REGISTRY || 'https://registry.npmjs.org';
   const resolved = resolveIdeConfigFile(targetPath, idePref);
+  const npxBin = process.platform === 'win32' ? 'npx.cmd' : 'npx';
 
   if (!resolved.path) {
     console.error(
@@ -234,7 +282,7 @@ export async function doctorCommand(
     if (floatCheck.floating && floatCheck.pkg) {
       unhealthyServerSet.add(serverName);
       const basePkgName = stripFloatingVersionSuffix(floatCheck.pkg);
-      const normalizedCmd = path.basename(cmd).toLowerCase();
+      const normalizedCmd = path.basename(cmd).toLowerCase().replace(/\.cmd$/i, '');
 
       let resolvedVersion: string | null = null;
       if (options.fix && ['npx', 'bunx', 'pnpx'].includes(normalizedCmd)) {
@@ -260,8 +308,33 @@ export async function doctorCommand(
       }
     }
 
-    // 2. Check for plaintext API keys / secrets in env block
+    // 2. Check if server is wrapped with @toolveto/shield runtime protection
+    let isWrapped =
+      Boolean(entry._toolvetoOriginal) ||
+      args.some((a) => a.includes('toolveto') || a.includes('@toolveto/shield'));
+    if (!isWrapped) {
+      findings.push({
+        id: 'DOC-SHIELD-001',
+        serverName,
+        severity: 'MEDIUM',
+        category: 'UNWRAPPED_SHIELD',
+        message: `Server '${serverName}' is not wrapped with @toolveto/shield runtime circuit-breaker & token budget proxy.`,
+        remediation: `Wrap via 'npx toolveto wrap ${resolved.path}' (or 'toolveto doctor --fix') to enable runtime loop & context-bomb protection.`,
+      });
+
+      if (options.fix) {
+        if (wrapEntryWithShieldProxy(entry, npxBin)) {
+          isWrapped = true;
+          fixedCount++;
+        }
+      }
+    }
+
+    // 3. Check for plaintext API keys / secrets in env block
+    // NEVER rewrite env values to literal "${ENV:KEY}" strings, which break Cursor & Claude Desktop!
+    // When wrapped by `toolveto proxy --stdio`, migrate plaintext secrets safely to chmod-0600 ~/.toolveto/secrets.env.
     if (entry.env && typeof entry.env === 'object') {
+      const migratedKeys: string[] = [];
       for (const [envKey, envVal] of Object.entries(entry.env)) {
         const strVal = String(envVal || '').trim();
         if (!strVal || strVal.startsWith('${') || strVal.startsWith('$')) continue;
@@ -277,31 +350,25 @@ export async function doctorCommand(
             severity: 'CRITICAL',
             category: 'PLAINTEXT_SECRET',
             message: `Server '${serverName}' exposes plaintext credential in env.${envKey} inside IDE config file.`,
-            remediation: `Replace literal secret with environment reference '\${ENV:${envKey}}' (saved to .env.toolveto.secrets with 0600 permissions).`,
+            remediation: `Migrate secret to ~/.toolveto/secrets.env (chmod 0600) loaded at runtime by 'toolveto proxy --stdio'.`,
           });
 
-          if (options.fix) {
+          if (options.fix && isWrapped) {
             extractedSecrets.set(envKey, strVal);
-            entry.env[envKey] = `\${ENV:${envKey}}`;
+            migratedKeys.push(envKey);
             fixedCount++;
           }
         }
       }
-    }
 
-    // 3. Check if server is wrapped with @toolveto/shield runtime protection
-    const isWrapped =
-      Boolean(entry._toolvetoOriginal) ||
-      args.some((a) => a.includes('toolveto') || a.includes('@toolveto/shield'));
-    if (!isWrapped) {
-      findings.push({
-        id: 'DOC-SHIELD-001',
-        serverName,
-        severity: 'MEDIUM',
-        category: 'UNWRAPPED_SHIELD',
-        message: `Server '${serverName}' is not wrapped with @toolveto/shield runtime circuit-breaker & token budget proxy.`,
-        remediation: `Run 'npx toolveto wrap ${resolved.path}' to enable runtime loop & context-bomb protection.`,
-      });
+      if (options.fix && migratedKeys.length > 0) {
+        for (const k of migratedKeys) {
+          delete entry.env[k];
+        }
+        if (Object.keys(entry.env).length === 0) {
+          delete entry.env;
+        }
+      }
     }
   }
 
@@ -309,9 +376,12 @@ export async function doctorCommand(
   let secretsBackupPath: string | undefined;
   if (options.fix) {
     if (extractedSecrets.size > 0) {
-      secretsBackupPath = saveExtractedSecretsSecurely(path.dirname(resolved.path), extractedSecrets);
+      secretsBackupPath = saveSecretsToToolVetoVault(extractedSecrets);
     }
-    fs.writeFileSync(resolved.path, JSON.stringify(parsed, null, 2) + '\n', 'utf-8');
+    if (fs.existsSync(resolved.path)) {
+      fs.copyFileSync(resolved.path, `${resolved.path}.bak`);
+    }
+    fs.writeFileSync(resolved.path, JSON.stringify(parsed, null, 2) + '\n', { encoding: 'utf-8', mode: 0o600 });
     lockfilePath = path.join(path.dirname(resolved.path), 'toolveto-ide.lock.json');
     const pinEntries: Record<string, { sha256: string; command: string }> = {};
     for (const [serverName, entry] of serverEntries) {
@@ -386,9 +456,9 @@ export async function doctorCommand(
     }
 
     if (options.fix && lockfilePath) {
-      console.log(`🔒 Remediated plaintext secrets & generated IDE pinfile: ${lockfilePath}`);
+      console.log(`🔒 Pinned versions, wrapped servers with Shield & generated IDE pinfile: ${lockfilePath}`);
       if (secretsBackupPath) {
-        console.log(`🔐 Preserved extracted secrets in vault (chmod 0600): ${secretsBackupPath}`);
+        console.log(`🔐 Migrated plaintext secrets to runtime vault (chmod 0600): ${secretsBackupPath}`);
       }
       console.log('');
     }

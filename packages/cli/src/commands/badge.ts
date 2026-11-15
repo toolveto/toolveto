@@ -59,14 +59,37 @@ export function generateBadgeSvg(score: number, tier: string, rawLabel = 'ToolVe
 }
 
 export async function badgeCommand(options: BadgeOptions = {}): Promise<void> {
-  const hasExplicitScore = options.score !== undefined;
-  const score = hasExplicitScore ? Math.max(0, Math.min(100, Math.round(Number(options.score) || 0))) : 0;
-  const tier = options.tier
-    ? options.tier.toUpperCase()
-    : hasExplicitScore
+  let hydratedScore: number | undefined =
+    options.score !== undefined ? Math.max(0, Math.min(100, Math.round(Number(options.score) || 0))) : undefined;
+  let hydratedTier: string | undefined = options.tier ? options.tier.toUpperCase() : undefined;
+
+  if (hydratedScore === undefined || hydratedTier === undefined) {
+    const reportPath = path.resolve(process.cwd(), 'toolveto-report.json');
+    if (fs.existsSync(reportPath)) {
+      try {
+        const parsed = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+        if (hydratedScore === undefined && typeof parsed?.score === 'number') {
+          hydratedScore = Math.max(0, Math.min(100, Math.round(parsed.score)));
+        }
+        if (hydratedTier === undefined && typeof parsed?.tier === 'string' && parsed.tier.trim()) {
+          hydratedTier = parsed.tier.trim().toUpperCase();
+        }
+      } catch {
+        // Ignore invalid report JSON
+      }
+    }
+  }
+
+  const hasScore = hydratedScore !== undefined;
+  const score = hydratedScore ?? 0;
+  const tier = hydratedTier
+    ? hydratedTier
+    : hasScore
     ? score >= 90 ? 'PLATINUM' : score >= 80 ? 'GOLD' : score >= 70 ? 'SILVER' : 'REJECTED'
     : 'UNVERIFIED';
-  const outputPath = options.output ? path.resolve(process.cwd(), options.output) : path.resolve(process.cwd(), 'toolveto-badge.svg');
+  const outputPath = options.output
+    ? path.resolve(process.cwd(), options.output)
+    : path.resolve(process.cwd(), 'toolveto-badge.svg');
 
   const svg = generateBadgeSvg(score, tier);
   fs.writeFileSync(outputPath, svg, 'utf8');

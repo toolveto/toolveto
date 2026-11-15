@@ -8,6 +8,8 @@
     "bench": "node dist/autocannon-bench.js",
     "bench:k6": "k6 run k6-shield-overhead.js",
     "build": "tsc -b",
+    "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist tsconfig.tsbuildinfo"
   },
   "dependencies": {

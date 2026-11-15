@@ -74,6 +74,27 @@ npx toolveto@latest lock ./my-mcp-server
 npx toolveto@latest export-policy ./my-mcp-server --format cedar
 ```
 
+### GitHub Actions CI Gate (`toolveto/toolveto@v1`)
+
+Block unsafe MCP tool regressions on every pull request in under 90 seconds:
+
+```yaml
+name: ToolVeto MCP Gate
+on: [pull_request]
+jobs:
+  mcp-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: toolveto/toolveto@v1
+        with:
+          target: './src/mcp-server.ts'
+          threshold: '80'
+          fail-on-severity: 'CRITICAL'
+          fail-on-veto: 'true'
+          license-key: ${{ secrets.TOOLVETO_LICENSE_KEY }}
+```
+
 ---
 
 ## Runtime Protection: `@toolveto/shield`
@@ -119,7 +140,7 @@ ToolVeto operates on a **Two-Repository Topology** to guarantee frictionless ope
 | **`@toolveto/core`** | [`packages/core`](./packages/core) | **MIT** | Deterministic check engine, schema validators, local Docker sandbox adapter |
 | **`toolveto`** | [`packages/cli`](./packages/cli) | **MIT** | CLI entrypoint for `toolveto check`, `fix --apply`, and terminal reports |
 | **`@toolveto/shield`**| [`packages/shield`](./packages/shield) | **Apache-2.0** | Runtime idempotency deduplication proxy and sliding-window loop limiter |
-| **`toolveto-gateway`**| [`packages/gateway`](./packages/gateway) | **BSL-1.1** | Standalone proxy gateway binary for multi-server enterprise deployments (converts to Apache 2.0 after 4 years) |
+| **`toolveto-gateway`**| [`packages/gateway`](./packages/gateway) | **BUSL-1.1** | Standalone proxy gateway binary for multi-server enterprise deployments (converts to Apache 2.0 after 4 years) |
 | **`benchmarks/overhead`**| [`benchmarks/overhead`](./benchmarks/overhead) | **MIT** | Transparent k6 / autocannon latency benchmark test harness |
 | **`corpus/published`** | [`corpus/published`](./corpus/published) | **CC-BY-4.0** | 40% public fuzzing and idempotency test fixtures |
 

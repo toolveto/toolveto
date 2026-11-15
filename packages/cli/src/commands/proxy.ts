@@ -1,5 +1,6 @@
 import { createGatewayServer } from 'toolveto-gateway';
 import { startStdioShieldProxy } from '../stdio-proxy.js';
+import { notifyOnboardingStep, resolveCloudCredentials, resolveRepoSlug } from '../telemetry.js';
 
 export interface ProxyOptions {
   port?: string | number;
@@ -46,6 +47,11 @@ export async function proxyCommand(
       return;
     }
 
+    void notifyOnboardingStep('step_4_runtime_shield', 'shield-gateway-active', {
+      apiUrl: options.apiUrl,
+      licenseKey: options.licenseKey,
+    });
+
     const handle = await startStdioShieldProxy({
       command: childCommand,
       args: childArgs,
@@ -85,17 +91,27 @@ export async function proxyCommand(
     `Protection:  Idempotency Deduplication, ${loopLimit}-count Loop Breaker, ${tokenBudget} Token Budget Cap${options.strict ? ' (STRICT)' : ''}\n`
   );
 
+  const cloudCreds = resolveCloudCredentials({
+    apiUrl: options.apiUrl,
+    licenseKey: options.licenseKey,
+  });
+
+  void notifyOnboardingStep('step_4_runtime_shield', 'shield-gateway-active', {
+    apiUrl: cloudCreds.apiUrl,
+    licenseKey: cloudCreds.token,
+  });
+
   const server = createGatewayServer({
     port,
     tokenBudget,
-    cloud:
-      options.apiUrl || options.licenseKey
-        ? {
-            apiUrl: options.apiUrl,
-            licenseKey: options.licenseKey,
-            repo: options.repo,
-          }
-        : undefined,
+    cloud: cloudCreds.token
+      ? {
+          apiUrl: cloudCreds.apiUrl,
+          licenseKey: cloudCreds.token,
+          customerId: cloudCreds.customerId,
+          repo: options.repo || resolveRepoSlug('.', undefined),
+        }
+      : undefined,
     upstreams: {
       default: {
         name: 'default',

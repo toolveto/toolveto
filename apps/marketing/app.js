@@ -3,19 +3,48 @@ import { BENCHMARK_SERVERS, BENCHMARK_SUMMARY, PRESET_SCHEMAS } from './benchmar
 // State
 let activeWreckIndex = 0;
 
-function safeCopyText(text, onSuccess) {
+function fallbackExecCopy(text) {
+  if (typeof document === "undefined" || !document.body || typeof document.execCommand !== "function") {
+    return false;
+  }
+  const ta = document.createElement("textarea");
+  ta.value = String(text || "");
+  ta.setAttribute("readonly", "");
+  ta.style.position = "fixed";
+  ta.style.opacity = "0";
+  ta.style.pointerEvents = "none";
+  document.body.appendChild(ta);
+  ta.select();
+  let copied = false;
+  try {
+    copied = document.execCommand("copy") === true;
+  } catch {
+    copied = false;
+  }
+  document.body.removeChild(ta);
+  return copied;
+}
+
+function safeCopyText(text, onSuccess, onError) {
   const finish = () => {
     if (typeof onSuccess === "function") onSuccess();
   };
+  const fail = () => {
+    if (typeof onError === "function") onError();
+  };
   try {
     if (typeof navigator !== "undefined" && navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
-      navigator.clipboard.writeText(String(text || "")).then(finish).catch(finish);
+      navigator.clipboard.writeText(String(text || "")).then(finish).catch(() => {
+        if (fallbackExecCopy(text)) finish();
+        else fail();
+      });
       return;
     }
   } catch {
     // Fallback below when Clipboard API is restricted in headless/sandboxed contexts
   }
-  finish();
+  if (fallbackExecCopy(text)) finish();
+  else fail();
 }
 
 // Disaster Wreck Scenarios
@@ -284,8 +313,8 @@ function initHeroCopyTabs() {
   const copyBtn = document.getElementById("hero-copy-btn");
 
   const commands = {
-    npx: "npx toolveto@latest check stdio://path/to/server",
-    pnpm: "pnpm dlx toolveto check stdio://path/to/server",
+    npx: "npx toolveto@latest check ./src/mcp-server.ts",
+    pnpm: "pnpm dlx toolveto check ./src/mcp-server.ts",
     docker: "docker run --rm -v $(pwd):/app ghcr.io/toolveto/toolveto check /app",
     action: `name: ToolVeto Crash Test
 on: [pull_request]
@@ -294,9 +323,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: toolveto/action@v1
+      - uses: toolveto/toolveto@v1
         with:
-          server: "stdio://./dist/index.js"`
+          target: "./src/mcp-server.ts"`
   };
 
   tabs.forEach(tab => {
@@ -468,7 +497,7 @@ function initPlayground() {
       if (res.findings.length === 0) {
         const passNote = document.createElement("div");
         passNote.className = "pass-note";
-        passNote.textContent = "All 12 stateful chaos invariants passed! Zero vetoes triggered.";
+        passNote.textContent = "All 32 deterministic checks across 14 invariant families passed! Zero vetoes triggered.";
         findingsContainer.appendChild(passNote);
       } else {
         res.findings.forEach(f => {
@@ -1245,7 +1274,7 @@ function initRoiSlider() {
 
     if (dollarsSaved <= 249) {
       if (multipleEl) multipleEl.textContent = "$0 CLI";
-      if (planLabelEl) planLabelEl.textContent = "RECOMMENDED: COMMUNITY CLI ($0/MO)";
+      if (planLabelEl) planLabelEl.textContent = "RECOMMENDED: FREE OSS ($0/MO)";
     } else if (dollarsSaved <= 1200) {
       const netRoi = ((dollarsSaved - 249) / 249).toFixed(1);
       if (multipleEl) multipleEl.textContent = `${netRoi}×`;
@@ -1253,7 +1282,7 @@ function initRoiSlider() {
     } else {
       const netRoi = ((dollarsSaved - 499) / 499).toFixed(1);
       if (multipleEl) multipleEl.textContent = `${netRoi}×`;
-      if (planLabelEl) planLabelEl.textContent = "NET ROI (ON ENTERPRISE $499)";
+      if (planLabelEl) planLabelEl.textContent = "NET ROI (ON RUNTIME SHIELD $499)";
     }
 
     updateSliderTrack(invocationsSlider);
@@ -1388,7 +1417,7 @@ function initPricingPage() {
     if (capital <= 249) {
       if (statRoi) statRoi.textContent = "Free ($0/mo)";
       if (planRec) {
-        planRec.textContent = "Recommended Tier: Free CLI Gate ($0 / forever) — Positive Net Value";
+        planRec.textContent = "Recommended Tier: Free OSS ($0 / forever) — Positive Net Value";
       }
     } else if (capital <= 1500) {
       const netMult = ((capital - 249) / 249).toFixed(1);

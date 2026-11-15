@@ -1,10 +1,10 @@
 import * as fs from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import type { McpToolDefinition } from '@toolveto/core';
 import { computeToolDefinitionHash, canonicalizeJson } from '@toolveto/shield';
 import { discoverToolsFromTarget } from '../discovery.js';
+import { resolveCloudCredentials, resolveRepoSlug, notifyOnboardingStep } from '../telemetry.js';
 
 export interface LockCommandOptions {
   output?: string;
@@ -50,51 +50,25 @@ const DEMO_LOCK_TOOLS: McpToolDefinition[] = [
   },
 ];
 
-function resolveLockCloudAuth(options: LockCommandOptions): { apiUrl: string; token: string; repo: string } {
-  let savedUrl = '';
-  let savedToken = '';
-  try {
-    const cfgPath = path.join(process.env.HOME || os.homedir(), '.toolveto', 'config.json');
-    if (fs.existsSync(cfgPath)) {
-      const parsed = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
-      if (typeof parsed.apiUrl === 'string') savedUrl = parsed.apiUrl.trim();
-      if (typeof parsed.token === 'string') savedToken = parsed.token.trim();
-    }
-  } catch {
-    // Ignore unreadable config
-  }
-
-  const apiUrl = (
-    options.apiUrl ||
-    process.env.TOOLVETO_API_URL ||
-    savedUrl ||
-    'https://api.toolveto.ai'
-  ).replace(/\/+$/, '');
-
-  const token = (
-    options.licenseKey ||
-    process.env.TOOLVETO_LICENSE_KEY ||
-    process.env.TOOLVETO_TOKEN ||
-    savedToken ||
-    ''
-  ).trim();
-
-  const repo = (
-    options.repo ||
-    process.env.TOOLVETO_REPO ||
-    process.env.GITHUB_REPOSITORY ||
-    `local/${path.basename(process.cwd())}`
-  ).trim();
-
+function resolveLockCloudAuth(
+  target: string,
+  options: LockCommandOptions
+): { apiUrl: string; token: string; repo: string } {
+  const { apiUrl, token } = resolveCloudCredentials({
+    apiUrl: options.apiUrl,
+    licenseKey: options.licenseKey,
+  });
+  const repo = resolveRepoSlug(target, options.repo);
   return { apiUrl, token, repo };
 }
 
 async function runCloudBaselineSync(
+  target: string,
   tools: McpToolDefinition[],
   options: LockCommandOptions
 ): Promise<boolean> {
   if (!options.syncCloud && !options.approveCloud) return true;
-  const { apiUrl, token, repo } = resolveLockCloudAuth(options);
+  const { apiUrl, token, repo } = resolveLockCloudAuth(target, options);
   if (!token) {
     console.error(
       '\n❌ Cloud baseline sync requires authentication (`--license-key`, `TOOLVETO_LICENSE_KEY`, or `toolveto login`).'
@@ -207,8 +181,9 @@ export async function lockCommand(targetPath?: string, options: LockCommandOptio
     };
   }
 
-  const manifestHash =
-    'sha256:' + crypto.createHash('sha256').update(canonicalizeJson(toolEntries)).digest('hex');
+  const rawManifestHex = crypto.createHash('sha256').update(canonicalizeJson(toolEntries)).digest('hex');
+  const manifestHash = `sha256:${rawManifestHex}`;
+  const basename = path.basename(lockfilePath);
 
   if (options.verify) {
     if (!fs.existsSync(lockfilePath)) {
@@ -233,13 +208,17 @@ export async function lockCommand(targetPath?: string, options: LockCommandOptio
     }
 
     if (drifted.length > 0) {
-      console.error(`\n❌ RUG-PULL / SCHEMA DRIFT DETECTED: [${drifted.join(', ')}] do not match ${path.basename(lockfilePath)}!`);
+      console.error(`\n❌ RUG-PULL / SCHEMA DRIFT DETECTED: [${drifted.join(', ')}] do not match ${basename}!`);
       process.exitCode = 1;
       return;
     }
 
-    console.log(`\n✅ Lockfile verified: All ${Object.keys(toolEntries).length} tool definition(s) match ${path.basename(lockfilePath)} (${manifestHash}).\n`);
-    await runCloudBaselineSync(tools, options);
+    console.log(`\n✅ Lockfile verified: All ${Object.keys(toolEntries).length} tool definition(s) match ${basename} (${manifestHash}).\n`);
+    await runCloudBaselineSync(target, tools, options);
+    await notifyOnboardingStep('step_2_lockfile', `${basename} (sha256:${rawManifestHex.slice(0, 12)}...)`, {
+      apiUrl: options.apiUrl,
+      licenseKey: options.licenseKey,
+    });
     return;
   }
 
@@ -256,14 +235,17 @@ export async function lockCommand(targetPath?: string, options: LockCommandOptio
   console.log(`\n🔒 Generated Rug-Pull Lockfile: ${lockfilePath}`);
   console.log(`   Pinned Tools:  ${Object.keys(toolEntries).length}`);
   console.log(`   Manifest Hash: ${manifestHash}`);
-  await runCloudBaselineSync(tools, options);
-  if (options.weaveproof || Object.values(toolEntries).some((t) => t.isMutation)) {
+  await runCloudBaselineSync(target, tools, options);
+  await notifyOnboardingStep('step_2_lockfile', `${basename} (sha256:${rawManifestHex.slice(0, 12)}...)`, {
+    apiUrl: options.apiUrl,
+    licenseKey: options.licenseKey,
+  });
+
+  if (options.weaveproof) {
     console.log(
-      `   🛡️  WeaveProof Enterprise Ready: Run \`weaveproof-cli genome import --from-toolveto ${path.basename(
-        lockfilePath
-      )}\` to enforce inline SHA-256 tool pinning, @clamp dollar ceilings, and PAT-27 L3/L4 wire equivalence.\n`
+      `   🛡️  WeaveProof Enterprise Ready: Run \`weaveproof-cli genome import --from-toolveto ${basename}\` to enforce inline SHA-256 tool pinning, @clamp dollar ceilings, and PAT-27 L3/L4 wire equivalence.\n`
     );
   } else {
-    console.log('');
+    console.log(`   🛡️  Enforce at runtime via @toolveto/shield or sync drift alerts on ToolVeto Cloud (https://toolveto.ai).\n`);
   }
 }

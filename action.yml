@@ -1,13 +1,16 @@
 name: 'ToolVeto MCP Reliability & Chaos Gate'
 description: 'Deterministic Chaos Testing, CI Blocking Gates & Auto-Remediation for MCP Servers (<90s, $0, zero LLM)'
-author: 'ToolVeto Team'
+author: 'ToolVeto Inc.'
 branding:
   icon: 'shield'
   color: 'red'
 
 inputs:
+  target:
+    description: 'Path to local MCP server directory, binary, schema JSON, or Streamable HTTP URL'
+    required: false
   server-path:
-    description: 'Path to local MCP server directory, binary, or schema JSON'
+    description: 'Path to local MCP server directory, binary, or schema JSON (alias for target)'
     required: false
     default: '.'
   server-url:
@@ -17,6 +20,10 @@ inputs:
     description: 'Minimum failure severity to block PR merge (CRITICAL | HIGH | MEDIUM)'
     required: false
     default: 'CRITICAL'
+  fail-on-veto:
+    description: 'Fail with non-zero exit code when a fatal safety veto is triggered'
+    required: false
+    default: 'true'
   threshold:
     description: 'Minimum certification score threshold (0-100)'
     required: false
@@ -29,9 +36,16 @@ inputs:
     description: 'Verify toolveto.lock.json against schema drift / rug-pulls if present'
     required: false
     default: 'true'
-  toolveto-token:
-    description: 'ToolVeto Cloud token for continuous drift monitoring and audit history'
+  license-key:
+    description: 'ToolVeto Cloud license key (tv_live_...) for continuous drift monitoring and audit history'
     required: false
+  toolveto-token:
+    description: 'ToolVeto Cloud token (alias for license-key)'
+    required: false
+  api-url:
+    description: 'ToolVeto Cloud API base URL'
+    required: false
+    default: 'https://toolveto.ai'
   with-llm:
     description: 'Enable Stage 4 LLM E_heal self-heal judge'
     required: false
@@ -45,7 +59,7 @@ outputs:
     description: 'Certification tier awarded'
     value: ${{ steps.run-gate.outputs.tier }}
   passed:
-    description: 'True if no merge-blocking fatal vetoes were encountered'
+    description: 'True if no merge-blocking fatal vetoes or threshold failures were encountered'
     value: ${{ steps.run-gate.outputs.passed }}
   report-url:
     description: 'Shareable audit result link'
@@ -58,12 +72,26 @@ runs:
       id: run-gate
       shell: bash
       env:
-        TOOLVETO_TOKEN: ${{ inputs.toolveto-token }}
+        INPUT_TARGET: ${{ inputs.server-url || inputs.target || inputs.server-path }}
+        INPUT_LICENSE: ${{ inputs.license-key || inputs.toolveto-token }}
+        TOOLVETO_API_URL: ${{ inputs.api-url }}
       run: |
-        TARGET="${{ inputs.server-url || inputs.server-path }}"
+        TARGET="${INPUT_TARGET:-.}"
+        export TOOLVETO_LICENSE_KEY="${INPUT_LICENSE:-}"
+        export TOOLVETO_TOKEN="${INPUT_LICENSE:-}"
         echo "🛡️ Running ToolVeto Check on: $TARGET"
 
-        ARGS=("$TARGET" "--format" "json" "--fail-on-severity" "${{ inputs.fail-on-severity }}" "--threshold" "${{ inputs.threshold }}")
+        ARGS=(
+          "$TARGET"
+          "--format" "json"
+          "--fail-on-severity" "${{ inputs.fail-on-severity }}"
+          "--threshold" "${{ inputs.threshold }}"
+          "--repo" "${{ github.repository }}"
+          "--api-url" "${{ inputs.api-url }}"
+        )
+        if [ "${{ inputs.fail-on-veto }}" = "false" ]; then
+          ARGS+=("--no-fail-on-veto")
+        fi
         if [ -z "${{ inputs.server-url }}" ] && [ "${{ inputs.ephemeral-mock }}" = "true" ]; then
           ARGS+=("--ephemeral-mock")
         fi
@@ -71,11 +99,11 @@ runs:
           ARGS+=("--with-llm")
         fi
 
-        # Run action via local repository CLI bundle if present, else fallback to pinned version
+        # Run action via local repository CLI bundle if present, else fallback to published npm package
         if [ -f "${{ github.action_path }}/packages/cli/dist/bin/toolveto.js" ]; then
           CLI_CMD="node ${{ github.action_path }}/packages/cli/dist/bin/toolveto.js"
         else
-          CLI_CMD="npx --yes toolveto@0.2.0"
+          CLI_CMD="npx --yes toolveto@latest"
         fi
 
         set +e
@@ -105,7 +133,7 @@ runs:
         LOCK_EXIT=0
         if [ "${{ inputs.lockfile-verify }}" = "true" ] && [ -f "${TARGET%/}/toolveto.lock.json" ]; then
           set +e
-          $CLI_CMD lock "$TARGET" --verify --output "${TARGET%/}/toolveto.lock.json"
+          $CLI_CMD lock "$TARGET" --verify --output "${TARGET%/}/toolveto.lock.json" --repo "${{ github.repository }}" --api-url "${{ inputs.api-url }}"
           LOCK_EXIT=$?
           set -e
           if [ "$LOCK_EXIT" -ne 0 ]; then

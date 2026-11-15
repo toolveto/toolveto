@@ -88,20 +88,34 @@ const DEMO_EVIDENCE_TOOLS: McpToolDefinition[] = [
   },
 ];
 
-function signAttestationJws(payload: Record<string, unknown>, keyId = 'toolveto-cli-v1', signingSecret?: string): string {
+function signAttestationJws(payload: Record<string, unknown>, keyId = 'toolveto-cli-v1', signingSecret: string): string {
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'TV-EVIDENCE-JWS', kid: keyId })).toString('base64url');
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
-  const secret = signingSecret || process.env.TOOLVETO_SIGNING_SECRET;
-  if (!secret || secret.length < 32) {
-    throw new Error(
-      'FATAL SECURITY VIOLATION: TOOLVETO_SIGNING_SECRET environment variable is missing or shorter than 32 characters (256 bits). ' +
-      'Refusing to sign attestation with insecure default key. Generate with: openssl rand -base64 32'
-    );
-  }
-  const hmac = crypto.createHmac('sha256', secret);
+  const hmac = crypto.createHmac('sha256', signingSecret);
   hmac.update(`${header}.${body}`);
   const sig = hmac.digest('base64url');
   return `${header}.${body}.${sig}`;
+}
+
+function tryLoadPrecomputedSummary(resolvedTarget: string): SuiteSummary | null {
+  try {
+    if (!fs.existsSync(resolvedTarget) || !fs.statSync(resolvedTarget).isFile() || !resolvedTarget.endsWith('.json')) {
+      return null;
+    }
+    const parsed = JSON.parse(fs.readFileSync(resolvedTarget, 'utf-8'));
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      typeof parsed.score === 'number' &&
+      typeof parsed.tier === 'string' &&
+      Array.isArray(parsed.results)
+    ) {
+      return parsed as SuiteSummary;
+    }
+  } catch {
+    // Fall through to live/static evaluation
+  }
+  return null;
 }
 
 export async function evidenceCommand(
@@ -114,42 +128,57 @@ export async function evidenceCommand(
       : targetOrOptions;
 
   const format = options.format || 'aiuc1';
-  const targetPath = options.target || '.';
+  const rawTarget = options.target || '.';
+  const targetPath = rawTarget.replace(/^stdio:\/\//i, '');
   const resolvedTarget = targetPath.startsWith('http') ? targetPath : path.resolve(process.cwd(), targetPath);
 
-  // Verify signing secret upfront before launching live servers
-  const checkSecret = options.secret || process.env.TOOLVETO_SIGNING_SECRET;
-  if (!checkSecret || checkSecret.length < 32) {
-    throw new Error(
-      'FATAL SECURITY VIOLATION: TOOLVETO_SIGNING_SECRET environment variable is missing or shorter than 32 characters (256 bits). ' +
-      'Refusing to sign attestation with insecure default key. Generate with: openssl rand -base64 32'
-    );
-  }
+  let effectiveSecret = options.secret || process.env.TOOLVETO_SIGNING_SECRET || '';
+  let isEphemeralDemoSignature = false;
 
-  let tools: McpToolDefinition[] = [];
-  let client: McpClient | null = null;
-
-  try {
-    const discovered = await discoverToolsFromTarget(targetPath, {
-      demo: options.demo,
-      allowExec: options.allowExec,
-      keepClientOpen: true,
-      demoFallbackTools: DEMO_EVIDENCE_TOOLS,
-    });
-    tools = discovered.tools;
-    client = discovered.client;
-
-    if (tools.length === 0) {
-      console.error(`\n❌ Error: No tools discovered at '${targetPath}' for AIUC-1 compliance audit.`);
-      console.error(`Please provide a valid MCP server or tool manifest, or pass --demo for demonstration mode.\n`);
+  if (!effectiveSecret || effectiveSecret.length < 32) {
+    if (options.demo) {
+      effectiveSecret = crypto.randomBytes(32).toString('hex');
+      isEphemeralDemoSignature = true;
+    } else {
+      console.error(
+        `\n❌ Missing or short signing secret (>= 32 chars required):` +
+          `\n   export TOOLVETO_SIGNING_SECRET="$(openssl rand -base64 32)"` +
+          `\n   or pass --demo for a non-production preview attestation.\n`
+      );
       process.exitCode = 1;
       return;
     }
+  }
 
-    const summary: SuiteSummary = await runSuite(targetPath, tools, {
-      client: client || undefined,
-      targetDir: targetPath.startsWith('http') ? '.' : targetPath,
-    });
+  let client: McpClient | null = null;
+
+  try {
+    let summary: SuiteSummary | null = !targetPath.startsWith('http')
+      ? tryLoadPrecomputedSummary(resolvedTarget)
+      : null;
+
+    if (!summary) {
+      const discovered = await discoverToolsFromTarget(rawTarget, {
+        demo: options.demo,
+        allowExec: options.allowExec,
+        keepClientOpen: true,
+        demoFallbackTools: DEMO_EVIDENCE_TOOLS,
+      });
+      const tools = discovered.tools;
+      client = discovered.client;
+
+      if (tools.length === 0) {
+        console.error(`\n❌ Error: No tools discovered at '${rawTarget}' for AIUC-1 compliance audit.`);
+        console.error(`Please provide a valid MCP server or tool manifest, or pass --demo for demonstration mode.\n`);
+        process.exitCode = 1;
+        return;
+      }
+
+      summary = await runSuite(targetPath, tools, {
+        client: client || undefined,
+        targetDir: targetPath.startsWith('http') ? '.' : targetPath,
+      });
+    }
 
     // Map checks to compliance controls (honest NOT_APPLICABLE when 0 checks apply)
     const controlEvaluations: Record<
@@ -181,7 +210,6 @@ export async function evidenceCommand(
       };
     }
 
-    // Honest Financial ROI & Token Savings: zero floor when 0 checks passed
     const preventedDoubleCharges = summary.results.filter(
       (r) => r.checkId.startsWith('TC-IDEMP') && r.status === 'PASS'
     ).length;
@@ -191,15 +219,18 @@ export async function evidenceCommand(
     ).length;
     const tokensSaved = contextPassCount * 128000;
 
-    const attestationPayload = {
+    const attestationPayload: Record<string, unknown> = {
       iss: 'toolveto-evidence-engine',
       sub: targetPath.startsWith('http') ? targetPath : path.basename(resolvedTarget) || 'mcp-server',
       aud: 'ciso-compliance-review',
       iat: Math.floor(Date.now() / 1000),
-      exp: Math.floor(Date.now() / 1000) + 90 * 86400, // 90 days validity
+      exp: Math.floor(Date.now() / 1000) + 90 * 86400,
       score: summary.score,
       tier: summary.tier,
-      phi: summary.phi,
+      phi: summary.phi ?? 1.0,
+      demo: isEphemeralDemoSignature,
+      resultsCount: summary.results.length,
+      ...(isEphemeralDemoSignature ? { mode: 'DEMO_PREVIEW_EPHEMERAL_KEY' } : {}),
       controls: controlEvaluations,
       roi: {
         preventedDoubleCharges,
@@ -208,11 +239,16 @@ export async function evidenceCommand(
       },
     };
 
-    const jws = signAttestationJws(attestationPayload, options.keyId, options.secret);
+    const jws = signAttestationJws(
+      attestationPayload,
+      isEphemeralDemoSignature ? 'toolveto-ephemeral-preview' : options.keyId,
+      effectiveSecret
+    );
 
     if (format === 'json') {
       const output = JSON.stringify({ ...attestationPayload, jws }, null, 2);
       if (options.output) {
+        fs.mkdirSync(path.dirname(path.resolve(process.cwd(), options.output)), { recursive: true });
         fs.writeFileSync(options.output, output);
         console.log(`\n✅ Evidence packet written to ${options.output}\n`);
       } else {
@@ -224,11 +260,11 @@ export async function evidenceCommand(
     const cert = `
 ================================================================================
            TOOLVETO CISO COMPLIANCE EVIDENCE PACKET
-           Standard: AIUC-1 (Agentic AI Interoperability & Safety)
+           Standard: ${format === 'owasp' ? 'OWASP Agentic Top 10 & AIUC-1' : 'AIUC-1 (Agentic AI Interoperability & Safety)'}${isEphemeralDemoSignature ? '\n           Mode: NON-PRODUCTION DEMO PREVIEW (Ephemeral Key)' : ''}
 ================================================================================
 
-Target Component:       ${targetPath}
-Certification Tier:     ${summary.tier.toUpperCase()} (${summary.score}/100)
+Target Component:       ${rawTarget}
+Certification Tier:     ${String(summary.tier).toUpperCase()} (${summary.score}/100)
 Evaluation Timestamp:   ${new Date().toISOString()}
 Validity Window:        90 Days (Valid until ${new Date(Date.now() + 90 * 86400000).toISOString().split('T')[0]})
 Cryptographic Attest:   RFC 7515 Detached JWS (HS256)
@@ -266,11 +302,15 @@ Verify online at: https://toolveto.ai/verify or via:
 `;
 
     if (options.output) {
+      fs.mkdirSync(path.dirname(path.resolve(process.cwd(), options.output)), { recursive: true });
       fs.writeFileSync(options.output, cert);
       console.log(`\n✅ Evidence packet written to ${options.output}\n`);
     } else {
       console.log(cert);
     }
+  } catch (err: any) {
+    console.error(`\n❌ Evidence Generation Error: ${err?.message || String(err)}\n`);
+    process.exitCode = 1;
   } finally {
     if (client) {
       await client.close().catch(() => {});
