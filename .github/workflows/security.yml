@@ -16,6 +16,7 @@ jobs:
   gitleaks:
     name: Gitleaks Secret Scanner
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
@@ -36,6 +37,7 @@ jobs:
   dependency-audit:
     name: Supply-Chain Dependency Audit
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
@@ -57,6 +59,7 @@ jobs:
   uptime-sentinel:
     name: Control Plane Uptime Sentinel
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && vars.TOOLVETO_UPTIME_URL != ''
     steps:
       - name: Probe API Readiness Endpoint
@@ -64,33 +67,6 @@ jobs:
           UPTIME_PROBE_URL: ${{ vars.TOOLVETO_UPTIME_URL }}
           SLACK_WEBHOOK_CRITICAL: ${{ secrets.SLACK_WEBHOOK_CRITICAL }}
         run: |
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$UPTIME_PROBE_URL" || true)
-          if [ -z "$STATUS" ]; then STATUS="000"; fi
-          if [ "$STATUS" != "200" ]; then
-            echo "::error::API Sentinel check failed for $UPTIME_PROBE_URL! Status: $STATUS"
-            if [ -n "$SLACK_WEBHOOK_CRITICAL" ]; then
-              curl -s -X POST -H 'Content-type: application/json' \
-                --data "{\"text\":\"🚨 [CRITICAL ALERT] $UPTIME_PROBE_URL probe failed with HTTP status: $STATUS\"}" \
-                "$SLACK_WEBHOOK_CRITICAL" || true
-            fi
-            exit 1
-          fi
-          echo "✔ $UPTIME_PROBE_URL healthy (200 OK)"
-
-  uptime-sentinel:
-    name: Control Plane Uptime Sentinel
-    runs-on: ubuntu-latest
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    steps:
-      - name: Probe API Readiness Probe
-        env:
-          UPTIME_PROBE_URL: ${{ vars.TOOLVETO_UPTIME_URL }}
-          SLACK_WEBHOOK_CRITICAL: ${{ secrets.SLACK_WEBHOOK_CRITICAL }}
-        run: |
-          if [ -z "$UPTIME_PROBE_URL" ]; then
-            echo "ℹ️ TOOLVETO_UPTIME_URL variable not set — skipping live cloud uptime probe until production endpoint is configured."
-            exit 0
-          fi
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$UPTIME_PROBE_URL" || true)
           if [ -z "$STATUS" ]; then STATUS="000"; fi
           if [ "$STATUS" != "200" ]; then

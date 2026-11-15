@@ -125,7 +125,7 @@ jobs:
       - name: Production Gateway Container Build & Live Runtime Boot Gate
         run: |
           docker build -f packages/gateway/Dockerfile -t toolveto-gateway:ci-verify .
-          GW_SECRET="ci_gateway_secret_9f86d081884c7d659a2feaa0c55ad015"
+          GW_SECRET="$(openssl rand -hex 32)"
           UPSTREAM_PID=""
           cleanup() {
             docker rm -f tv-gw-ci >/dev/null 2>&1 || true

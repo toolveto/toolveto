@@ -43,11 +43,11 @@ jobs:
       - name: Run Deterministic ToolVeto Battery
         run: |
           echo "Executing ToolVeto 14-Check Battery on Fixture Server..."
-          node packages/cli/dist/bin/toolveto.js check fixtures/good-server/index.js --threshold 80 --no-telemetry --skip-update-check
+          node packages/cli/dist/bin/toolveto.js check fixtures/good-server/index.js --allow-exec --threshold 80 --no-telemetry --skip-update-check
 
       - name: Emit & Validate SARIF 2.1.0 Report
         run: |
-          node packages/cli/dist/bin/toolveto.js check fixtures/good-server/index.js --format sarif --no-telemetry --skip-update-check > toolveto-good.sarif
+          node packages/cli/dist/bin/toolveto.js check fixtures/good-server/index.js --allow-exec --format sarif --no-telemetry --skip-update-check > toolveto-good.sarif
           node -e "
             const fs = require('fs');
             const sarif = JSON.parse(fs.readFileSync('toolveto-good.sarif', 'utf8'));
@@ -61,7 +61,7 @@ jobs:
         run: |
           SIGN_SECRET="$(openssl rand -hex 32)"
           WRONG_SECRET="$(openssl rand -hex 32)"
-          TOOLVETO_SIGNING_SECRET="$SIGN_SECRET" node packages/cli/dist/bin/toolveto.js evidence -r "${GITHUB_REPOSITORY:-toolveto/toolveto}" -c "${GITHUB_SHA:-local}" -o toolveto-attestation.jws
+          node packages/cli/dist/bin/toolveto.js evidence fixtures/good-server/index.js --allow-exec -s "$SIGN_SECRET" -o toolveto-attestation.jws
           test -s toolveto-attestation.jws
           node packages/cli/dist/bin/toolveto.js verify -f toolveto-attestation.jws -s "$SIGN_SECRET"
           if node packages/cli/dist/bin/toolveto.js verify -f toolveto-attestation.jws -s "$WRONG_SECRET" ; then

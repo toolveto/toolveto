@@ -1,0 +1,17 @@
+title = "ToolVeto Gitleaks Configuration"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Pre-existing historical test fixture commits and local build directories"
+commits = [
+  "2fcda561585623cd7600f634f4bd66a90ce8f788",
+  "5069e6bd4713ded173c498bece75fa5370c4a9c5",
+]
+paths = [
+  '''(^|/)node_modules/''',
+  '''(^|/)\.next/''',
+  '''(^|/)dist/''',
+  '''(^|/)\.turbo/''',
+]
