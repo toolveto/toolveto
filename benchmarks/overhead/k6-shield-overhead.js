@@ -61,6 +61,7 @@ function buildPayload(idempKey) {
     params: {
       name: 'create_payment',
       arguments: {
+        order_id: idempKey,
         amount: 100,
         currency: 'USD',
         idempotency_key: idempKey,
@@ -101,9 +102,9 @@ export function testShieldedMiss() {
 }
 
 export function testShieldedHit() {
-  // Cycle across 5,000 keys from the tail window of shielded_cache_miss so they remain in
-  // the 10,000-slot LRU cache and stay well under the 5-call per-key loop breaker limit.
-  const key = `k-${7000 + (exec.scenario.iterationInTest % 5000)}`;
+  // Cycle across 6,000 keys (k-8000..k-13999) from the tail window of shielded_cache_miss so
+  // every key remains in the 10,000-slot LRU cache and stays strictly under the 5-call loop limit.
+  const key = `k-${8000 + (exec.scenario.iterationInTest % 6000)}`;
   const res = http.post('http://localhost:8080/mcp', buildPayload(key), {
     headers: gatewayHeaders,
   });
