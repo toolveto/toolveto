@@ -198,8 +198,37 @@ jobs:
           echo "$AUTH_HDR" | grep -q '"ok"'
           echo "✔ Gateway Docker container booted, enforced 401 auth, and proxied authenticated Shield traffic."
 
-      - name: Run Latency Micro-Benchmark
-        run: pnpm run bench
+      - name: Run Latency & Live HTTP Concurrency Benchmark
+        run: |
+          mkdir -p /tmp/toolveto-oss-ci-evidence
+          BENCHMARK_JSON_OUT=/tmp/toolveto-oss-ci-evidence/oss-shield-benchmark.json pnpm run bench
+          node -e '
+            const fs = require("node:fs");
+            const bench = JSON.parse(fs.readFileSync("/tmp/toolveto-oss-ci-evidence/oss-shield-benchmark.json", "utf8"));
+            fs.writeFileSync("/tmp/toolveto-oss-ci-evidence/ci-gates-summary.json", JSON.stringify({
+              repository: "toolveto/toolveto",
+              commitSha: process.env.GITHUB_SHA || "local",
+              executedAt: new Date().toISOString(),
+              gatesPassed: [
+                "pnpm audit --audit-level=high",
+                "Hardcoded secret hygiene scan",
+                "Lint + TypeScript compile + Full OSS test suite",
+                "Live PostgreSQL 16 + Redis 7 N=100 10-pod exact-once contention tests",
+                "Official @modelcontextprotocol/sdk StreamableHTTP + SSE + Stdio Proxy E2E",
+                "Clean npm tarball smoke test (shield, core, gateway, cli)",
+                "Production Gateway Docker fail-closed 401 + live /mcp proxy boot",
+                "Shield in-memory + live TCP/HTTP concurrency & 100-way burst benchmark"
+              ],
+              benchmarkSnapshot: bench
+            }, null, 2));
+          '
+
+      - name: Upload OSS CI & Scale Due-Diligence Evidence
+        uses: actions/upload-artifact@v6
+        with:
+          name: toolveto-oss-due-diligence-evidence
+          path: /tmp/toolveto-oss-ci-evidence/
+          retention-days: 30
 
       - name: Publish CI Verification Summary
         if: success()

@@ -93,5 +93,13 @@ jobs:
 
       - name: Execute Overhead Verification
         run: |
-          pnpm --filter @toolveto/benchmarks-overhead run bench
-          pnpm --filter @toolveto/benchmarks-overhead run bench:k6
+          mkdir -p /tmp/k6-evidence
+          BENCHMARK_JSON_OUT=/tmp/k6-evidence/autocannon-bench.json pnpm --filter @toolveto/benchmarks-overhead run bench
+          k6 run --summary-export=/tmp/k6-evidence/k6-500rps-summary.json benchmarks/overhead/k6-shield-overhead.js
+
+      - name: Upload k6 500 RPS Benchmark Evidence
+        uses: actions/upload-artifact@v6
+        with:
+          name: toolveto-k6-500rps-benchmark-evidence
+          path: /tmp/k6-evidence/
+          retention-days: 30
