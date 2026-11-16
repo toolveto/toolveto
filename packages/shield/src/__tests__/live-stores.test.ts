@@ -269,4 +269,195 @@ describe('Live Distributed Shield Stores (PostgreSQL 16 & Redis 7)', () => {
       }
     }
   );
+
+  it(
+    'PostgresShieldStorage enforces exact-once execution across 10 Shield pods x 10 concurrent arrivals (N=100) and sustains low-latency throughput',
+    { skip: !process.env.POSTGRES_URL },
+    async () => {
+      const pool = new Pool({ connectionString: process.env.POSTGRES_URL, max: 20 });
+      const store = new PostgresShieldStorage(pool, { vacuumIntervalCalls: 500 });
+      try {
+        await store.clear();
+        await store.get('warmup-init');
+
+        const pods = Array.from({ length: 10 }, () =>
+          new ShieldMiddleware({
+            storage: store,
+            idempotency: true,
+            failClosed: true,
+            loopLimit: { count: 1000, windowMs: 60_000 },
+          })
+        );
+
+        let executions = 0;
+        const burstKey = `pg_burst_${Date.now()}`;
+        const handler = async (req: { method: string; params: { name: string; arguments?: Record<string, any> } }) => {
+          await new Promise((r) => setTimeout(r, 15));
+          executions++;
+          return {
+            content: [{ type: 'text' as const, text: `charged:${req.params.arguments?.amount}` }],
+          };
+        };
+
+        // N=100 concurrent calls (10 pods x 10 arrivals) sharing one idempotencyKey
+        const burstPromises: Promise<any>[] = [];
+        for (let p = 0; p < 10; p++) {
+          for (let w = 0; w < 10; w++) {
+            burstPromises.push(
+              pods[p]!.intercept(
+                {
+                  method: 'tools/call',
+                  params: { name: 'charge_customer', arguments: { amount: 9900, idempotencyKey: burstKey } },
+                },
+                handler
+              )
+            );
+          }
+        }
+        const burstResults = await Promise.all(burstPromises);
+        assert.equal(executions, 1, 'Expected strictly exact-once downstream execution across 100 concurrent cross-pod arrivals');
+        assert.ok(
+          burstResults.some((r) => !r.isError && r.content[0]?.text === 'charged:9900'),
+          'Expected at least the winning leader response to return charged:9900'
+        );
+
+        // Post-commit replay across all 10 pods must hit PostgreSQL cache without re-executing
+        const replayResults = await Promise.all(
+          pods.map((pod) =>
+            pod.intercept(
+              {
+                method: 'tools/call',
+                params: { name: 'charge_customer', arguments: { amount: 9900, idempotencyKey: burstKey } },
+              },
+              handler
+            )
+          )
+        );
+        assert.equal(executions, 1, 'Replays across all 10 pods must never re-execute');
+        for (const r of replayResults) {
+          assert.equal(r.content[0]?.text, 'charged:9900');
+          assert.equal(r._shield?.cached, true);
+        }
+
+        // Distinct-key throughput (10 batches x 10 concurrent = 100 calls)
+        const latenciesMs: number[] = [];
+        const fastHandler = async (req: { method: string; params: { name: string; arguments?: Record<string, any> } }) => ({
+          content: [{ type: 'text' as const, text: `ok:${req.params.arguments?.seq}` }],
+        });
+        for (let batch = 0; batch < 10; batch++) {
+          const batchRes = await Promise.all(
+            Array.from({ length: 10 }, async (_, idx) => {
+              const seq = batch * 10 + idx;
+              const t0 = performance.now();
+              const res = await pods[idx % 10]!.intercept(
+                {
+                  method: 'tools/call',
+                  params: {
+                    name: 'charge_customer',
+                    arguments: { amount: 100 + seq, seq, idempotencyKey: `${burstKey}:uniq:${seq}` },
+                  },
+                },
+                fastHandler
+              );
+              latenciesMs.push(performance.now() - t0);
+              return res;
+            })
+          );
+          for (const r of batchRes) {
+            assert.notEqual(r.isError, true);
+          }
+        }
+        latenciesMs.sort((a, b) => a - b);
+        const p95 = latenciesMs[Math.min(latenciesMs.length - 1, Math.floor(0.95 * latenciesMs.length))] ?? 0;
+        assert.ok(p95 < 150, `Expected Postgres 10-pod distinct-key p95 < 150ms, got ${p95.toFixed(2)}ms`);
+      } finally {
+        await pool.end();
+      }
+    }
+  );
+
+  it(
+    'RedisShieldStorage enforces exact-once atomic Lua execution across 10 Shield pods x 10 concurrent arrivals (N=100) and sub-50ms p95 throughput',
+    { skip: !process.env.REDIS_URL },
+    async () => {
+      const clients = await Promise.all(
+        Array.from({ length: 10 }, () => Resp2RedisClient.connect(process.env.REDIS_URL!))
+      );
+      const runTag = `live-redis-burst-${Date.now()}`;
+      try {
+        const pods = clients.map(
+          (client) =>
+            new ShieldMiddleware({
+              storage: new RedisShieldStorage(client, { mode: 'strict' }),
+              idempotency: true,
+              failClosed: true,
+              loopLimit: { count: 1000, windowMs: 60_000 },
+            })
+        );
+
+        let wireExecutions = 0;
+        const handler = async (req: { method: string; params: { name: string; arguments?: Record<string, any> } }) => {
+          await new Promise((r) => setTimeout(r, 15));
+          wireExecutions++;
+          return { content: [{ type: 'text' as const, text: `wire:${req.params.arguments?.wireId}` }] };
+        };
+
+        // N=100 concurrent arrivals (10 pods x 10 calls) sharing one idempotencyKey
+        const burstPromises: Promise<any>[] = [];
+        for (let p = 0; p < 10; p++) {
+          for (let w = 0; w < 10; w++) {
+            burstPromises.push(
+              pods[p]!.intercept(
+                {
+                  method: 'tools/call',
+                  params: {
+                    name: 'send_wire',
+                    arguments: { wireId: `${runTag}:w0`, idempotencyKey: `${runTag}:burst-idem` },
+                  },
+                },
+                handler
+              )
+            );
+          }
+        }
+        const burstResults = await Promise.all(burstPromises);
+        assert.equal(wireExecutions, 1, 'Expected strictly exact-once downstream wire execution across 100 concurrent Redis arrivals');
+        assert.ok(burstResults.some((r) => !r.isError && r.content[0]?.text === `wire:${runTag}:w0`));
+
+        // Distinct-key throughput (10 batches x 20 concurrent = 200 calls)
+        const latenciesMs: number[] = [];
+        const fastHandler = async (req: { method: string; params: { name: string; arguments?: Record<string, any> } }) => ({
+          content: [{ type: 'text' as const, text: `wire:${req.params.arguments?.seq}` }],
+        });
+        for (let batch = 0; batch < 10; batch++) {
+          const batchRes = await Promise.all(
+            Array.from({ length: 20 }, async (_, idx) => {
+              const seq = batch * 20 + idx;
+              const t0 = performance.now();
+              const res = await pods[idx % 10]!.intercept(
+                {
+                  method: 'tools/call',
+                  params: {
+                    name: 'send_wire',
+                    arguments: { seq, idempotencyKey: `${runTag}:uniq:${seq}` },
+                  },
+                },
+                fastHandler
+              );
+              latenciesMs.push(performance.now() - t0);
+              return res;
+            })
+          );
+          for (const r of batchRes) {
+            assert.notEqual(r.isError, true);
+          }
+        }
+        latenciesMs.sort((a, b) => a - b);
+        const p95 = latenciesMs[Math.min(latenciesMs.length - 1, Math.floor(0.95 * latenciesMs.length))] ?? 0;
+        assert.ok(p95 < 50, `Expected Redis 10-pod distinct-key p95 < 50ms, got ${p95.toFixed(2)}ms`);
+      } finally {
+        await Promise.all(clients.map((c) => c.close().catch(() => {})));
+      }
+    }
+  );
 });
