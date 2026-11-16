@@ -12,7 +12,7 @@ on:
         type: boolean
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
   packages: write
 
@@ -93,6 +93,7 @@ jobs:
           (cd packages/cli && pnpm pack --pack-destination "$PACK_DIR")
 
           ls -lh "$PACK_DIR"/*.tgz
+          (cd "$PACK_DIR" && sha256sum *.tgz > SHA256SUMS.txt && cat SHA256SUMS.txt)
 
           CUSTOMER_DIR="$(mktemp -d)"
           (
@@ -160,3 +161,19 @@ jobs:
           tags: |
             ghcr.io/toolveto/gateway:latest
             ghcr.io/toolveto/gateway:${{ steps.meta.outputs.version }}
+
+      - name: Upload Signed Tarballs & SHA256SUMS to GitHub Release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PACK_DIR="${{ steps.pack.outputs.pack_dir }}"
+          gh release upload "${{ github.ref_name }}" "$PACK_DIR"/*.tgz "$PACK_DIR/SHA256SUMS.txt" --clobber
+
+      - name: Update Floating v1 GitHub Action Tag
+        if: github.event_name == 'release'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -fa v1 -m "Update v1 action tag to ${{ github.ref_name }}"
+          git push origin refs/tags/v1 --force

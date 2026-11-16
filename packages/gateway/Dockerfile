@@ -16,6 +16,9 @@ RUN pnpm --filter toolveto-gateway run build
 RUN pnpm --filter toolveto-gateway --legacy deploy --prod /app/deployed-gateway || pnpm --filter toolveto-gateway deploy --prod /app/deployed-gateway
 
 FROM node:22-alpine AS runner
+LABEL org.opencontainers.image.source="https://github.com/toolveto/toolveto"
+LABEL org.opencontainers.image.description="ToolVeto Runtime Shield MCP Gateway (Sub-2ms Idempotency, Loop Breaker & Rug-Pull Firewall)"
+LABEL org.opencontainers.image.licenses="MIT"
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=8080

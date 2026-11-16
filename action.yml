@@ -99,11 +99,24 @@ runs:
           ARGS+=("--with-llm")
         fi
 
-        # Run action via local repository CLI bundle if present, else fallback to published npm package
+        # Run action via local repository CLI bundle if present, published npm package if live,
+        # or build cleanly from checked-out action source so external customers work out-of-the-box.
         if [ -f "${{ github.action_path }}/packages/cli/dist/bin/toolveto.js" ]; then
           CLI_CMD="node ${{ github.action_path }}/packages/cli/dist/bin/toolveto.js"
-        else
+        elif npm view toolveto version >/dev/null 2>&1; then
           CLI_CMD="npx --yes toolveto@latest"
+        else
+          echo "🔧 Building ToolVeto CLI from checked-out GitHub Action source..." >&2
+          (
+            cd "${{ github.action_path }}"
+            corepack enable >/dev/null 2>&1 || true
+            if ! command -v pnpm >/dev/null 2>&1; then
+              npm install -g pnpm@10.5.2 >/dev/null 2>&1
+            fi
+            pnpm install --frozen-lockfile >&2
+            pnpm --filter toolveto... run build >&2
+          )
+          CLI_CMD="node ${{ github.action_path }}/packages/cli/dist/bin/toolveto.js"
         fi
 
         set +e
