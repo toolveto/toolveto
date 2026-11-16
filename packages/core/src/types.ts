@@ -64,6 +64,20 @@ export interface ToolParameterSchema {
 export const LATEST_MCP_PROTOCOL_VERSION = '2026-07-28';
 export const SUPPORTED_MCP_PROTOCOL_VERSIONS = ['2026-07-28', '2025-03-26', '2024-11-05'] as const;
 
+export interface McpToolAnnotations {
+  title?: string;
+  readOnlyHint?: boolean;
+  destructiveHint?: boolean;
+  idempotentHint?: boolean;
+  openWorldHint?: boolean;
+}
+
+export interface McpSourceLocation {
+  file: string;
+  line: number;
+  language: 'typescript' | 'javascript' | 'python' | 'go' | 'json';
+}
+
 export interface McpToolDefinition {
   name: string;
   description?: string;
@@ -74,8 +88,32 @@ export interface McpToolDefinition {
   readOnlyHint?: boolean;
   destructiveHint?: boolean;
   openWorldHint?: boolean;
+  annotations?: McpToolAnnotations;
   requiresApproval?: boolean;
   tasksSupported?: boolean;
+  sourceLocation?: McpSourceLocation;
+}
+
+export interface McpResourceTemplateDefinition {
+  uriTemplate: string;
+  name: string;
+  description?: string;
+  mimeType?: string;
+  sourceFile?: string;
+}
+
+export interface McpPromptDefinition {
+  name: string;
+  description?: string;
+  arguments?: Array<{ name: string; description?: string; required?: boolean }>;
+  templateText?: string;
+  sourceFile?: string;
+}
+
+export interface StaticSourceFile {
+  path: string;
+  language: 'typescript' | 'javascript' | 'python' | 'go';
+  content: string;
 }
 
 export interface McpResourceDefinition {

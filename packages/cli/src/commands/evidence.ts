@@ -177,6 +177,10 @@ export async function evidenceCommand(
       summary = await runSuite(targetPath, tools, {
         client: client || undefined,
         targetDir: targetPath.startsWith('http') ? '.' : targetPath,
+        sourceFiles: discovered.sourceFiles,
+        resourceTemplates: discovered.resourceTemplates,
+        prompts: discovered.prompts,
+        transportMode: discovered.transportMode,
       });
     }
 

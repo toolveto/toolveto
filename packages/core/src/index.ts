@@ -28,6 +28,7 @@ export * from './checks/tasks-extension.js';
 export * from './checks/tool-poisoning.js';
 export * from './checks/sampling-chaos.js';
 export * from './checks/output-schema.js';
+export * from './checks/mcp-static-best-practices.js';
 export * from './config.js';
 export * from './reporters/terminal.js';
 export * from './reporters/github-pr-comment.js';
@@ -35,6 +36,9 @@ export * from './evaluator.js';
 
 import {
   McpToolDefinition,
+  McpResourceTemplateDefinition,
+  McpPromptDefinition,
+  StaticSourceFile,
   SuiteSummary,
   CheckResult,
   Dimension,
@@ -50,31 +54,55 @@ import { runReadBeforeWritePairingCheck } from './checks/d5-auditability/pairing
 import { runDryRunCheck } from './checks/d5-auditability/dry-run.js';
 import { runOAuthScopeCheck } from './checks/tc-auth.js';
 import { runToolPoisoningCheck, runToolShadowingCheck } from './checks/tool-poisoning.js';
+import {
+  normalizeToolAnnotations,
+  runDestructiveOpenWorldAnnotationCheck,
+  runHttpTransportAuthCheck,
+  runPaginationArrayBoundCheck,
+  runParamConstraintsCheck,
+  runParamNameAndSinkSecurityCheck,
+  runResourceTemplateSecurityCheck,
+  runStaticOutputSchemaCheck,
+  runStdioStdoutCheck,
+  runToolRugPullBloatCheck,
+} from './checks/mcp-static-best-practices.js';
 
 /**
  * Synchronous static check suite runner across an array of McpToolDefinitions.
  */
 export function runSuiteOnTools(
   targetOrTools: string | McpToolDefinition[],
-  maybeTools?: McpToolDefinition[]
+  maybeTools?: McpToolDefinition[],
+  staticContext?: {
+    sourceFiles?: StaticSourceFile[];
+    resourceTemplates?: McpResourceTemplateDefinition[];
+    prompts?: McpPromptDefinition[];
+    transportMode?: string;
+  }
 ): SuiteSummary {
   const target = typeof targetOrTools === 'string' ? targetOrTools : 'static-tools-suite';
-  const tools = Array.isArray(targetOrTools) ? targetOrTools : (maybeTools || []);
+  const rawTools = Array.isArray(targetOrTools) ? targetOrTools : (maybeTools || []);
+  const tools = rawTools.map(normalizeToolAnnotations);
   const startTime = Date.now();
   const results: CheckResult[] = [];
 
   for (const tool of tools) {
     // D1 Static Check
     results.push(runIdempotencyKeyCheck(tool));
-    // D2 Static Check
+    // D2 Static Checks
     results.push(runToolPoisoningCheck(tool));
+    results.push(runParamNameAndSinkSecurityCheck(tool, staticContext?.prompts));
     // D3 Static Checks
     results.push(runPaginationSchemaCheck(tool));
     results.push(runDescriptionClarityCheck(tool));
     results.push(runAdditionalPropertiesCheck(tool));
+    results.push(runPaginationArrayBoundCheck(tool));
+    results.push(runParamConstraintsCheck(tool));
     // D4 Static Checks
     results.push(runDescriptionAmbiguityCheck(tool, tools));
     results.push(runParamSteerabilityCheck(tool));
+    results.push(runDestructiveOpenWorldAnnotationCheck(tool));
+    results.push(runStaticOutputSchemaCheck(tool));
     // D5 Static Checks
     results.push(runReadBeforeWritePairingCheck(tool, tools));
     results.push(runDryRunCheck(tool));
@@ -82,6 +110,10 @@ export function runSuiteOnTools(
   }
 
   results.push(runToolShadowingCheck(tools));
+  results.push(runStdioStdoutCheck(staticContext?.sourceFiles, target, staticContext?.transportMode));
+  results.push(runToolRugPullBloatCheck(tools, staticContext?.sourceFiles));
+  results.push(runHttpTransportAuthCheck(staticContext?.sourceFiles, target));
+  results.push(runResourceTemplateSecurityCheck(staticContext?.resourceTemplates, staticContext?.sourceFiles));
 
   const calcDimensionScore = (dim: Dimension): number => {
     const dimChecks = results.filter((r) => r.dimension === dim);
@@ -103,9 +135,22 @@ export function runSuiteOnTools(
   const hasInject = results.some(
     (r) => r.status === 'FAIL' && (r.vetoClass === 'VETO_INJECT' || r.description.includes('VETO_INJECT'))
   );
+  const hasExfil = results.some(
+    (r) => r.status === 'FAIL' && (r.vetoClass === 'VETO_EXFIL' || r.description.includes('VETO_EXFIL'))
+  );
+  const hasTraversal = results.some(
+    (r) => r.status === 'FAIL' && (r.vetoClass === 'VETO_TRAVERSAL' || r.description.includes('VETO_TRAVERSAL'))
+  );
+
   if (hasInject) {
     fatalVetoCode = 'VETO_INJECT';
     phi = 0.0;
+  } else if (hasExfil) {
+    fatalVetoCode = 'VETO_EXFIL';
+    phi = 0.0;
+  } else if (hasTraversal) {
+    fatalVetoCode = 'VETO_TRAVERSAL';
+    phi = 0.25;
   }
 
   const rawWeightedScore =

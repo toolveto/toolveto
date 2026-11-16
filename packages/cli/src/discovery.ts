@@ -5,7 +5,11 @@ import {
   HttpMcpClient,
   McpToolDefinition,
   McpClient,
+  McpPromptDefinition,
+  McpResourceTemplateDefinition,
+  StaticSourceFile,
 } from '@toolveto/core';
+import { extractSourceContextFromDir } from './static-extractors.js';
 
 export interface DiscoverToolsOptions {
   timeoutMs?: number;
@@ -18,6 +22,10 @@ export interface DiscoverToolsOptions {
 export interface DiscoveredToolsResult {
   tools: McpToolDefinition[];
   client: McpClient | null;
+  sourceFiles?: StaticSourceFile[];
+  resourceTemplates?: McpResourceTemplateDefinition[];
+  prompts?: McpPromptDefinition[];
+  transportMode?: 'stdio' | 'http' | 'sse' | 'dual' | 'unknown';
 }
 
 export function resolvePythonInterpreter(baseDir?: string): string {
@@ -338,6 +346,12 @@ export function extractToolsStaticallyFromDir(dirPath: string): McpToolDefinitio
     }
   }
 
+  for (const extraTool of extractSourceContextFromDir(dirPath).tools) {
+    if (!byName.has(extraTool.name)) {
+      byName.set(extraTool.name, extraTool);
+    }
+  }
+
   return Array.from(byName.values());
 }
 
@@ -463,8 +477,11 @@ export async function discoverToolsFromTarget(
             tools = await discoverLiveToolsFromMcpConfig(parsed, timeoutMs, options.allowExec);
           }
         }
-        // 2b. Direct Go source file (static AST extraction)
-        else if (stat.isFile() && resolvedTarget.endsWith('.go')) {
+        // 2b. Direct Go/TypeScript/TSX source file (safe zero-exec static AST extraction)
+        else if (
+          stat.isFile() &&
+          (resolvedTarget.endsWith('.go') || resolvedTarget.endsWith('.ts') || resolvedTarget.endsWith('.tsx'))
+        ) {
           tools = extractToolsStaticallyFromDir(resolvedTarget);
         }
         // 3. Executable Server script (Node / Python) or Compiled Binary (with --allow-exec)
@@ -481,29 +498,33 @@ export async function discoverToolsFromTarget(
             throw new Error(`Refusing to auto-exec '${ext || path.basename(resolvedTarget)}'`);
           }
           if (options.allowExec === false || process.env.TOOLVETO_DISALLOW_AUTO_EXEC === '1') {
-            throw new Error('auto-exec disabled');
-          }
-
-          const baseDir = path.dirname(resolvedTarget);
-          const command = isCompiledBin
-            ? resolvedTarget
-            : ext === '.py'
-              ? resolvePythonInterpreter(baseDir)
-              : process.execPath;
-          const args = isCompiledBin ? [] : [resolvedTarget];
-
-          const stdioClient = new StdioMcpClient({
-            command,
-            args,
-            cwd: baseDir,
-            timeoutMs,
-          });
-          await stdioClient.connect();
-          tools = await stdioClient.listTools();
-          if (options.keepClientOpen) {
-            client = stdioClient;
+            if (isScriptExt) {
+              tools = extractToolsStaticallyFromDir(resolvedTarget);
+            } else {
+              throw new Error('auto-exec disabled');
+            }
           } else {
-            await stdioClient.close();
+            const baseDir = path.dirname(resolvedTarget);
+            const command = isCompiledBin
+              ? resolvedTarget
+              : ext === '.py'
+                ? resolvePythonInterpreter(baseDir)
+                : process.execPath;
+            const args = isCompiledBin ? [] : [resolvedTarget];
+
+            const stdioClient = new StdioMcpClient({
+              command,
+              args,
+              cwd: baseDir,
+              timeoutMs,
+            });
+            await stdioClient.connect();
+            tools = await stdioClient.listTools();
+            if (options.keepClientOpen) {
+              client = stdioClient;
+            } else {
+              await stdioClient.close();
+            }
           }
         }
         // 4. Directory containing server files, manifests, Go sources, or client configs
@@ -668,11 +689,29 @@ export async function discoverToolsFromTarget(
       }
     }
 
+    const isRemoteHttp =
+      Boolean(normalizedTarget) &&
+      (normalizedTarget.startsWith('http://') || normalizedTarget.startsWith('https://'));
+    const staticCtx = !isRemoteHttp
+      ? extractSourceContextFromDir(path.resolve(process.cwd(), normalizedTarget || '.'))
+      : { tools: [], sourceFiles: [], resourceTemplates: [], prompts: [], transportMode: 'http' as const };
+
+    if (tools.length === 0 && staticCtx.tools.length > 0) {
+      tools = staticCtx.tools;
+    }
+
     if (tools.length === 0 && options.demo && options.demoFallbackTools) {
       tools = options.demoFallbackTools;
     }
 
-    return { tools, client };
+    return {
+      tools,
+      client,
+      sourceFiles: staticCtx.sourceFiles,
+      resourceTemplates: staticCtx.resourceTemplates,
+      prompts: staticCtx.prompts,
+      transportMode: staticCtx.transportMode,
+    };
   } catch (err) {
     if (client) {
       await client.close().catch(() => {});
