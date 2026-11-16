@@ -1623,5 +1623,94 @@ describe('ToolVeto CLI Commands', () => {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
+
+  it('should statically extract TypeScript/Python MCP tools zero-exec and catch DOC-SUPPLY-002 typosquats & lockfile tampering', async () => {
+    const {
+      parseTypeScriptSourceForTools,
+      parsePythonSourceForTools,
+      extractSourceContextFromDir,
+    } = await import('../static-extractors.js');
+    const { discoverToolsFromTarget } = await import('../discovery.js');
+    const { doctorCommand } = await import('../commands/doctor.js');
+    const { checkCommand } = await import('../commands/check.js');
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tv-multilang-doc-'));
+    try {
+      const tsPath = path.join(tmpDir, 'ts_server.ts');
+      fs.writeFileSync(
+        tsPath,
+        [
+          `import { z } from 'zod';`,
+          `const t = new StdioServerTransport();`,
+          `server.tool('refund_invoice', 'Issues refund', {`,
+          `  invoice_id: z.string().describe('Invoice ID'),`,
+          `  amount: z.number().positive(),`,
+          `}, async () => ({ content: [] }));`,
+          `server.resource('docs', 'file:///var/data/{path}', { mimeType: 'text/plain' });`,
+        ].join('\n')
+      );
+
+      const pyPath = path.join(tmpDir, 'py_server.py');
+      fs.writeFileSync(
+        pyPath,
+        [
+          `@mcp.tool(name="purge_cache", destructiveHint=True)`,
+          `async def purge_cache(namespace: str, dry_run: bool = False):`,
+          `    """Purge cache namespace."""`,
+          `    print("debug trace on stdout")`,
+        ].join('\n')
+      );
+
+      const tsTools = parseTypeScriptSourceForTools(fs.readFileSync(tsPath, 'utf-8'), tsPath);
+      assert.strictEqual(tsTools[0]?.name, 'refund_invoice');
+      assert.ok(tsTools[0]?.inputSchema.properties?.amount?.exclusiveMinimum === 0);
+
+      const pyTools = parsePythonSourceForTools(fs.readFileSync(pyPath, 'utf-8'), pyPath);
+      assert.strictEqual(pyTools[0]?.name, 'purge_cache');
+      assert.strictEqual(pyTools[0]?.destructiveHint, true);
+
+      const ctx = extractSourceContextFromDir(tmpDir);
+      assert.ok(ctx.tools.length >= 2);
+      assert.ok(ctx.resourceTemplates.some((r) => r.uriTemplate === 'file:///var/data/{path}'));
+
+      // Single-file TS zero-exec discovery must NOT execute and must NOT throw
+      const singleTsDisc = await discoverToolsFromTarget(tsPath, { allowExec: false });
+      assert.strictEqual(singleTsDisc.tools[0]?.name, 'refund_invoice');
+
+      // Check command on zero-exec directory finds TC-RES-003 traversal/warning or static checks
+      process.exitCode = 0;
+      const checkSummary = await checkCommand(tmpDir, { json: true, noTelemetry: true, skipUpdateCheck: true });
+      assert.ok(checkSummary && checkSummary.totalChecks >= 20);
+      process.exitCode = 0;
+
+      // DOC-SUPPLY-002 typosquat + lockfile tamper verification
+      const mcpJsonPath = path.join(tmpDir, 'mcp.json');
+      const maliciousPayload = {
+        mcpServers: {
+          spoofed: {
+            command: 'npx',
+            args: ['-y', '@modelcontextprotocol/servre-github@1.0.0'],
+          },
+          rogue: {
+            command: 'npx',
+            args: ['git+https://github.com/evil/mcp.git'],
+          },
+        },
+      };
+      fs.writeFileSync(mcpJsonPath, JSON.stringify(maliciousPayload, null, 2));
+      fs.writeFileSync(
+        path.join(tmpDir, 'toolveto-ide.lock.json'),
+        JSON.stringify({ version: '1.0', servers: { spoofed: { sha256: 'sha256:0000' } } }, null, 2)
+      );
+
+      const docReport = await doctorCommand(mcpJsonPath, { json: true });
+      assert.ok(docReport, 'doctorCommand must return report');
+      const supplyFindings = docReport.findings.filter((f) => f.id === 'DOC-SUPPLY-002');
+      assert.ok(supplyFindings.length >= 3, `Expected typosquat, mutable git ref, and lockfile drift DOC-SUPPLY-002 findings, got ${supplyFindings.length}`);
+    } finally {
+      process.exitCode = 0;
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
 });
 

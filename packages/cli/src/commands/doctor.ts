@@ -14,7 +14,12 @@ export interface DoctorFinding {
   id: string;
   serverName: string;
   severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
-  category: 'PLAINTEXT_SECRET' | 'FLOATING_PACKAGE' | 'UNWRAPPED_SHIELD' | 'TOOL_SHADOWING';
+  category:
+    | 'PLAINTEXT_SECRET'
+    | 'FLOATING_PACKAGE'
+    | 'UNWRAPPED_SHIELD'
+    | 'TOOL_SHADOWING'
+    | 'SUPPLY_CHAIN';
   message: string;
   remediation: string;
 }
@@ -368,6 +373,142 @@ export async function doctorCommand(
         if (Object.keys(entry.env).length === 0) {
           delete entry.env;
         }
+      }
+    }
+  }
+
+  // DOC-SUPPLY-002: IDE supply-chain typosquatting, mutable git/http refs, unsafe flags, and lockfile tamper detection
+  const KNOWN_MCP_PACKAGES = [
+    '@modelcontextprotocol/server-github',
+    '@modelcontextprotocol/server-filesystem',
+    '@modelcontextprotocol/server-postgres',
+    '@modelcontextprotocol/server-memory',
+    '@modelcontextprotocol/server-fetch',
+    '@modelcontextprotocol/server-puppeteer',
+    '@modelcontextprotocol/server-slack',
+    '@modelcontextprotocol/server-sequential-thinking',
+    'mcp-server-git',
+    'mcp-server-fetch',
+    'mcp-server-sqlite',
+    'mcp-server-time',
+  ];
+  const levenshtein = (a: string, b: string): number => {
+    const dp: number[][] = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
+    for (let i = 0; i <= a.length; i++) dp[i]![0] = i;
+    for (let j = 0; j <= b.length; j++) dp[0]![j] = j;
+    for (let i = 1; i <= a.length; i++) {
+      for (let j = 1; j <= b.length; j++) {
+        dp[i]![j] = Math.min(
+          dp[i - 1]![j]! + 1,
+          dp[i]![j - 1]! + 1,
+          dp[i - 1]![j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1)
+        );
+      }
+    }
+    return dp[a.length]![b.length]!;
+  };
+
+  const siblingLockPath = path.join(path.dirname(resolved.path), 'toolveto-ide.lock.json');
+  let existingLockServers: Record<string, { sha256?: string }> | null = null;
+  if (!options.fix && fs.existsSync(siblingLockPath)) {
+    try {
+      const lockParsed = JSON.parse(fs.readFileSync(siblingLockPath, 'utf-8'));
+      if (lockParsed && typeof lockParsed.servers === 'object') {
+        existingLockServers = lockParsed.servers;
+      }
+    } catch {
+      existingLockServers = null;
+    }
+  }
+
+  for (const [serverName, entry] of serverEntries) {
+    if (!entry || typeof entry !== 'object') continue;
+    const cmd = String(entry.command || '').trim();
+    const args: string[] = Array.isArray(entry.args) ? entry.args.map(String) : [];
+    const url = String(entry.url || '').trim();
+
+    if (url && /^http:\/\//i.test(url) && !/^http:\/\/(localhost|127\.0\.0\.1|\[::1\])([:/]|$)/i.test(url)) {
+      unhealthyServerSet.add(serverName);
+      findings.push({
+        id: 'DOC-SUPPLY-002',
+        serverName,
+        severity: 'HIGH',
+        category: 'SUPPLY_CHAIN',
+        message: `Server '${serverName}' connects to non-loopback plaintext HTTP endpoint '${url}'.`,
+        remediation: `Use HTTPS/TLS for remote MCP server URLs to prevent credential interception.`,
+      });
+    }
+
+    const joined = `${cmd} ${args.join(' ')}`;
+    if (/--allow-all|--dangerously-skip-permissions|--yolo\b|--no-sandbox|\b(curl|wget)\b[^|]*\|\s*(sh|bash|zsh)\b/i.test(joined)) {
+      unhealthyServerSet.add(serverName);
+      findings.push({
+        id: 'DOC-SUPPLY-002',
+        serverName,
+        severity: 'CRITICAL',
+        category: 'SUPPLY_CHAIN',
+        message: `Server '${serverName}' uses dangerous shell pipe or sandbox/permission bypass flags in IDE command.`,
+        remediation: `Remove unsafe bypass flags / piped shell installers and use a pinned, sandboxed MCP executable.`,
+      });
+    }
+
+    for (const arg of args) {
+      if (/^(git\+https?:|github:|gitlab:|bitbucket:)/i.test(arg) && !/#[0-9a-f]{40}$/i.test(arg)) {
+        unhealthyServerSet.add(serverName);
+        findings.push({
+          id: 'DOC-SUPPLY-002',
+          serverName,
+          severity: 'HIGH',
+          category: 'SUPPLY_CHAIN',
+          message: `Server '${serverName}' loads mutable git dependency '${arg}' without an immutable 40-char commit SHA pin.`,
+          remediation: `Pin git dependencies to a full 40-character commit SHA or publish/pin an immutable npm/PyPI release.`,
+        });
+      }
+
+      if (!arg.startsWith('-') && !arg.includes('/') && !arg.startsWith('.') && arg.length >= 6 || arg.startsWith('@')) {
+        const pkgBase = arg.startsWith('@')
+          ? arg.replace(/^(@[^/]+\/[^@]+)@.+$/, '$1').toLowerCase()
+          : arg.replace(/@.+$/, '').toLowerCase();
+        if (!KNOWN_MCP_PACKAGES.includes(pkgBase)) {
+          const spoofMatch = KNOWN_MCP_PACKAGES.find((known) => {
+            const dist = levenshtein(pkgBase, known);
+            return dist >= 1 && dist <= 2;
+          });
+          if (spoofMatch) {
+            unhealthyServerSet.add(serverName);
+            findings.push({
+              id: 'DOC-SUPPLY-002',
+              serverName,
+              severity: 'HIGH',
+              category: 'SUPPLY_CHAIN',
+              message: `Potential MCP package typosquat on '${serverName}': '${pkgBase}' is within edit distance 2 of official '${spoofMatch}'.`,
+              remediation: `Verify package spelling against '${spoofMatch}' before executing inside IDE.`,
+            });
+          }
+        }
+      }
+    }
+
+    if (existingLockServers) {
+      const canonical = JSON.stringify({
+        command: entry.command || '',
+        args: entry.args || [],
+        url: entry.url || '',
+      });
+      const currentSha = 'sha256:' + crypto.createHash('sha256').update(canonical).digest('hex');
+      const expectedSha = existingLockServers[serverName]?.sha256;
+      if (!expectedSha || expectedSha !== currentSha) {
+        unhealthyServerSet.add(serverName);
+        findings.push({
+          id: 'DOC-SUPPLY-002',
+          serverName,
+          severity: 'CRITICAL',
+          category: 'SUPPLY_CHAIN',
+          message: !expectedSha
+            ? `Server '${serverName}' was added to IDE config without an entry in toolveto-ide.lock.json (unpinned supply-chain drift).`
+            : `Server '${serverName}' SHA-256 drifted from toolveto-ide.lock.json (${expectedSha.slice(0, 18)}... != ${currentSha.slice(0, 18)}...).`,
+          remediation: `Inspect recent config edits and run 'npx toolveto doctor --fix' after verifying package integrity.`,
+        });
       }
     }
   }

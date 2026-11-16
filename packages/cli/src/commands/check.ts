@@ -320,12 +320,20 @@ export async function checkCommand(
             withLlm: options.withLlm,
             destructiveAuthorization: true,
             targetDir: localTargetDir,
+            sourceFiles: discovered.sourceFiles,
+            resourceTemplates: discovered.resourceTemplates,
+            prompts: discovered.prompts,
+            transportMode: discovered.transportMode,
           })
         : await runSuite(targetDisplay, tools, {
             client: client || undefined,
             withLlm: options.withLlm,
             destructiveAuthorization: options.allowDestructive,
             targetDir: localTargetDir,
+            sourceFiles: discovered.sourceFiles,
+            resourceTemplates: discovered.resourceTemplates,
+            prompts: discovered.prompts,
+            transportMode: discovered.transportMode,
           });
     const durationMs = Date.now() - checkStartMs;
 

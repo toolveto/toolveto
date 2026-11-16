@@ -8,6 +8,9 @@ import {
   Dimension,
   DimensionalScore,
   StatisticalConfidence,
+  StaticSourceFile,
+  McpResourceTemplateDefinition,
+  McpPromptDefinition,
 } from './types.js';
 import { McpClient } from './transports/interface.js';
 import { runSequentialReplayCheck } from './checks/d1-idempotency/sequential-replay.js';
@@ -34,6 +37,18 @@ import { runTasksExtensionCheck } from './checks/tasks-extension.js';
 import { runToolPoisoningCheck, runToolShadowingCheck } from './checks/tool-poisoning.js';
 import { runSamplingChaosCheck } from './checks/sampling-chaos.js';
 import { runOutputSchemaFidelityCheck } from './checks/output-schema.js';
+import {
+  normalizeToolAnnotations,
+  runDestructiveOpenWorldAnnotationCheck,
+  runHttpTransportAuthCheck,
+  runPaginationArrayBoundCheck,
+  runParamConstraintsCheck,
+  runParamNameAndSinkSecurityCheck,
+  runResourceTemplateSecurityCheck,
+  runStaticOutputSchemaCheck,
+  runStdioStdoutCheck,
+  runToolRugPullBloatCheck,
+} from './checks/mcp-static-best-practices.js';
 import { loadToolvetoConfig } from './config.js';
 
 export interface RunSuiteOptions {
@@ -43,6 +58,10 @@ export interface RunSuiteOptions {
   targetDir?: string;
   concurrency?: number;
   bootstrapIterations?: number;
+  sourceFiles?: StaticSourceFile[];
+  resourceTemplates?: McpResourceTemplateDefinition[];
+  prompts?: McpPromptDefinition[];
+  transportMode?: string;
 }
 
 export function pLimit(concurrency: number) {
@@ -116,20 +135,24 @@ export async function runSuite(
           toolResults.push(await runEnvelopeFuzzCheck(tool, client));
           toolResults.push(await runOutputSchemaFidelityCheck(tool, client));
         }
+        const normalizedTool = normalizeToolAnnotations(tool);
         toolResults.push(runToolPoisoningCheck(tool));
+        toolResults.push(runParamNameAndSinkSecurityCheck(normalizedTool, options.prompts));
 
         // D3 Checks
         toolResults.push(await runTokenBudgetCheck(tool, client));
         toolResults.push(runPaginationSchemaCheck(tool));
         toolResults.push(runDescriptionClarityCheck(tool));
         toolResults.push(runAdditionalPropertiesCheck(tool));
+        toolResults.push(runPaginationArrayBoundCheck(normalizedTool));
+        toolResults.push(runParamConstraintsCheck(normalizedTool));
 
         // D4 Checks (Steerability & Schema Ambiguity & Annotations)
         toolResults.push(runDescriptionAmbiguityCheck(tool, tools));
         toolResults.push(runParamSteerabilityCheck(tool));
-        if (client) {
-          toolResults.push(await runAnnotationCrossCheck(tool, client, replayCheck.status === 'PASS'));
-        }
+        toolResults.push(await runAnnotationCrossCheck(normalizedTool, client, client ? replayCheck.status === 'PASS' : true));
+        toolResults.push(runDestructiveOpenWorldAnnotationCheck(normalizedTool));
+        toolResults.push(runStaticOutputSchemaCheck(normalizedTool));
 
         // D5 Checks (State auditability, Tenant Isolation, Auth, Roots)
         toolResults.push(runReadBeforeWritePairingCheck(tool, tools));
@@ -156,6 +179,10 @@ export async function runSuite(
     results.push(await runHeterogeneousInterleavingCheck(tools, client, destructiveAuthorization));
   }
   results.push(runToolShadowingCheck(tools));
+  results.push(runStdioStdoutCheck(options.sourceFiles, target, options.transportMode));
+  results.push(runToolRugPullBloatCheck(tools, options.sourceFiles));
+  results.push(runHttpTransportAuthCheck(options.sourceFiles, target));
+  results.push(runResourceTemplateSecurityCheck(options.resourceTemplates, options.sourceFiles));
 
   // Resource / Prompt / Capability surface checks
   if (client) {
@@ -386,19 +413,26 @@ export async function runSuite(
       (r.checkId === 'TC-VETO-INJECT-001' ||
        r.checkId === 'TC-SEC-002' ||
        r.checkId === 'TC-SEC-003' ||
+       r.vetoClass === 'VETO_INJECT' ||
        r.description.includes('VETO_INJECT'))
   );
 
   const hasTenantLeak = results.some(
-    (r) => r.status === 'FAIL' && r.checkId === 'TC-AUTH-001' && r.description.includes('VETO_TENANT_LEAK')
+    (r) =>
+      r.status === 'FAIL' &&
+      ((r.checkId === 'TC-AUTH-001' && r.description.includes('VETO_TENANT_LEAK')) || r.vetoClass === 'VETO_TENANT_LEAK')
   );
 
   const hasExfil = results.some(
-    (r) => r.status === 'FAIL' && (r.checkId === 'TC-VETO-EXFIL-001' || r.description.includes('VETO_EXFIL'))
+    (r) =>
+      r.status === 'FAIL' &&
+      (r.checkId === 'TC-VETO-EXFIL-001' || r.vetoClass === 'VETO_EXFIL' || r.description.includes('VETO_EXFIL'))
   );
 
   const hasTraversal = results.some(
-    (r) => r.status === 'FAIL' && r.checkId === 'TC-AUTH-003' && r.description.includes('VETO_TRAVERSAL')
+    (r) =>
+      r.status === 'FAIL' &&
+      ((r.checkId === 'TC-AUTH-003' && r.description.includes('VETO_TRAVERSAL')) || r.vetoClass === 'VETO_TRAVERSAL')
   );
 
   const hasContextBomb = results.some(
