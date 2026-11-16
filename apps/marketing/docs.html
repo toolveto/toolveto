@@ -264,37 +264,42 @@ npx toolveto@latest fix ./src/mcp-server.ts --apply</div>
 
       <section data-doc-section id="core-concepts">
         <h2>The 5 Behavioral Dimensions</h2>
-        <p>ToolVeto evaluates MCP servers against <strong>32 deterministic checks across 14 invariant families</strong>, targeting the exact failure modes discovered in production agent operations:</p>
+        <p>ToolVeto evaluates MCP servers against <strong>45 Free deterministic checks across 18 invariant families</strong> (41 <code>toolveto check</code> D1–D5 rules + 4 <code>toolveto doctor</code> IDE supply-chain checks; expanding to <strong>65 total checks</strong> with Cloud SAST, Sealed Corpus &amp; Fleet Governance), targeting the exact failure modes discovered in production agent operations:</p>
 
-        <h3 id="d1-idempotency"><span class="check-badge badge-d1">D1</span> Idempotency &amp; Concurrency (Weight: 30%)</h3>
+        <h3 id="d1-idempotency"><span class="check-badge badge-d1">D1</span> Idempotency &amp; Concurrency (Weight: 35%)</h3>
         <p>When an LLM agent times out or receives a transient network error, it immediately replays the tool call. Without explicit idempotency keys and atomic backend deduplication, this leads to double-charges and duplicated database records.</p>
         <ul>
-          <li><code>TC-IDEMP-001</code>: <strong>Sequential Replay Veto</strong> — Executes mutations 5× with identical inputs and asserts zero duplicate records.</li>
-          <li><code>TC-IDEMP-002</code>: <strong>Concurrent Thundering Herd</strong> — Fires N=10 simultaneous requests within Δt &lt; 20ms.</li>
-          <li><code>TC-IDEMP-003</code>: <strong>Schema Idempotency Declaration</strong> — Asserts presence of <code>idempotency_key</code> or <code>client_request_id</code> in the input schema.</li>
+          <li><code>TC-IDEMP-001..005</code>: <strong>Replay, Thundering Herd &amp; Schema Idempotency</strong> — Fires sequential replays, N=10 concurrent bursts within Δt &lt; 20ms, and verifies <code>idempotency_key</code> parameters.</li>
+          <li><code>TC-RACE-001 / TC-CANCEL-001 / TC-TASK-001</code>: <strong>Interleaving, Cancellation &amp; Async Tasks</strong> — Verifies restart/delayed replay persistence and MCP async task contracts.</li>
         </ul>
 
-        <h3 id="d2-fuzz"><span class="check-badge badge-d2">D2</span> LLM Self-Correction &amp; Error Feedback (Weight: 25%)</h3>
-        <p>Opaque 500 errors and raw stack traces trigger recursive 47× retry spirals in frontier LLMs. Errors must cite the exact failing parameter and provide concrete formatting examples.</p>
+        <h3 id="d2-fuzz"><span class="check-badge badge-d2">D2</span> LLM Self-Correction, Transport &amp; Injection Safety (Weight: 20%)</h3>
+        <p>Opaque 500 errors trigger recursive 47× retry spirals, while stdout logging or unauthenticated HTTP transports break MCP wire framing and expose tool sinks.</p>
         <ul>
-          <li><code>TC-FUZZ-001</code>: <strong>Type Inversion Fuzzing</strong> — Injects NaN, objects, and empty arrays; asserts <code>isError: true</code> without crashing the server.</li>
-          <li><code>TC-FUZZ-002</code>: <strong>Hallucinated Parameter Guard</strong> — Injects parameters imagined by models (e.g. <code>force: true</code>) to ensure <code>additionalProperties: false</code> is enforced.</li>
-          <li><code>TC-ERR-001</code>: <strong>Error Self-Healing</strong> — Tests invalid formats (e.g. "tomorrow morning" for dates) and verifies error citations.</li>
+          <li><code>TC-FUZZ-001..002 / TC-ERR-001</code>: <strong>Type Inversion, Unknown Params &amp; Error Healing</strong> — Validates structured <code>isError: true</code> recovery guidance without stack trace leaks.</li>
+          <li><code>TC-STDIO-001 / TC-HTTP-001</code>: <strong>Stdio Framing &amp; HTTP Transport Auth</strong> — Flags stdout <code>console.log</code>/<code>print</code> pollution, query-string tokens, and unauthenticated <code>0.0.0.0</code> HTTP binds.</li>
+          <li><code>TC-SEC-002..004</code>: <strong>Tool Poisoning, Shadowing &amp; Homoglyph/Sink Defense</strong> — Blocks Unicode/ANSI prompt overrides, cross-tool hijacking, and unconstrained command/SQL sinks.</li>
         </ul>
 
-        <h3 id="d3-context"><span class="check-badge badge-d3">D3</span> Context &amp; Token Hygiene (Weight: 25%)</h3>
-        <p>Unbounded collection queries dump tens of thousands of tokens into the context window, degrading model attention and triggering fatal out-of-context errors.</p>
+        <h3 id="d3-context"><span class="check-badge badge-d3">D3</span> Context &amp; Schema Hygiene (Weight: 20%)</h3>
+        <p>Unbounded collection queries and unconstrained schemas dump tens of thousands of tokens into context and trigger model parameter hallucinations.</p>
         <ul>
-          <li><code>TC-CTX-001</code>: <strong>Context Bomb Veto</strong> — Flags responses &gt; 8,000 tokens as <code>VETO_DATALOSS</code>.</li>
-          <li><code>TC-SCHEMA-001</code>: <strong>Collection Pagination</strong> — Verifies <code>limit</code> and <code>cursor</code> exist on all list queries.</li>
-          <li><code>TC-SCHEMA-002</code>: <strong>Description Clarity</strong> — Flags descriptions under 30 characters as too terse for reliable model routing.</li>
+          <li><code>TC-CTX-001..002</code>: <strong>Context Token Bomb &amp; Dynamic Tool Rug-Pull</strong> — Flags oversized payloads, toolset bloat (&gt;40 tools), and unpinned dynamic <code>listChanged</code> mutations.</li>
+          <li><code>TC-SCHEMA-001..005</code>: <strong>Pagination, Bounds &amp; Constraints</strong> — Requires bounded <code>limit.maximum</code>, array <code>maxItems</code>, clear descriptions, <code>additionalProperties: false</code>, and parameter min/max/format constraints.</li>
         </ul>
 
-        <h3 id="d5-auditability"><span class="check-badge badge-d5">D5</span> State Auditability &amp; Pairing (Weight: 10%)</h3>
-        <p>Blind-write mutations prevent agents from inspecting existing state before writing or verifying state after mutating.</p>
+        <h3 id="d4-steerability"><span class="check-badge badge-d4">D4</span> Steerability, Annotations &amp; Output Contracts (Weight: 15%)</h3>
+        <p>Contradictory annotations or missing structured <code>outputSchema</code> contracts mislead client safety prompts and downstream model parsing.</p>
         <ul>
-          <li><code>TC-PAIR-001</code>: <strong>Read-Before-Write Pairing</strong> — Requires mutating tools (e.g. <code>charge_customer</code>) to have companion read queries (e.g. <code>get_customer</code>).</li>
-          <li><code>TC-DRYRUN-001</code>: <strong>Dry-Run Simulation</strong> — Ensures destructive mutations support preview execution.</li>
+          <li><code>TC-ANNOTATION-001..002</code>: <strong>Behavioral &amp; Static Annotation Integrity</strong> — Catches contradictory <code>readOnlyHint</code>, <code>destructiveHint</code>, <code>idempotentHint</code>, and <code>openWorldHint</code> metadata.</li>
+          <li><code>TC-OUTPUT-001..002</code>: <strong>Structured Output Contract &amp; Secret Leak Audit</strong> — Verifies runtime <code>structuredContent</code> and scans static <code>outputSchema</code> definitions for credential leakage.</li>
+        </ul>
+
+        <h3 id="d5-auditability"><span class="check-badge badge-d5">D5</span> State Auditability, Resources &amp; IDE Hygiene (Weight: 10% + Doctor)</h3>
+        <p>Blind-write mutations, unguarded URI templates, and tampered IDE configs compromise production state and developer workstations.</p>
+        <ul>
+          <li><code>TC-PAIR-001 / TC-DRYRUN-001 / TC-RES-003</code>: <strong>Read-Before-Write Pairing, Dry-Run &amp; Resource URI Traversal</strong> — Enforces read companions, preview execution, and containment on <code>file://</code>/<code>https://</code> resource templates.</li>
+          <li><code>DOC-PIN-001 / DOC-SHIELD-001 / DOC-SEC-001 / DOC-SUPPLY-002</code>: <strong>IDE Config Doctor</strong> — Audits Cursor/Claude configs for floating versions, plaintext secrets, lockfile SHA-256 tampering, and typosquatted MCP packages.</li>
         </ul>
       </section>
 

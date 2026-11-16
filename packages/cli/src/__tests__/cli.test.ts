@@ -753,7 +753,7 @@ describe('ToolVeto CLI Commands', () => {
           JSON.stringify({
             latestVersion: '0.3.0',
             latestCorpusVersion: 'v1.1',
-            sealedCorpusChecksCount: 14,
+            sealedCorpusChecksCount: 20,
             releaseUrl: 'https://github.com/toolveto/toolveto/releases/tag/v0.3.0',
             upgradeCommand: 'npm i -g toolveto@latest',
           })

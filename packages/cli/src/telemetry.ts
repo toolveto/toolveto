@@ -766,13 +766,13 @@ export function formatTrivyStyleNotice(params: {
         `│ 🛡️  PLG Security Advisory: ${criticalCount} high/critical agent wreck vector(s) detected.`.padEnd(79) + '│'
       );
       lines.push(
-        `│    • Local CLI evaluated the 40% public corpus (Run #${params.runNumber}).`.padEnd(79) + '│'
+        `│    • Local CLI evaluated 45 Free checks across 18 families (Run #${params.runNumber}).`.padEnd(79) + '│'
       );
       lines.push(
         `│    • Enforce runtime deduplication & loop limits via @toolveto/shield, and   │`
       );
       lines.push(
-        `│      unlock the 60% Sealed Corpus & PR Fix Bot on ToolVeto Cloud:            │`
+        `│      unlock 65 total checks (+20 Cloud SAST/Corpus) on ToolVeto Cloud:       │`
       );
       lines.push(
         `│      👉 https://toolveto.ai/pricing?utm_source=npx_toolveto&utm_medium=cli   │`

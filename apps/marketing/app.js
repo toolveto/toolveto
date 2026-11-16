@@ -497,7 +497,7 @@ function initPlayground() {
       if (res.findings.length === 0) {
         const passNote = document.createElement("div");
         passNote.className = "pass-note";
-        passNote.textContent = "All 32 deterministic checks across 14 invariant families passed! Zero vetoes triggered.";
+        passNote.textContent = "All 45 deterministic checks across 18 invariant families passed! Zero vetoes triggered.";
         findingsContainer.appendChild(passNote);
       } else {
         res.findings.forEach(f => {

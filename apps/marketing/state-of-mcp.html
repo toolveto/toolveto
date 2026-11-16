@@ -557,13 +557,13 @@
               <strong>Responsible External Scope:</strong> In strict compliance with security standards, all third-party external repositories in this benchmark were evaluated exclusively using <strong>Stages 1 and 2 (Schema Introspection &amp; Static Contract Verification)</strong>. Zero live mutation probes or burst calls were sent to live infrastructure.
             </p>
             <p>
-              The ToolVeto static checker parses the declared tool signatures and evaluates them against 32 deterministic checks across 14 invariant families:
+              The ToolVeto static checker parses declared TypeScript, Python, Go, and JSON tool signatures zero-exec and evaluates them against 45 deterministic checks across 18 invariant families (expanding to 65 total checks with Enterprise Cloud SAST, Sealed Corpus &amp; Fleet Governance):
             </p>
             <ul style="margin-left: 24px;">
-              <li><code>TC-IDEMP-003</code>: Presence of client-controlled idempotency tokens on mutating tools.</li>
-              <li><code>TC-PAIR-001</code>: Mandatory pairing of write tools with corresponding read inspection tools.</li>
-              <li><code>TC-CTX-001</code>: Enforced pagination bounds on all collection and query tools.</li>
-              <li><code>TC-SCHEMA-001 / 002</code>: Strict field descriptions and strongly-typed parameter constraints.</li>
+              <li><code>TC-IDEMP-005 / TC-PAIR-001</code>: Client-controlled idempotency tokens and mandatory read-before-write pairing on mutating tools.</li>
+              <li><code>TC-CTX-001..002 / TC-SCHEMA-001..005</code>: Bounded array/pagination limits, semantic parameter constraints, and dynamic toolset rug-pull checks.</li>
+              <li><code>TC-SEC-002..004 / TC-STDIO-001 / TC-HTTP-001</code>: Zero-LLM prompt poisoning, Unicode homoglyphs, stdio stdout framing, and HTTP Origin/auth verification.</li>
+              <li><code>TC-ANNOTATION-001..002 / TC-OUTPUT-002 / TC-RES-003</code>: Annotation contradiction checks, structured <code>outputSchema</code> audits, and resource URI traversal guards.</li>
             </ul>
           </div>
         </section>

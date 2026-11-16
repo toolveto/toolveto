@@ -31,7 +31,7 @@ MCP servers built like traditional APIs inevitably:
 
 ## Quickstart
 
-Run deterministic checks in **<90 seconds for $0** (zero LLM API keys required):
+Run **45 deterministic checks across 18 invariant families** (41 `toolveto check` rules + 4 `toolveto doctor` IDE hygiene checks; 65 total checks on ToolVeto Cloud) in **<90 seconds for $0** (zero LLM API keys required):
 
 ```bash
 npx toolveto@latest check ./my-mcp-server
@@ -115,7 +115,7 @@ export default shield(myMcpServer, {
 
 ## Open-Core Architecture & Licensing
 
-ToolVeto operates on a **Two-Repository Topology** to guarantee frictionless open-source developer adoption while strictly safeguarding the proprietary commercial moat (the sealed 60% test battery and runner fleet isolation):
+ToolVeto operates on a **Two-Repository Topology** to guarantee frictionless open-source developer adoption (**45 Free OSS checks**: 41 `check` rules across 18 invariant families + 4 `doctor` IDE supply-chain checks) while strictly safeguarding the proprietary commercial moat (**+20 Paid-Exclusive Cloud checks = 65 total checks**, including Sealed Corpus honeytraps, MCP SAST `SAST-MCP-001..006`, Org-Wide Fleet Governance `FLEET-GOV-001`, and gVisor runner fleet isolation):
 
 ```text
                                   TOOLVETO ECOSYSTEM
