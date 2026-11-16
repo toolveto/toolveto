@@ -35,7 +35,7 @@ export function createProgram(): Command {
 
   program
     .command('check')
-    .description('Run deterministic checks on an MCP server (<90s, $0, zero LLM)')
+    .description('Run 41 deterministic MCP checks (+4 doctor = 45 Free checks across 18 invariant families; <90s, $0, zero LLM)')
     .argument('<target>', 'Path to local MCP server directory, binary, or Streamable HTTP URL')
     .option('--with-llm', 'Enable Stage 4 LLM E_heal self-heal judge (requires API key)')
     .option('--allow-destructive', 'Authorize live stateful replay and concurrent burst mutations (D1)')
