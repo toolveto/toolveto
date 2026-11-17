@@ -1,6 +1,8 @@
 import http from 'http';
+import https from 'node:https';
 import crypto from 'node:crypto';
 import dns from 'node:dns';
+import net from 'node:net';
 import { Readable } from 'node:stream';
 import { ShieldMiddleware, ShieldOptions, ShieldSpan } from '@toolveto/shield';
 import {
@@ -33,8 +35,45 @@ function isPrivateIpv4Octets(oct1: number, oct2: number): boolean {
   if (oct1 === 192 && oct2 === 168) return true;
   if (oct1 === 172 && oct2 >= 16 && oct2 <= 31) return true;
   if (oct1 === 100 && oct2 >= 64 && oct2 <= 127) return true; // RFC 6598 CGNAT 100.64.0.0/10
+  if (oct1 === 198 && (oct2 === 18 || oct2 === 19)) return true; // RFC 2544 benchmarking 198.18.0.0/15
   if (oct1 >= 224) return true; // Multicast & reserved
   return false;
+}
+
+function expandIpv6ToHextets(rawIpv6: string): number[] | null {
+  const withoutZone = rawIpv6.split('%')[0].toLowerCase().trim();
+  if (!withoutZone || !net.isIPv6(withoutZone)) return null;
+
+  let working = withoutZone;
+  if (working.includes('.')) {
+    const lastColon = working.lastIndexOf(':');
+    if (lastColon === -1) return null;
+    const v4Part = working.slice(lastColon + 1);
+    const v4Octets = v4Part.split('.').map((o) => Number(o));
+    if (v4Octets.length !== 4 || v4Octets.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) {
+      return null;
+    }
+    const hi = ((v4Octets[0] << 8) | v4Octets[1]).toString(16);
+    const lo = ((v4Octets[2] << 8) | v4Octets[3]).toString(16);
+    working = `${working.slice(0, lastColon)}:${hi}:${lo}`;
+  }
+
+  const parts = working.split('::');
+  if (parts.length > 2) return null;
+  const head = parts[0] ? parts[0].split(':') : [];
+  const tail = parts.length === 2 && parts[1] ? parts[1].split(':') : [];
+  const missing = 8 - (head.length + tail.length);
+  if (parts.length === 1 && missing !== 0) return null;
+  if (parts.length === 2 && missing < 0) return null;
+
+  const full = [...head, ...Array(Math.max(0, missing)).fill('0'), ...tail];
+  if (full.length !== 8) return null;
+  const hextets: number[] = [];
+  for (const h of full) {
+    if (!/^[0-9a-f]{1,4}$/i.test(h)) return null;
+    hextets.push(parseInt(h, 16));
+  }
+  return hextets;
 }
 
 function parseNonStandardOrStandardIpv4(rawHost: string): [number, number, number, number] | null {
@@ -76,7 +115,8 @@ function parseNonStandardOrStandardIpv4(rawHost: string): [number, number, numbe
 
 export function isPrivateIpOrBlockedHost(hostname: string): boolean {
   const raw = hostname.toLowerCase().trim();
-  const host = raw.startsWith('[') && raw.endsWith(']') ? raw.slice(1, -1) : raw;
+  const unbracketed = raw.startsWith('[') && raw.endsWith(']') ? raw.slice(1, -1) : raw;
+  const host = unbracketed.split('%')[0];
 
   if (BLOCKED_PRIVATE_HOSTNAMES.has(raw) || BLOCKED_PRIVATE_HOSTNAMES.has(host)) return true;
   if (host.endsWith('.localhost') || host.endsWith('.internal') || host.endsWith('.local')) return true;
@@ -90,33 +130,57 @@ export function isPrivateIpOrBlockedHost(hostname: string): boolean {
     return isPrivateIpv4Octets(ipv4Octets[0], ipv4Octets[1]);
   }
 
-  if (
-    host === '::1' ||
-    host === '::' ||
-    host === '0:0:0:0:0:0:0:1' ||
-    host === '0:0:0:0:0:0:0:0' ||
-    host.startsWith('fc') ||
-    host.startsWith('fd') ||
-    /^fe[89ab][0-9a-f]:/i.test(host) ||
-    host.startsWith('fe80')
-  ) {
-    return true;
-  }
-
-  if (host.startsWith('::ffff:')) {
-    const mappedPart = host.slice('::ffff:'.length);
-    const mappedV4 = parseNonStandardOrStandardIpv4(mappedPart);
-    if (mappedV4) {
-      return isPrivateIpv4Octets(mappedV4[0], mappedV4[1]);
+  const ipv6 = expandIpv6ToHextets(host);
+  if (ipv6) {
+    const isAllZeroPrefix6 = ipv6[0] === 0 && ipv6[1] === 0 && ipv6[2] === 0 && ipv6[3] === 0 && ipv6[4] === 0;
+    // :: and ::1
+    if (isAllZeroPrefix6 && ipv6[5] === 0 && ipv6[6] === 0 && (ipv6[7] === 0 || ipv6[7] === 1)) {
+      return true;
     }
-    const hexMatch = mappedPart.match(/^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
-    if (hexMatch) {
-      const hi = parseInt(hexMatch[1], 16);
-      const oct1 = (hi >>> 8) & 0xff;
-      const oct2 = hi & 0xff;
-      return isPrivateIpv4Octets(oct1, oct2);
+    // IPv4-compatible IPv6 ::w.x.y.z (::/96)
+    if (isAllZeroPrefix6 && ipv6[5] === 0) {
+      return true;
     }
-    return true;
+    // IPv4-mapped IPv6 ::ffff:w.x.y.z
+    if (isAllZeroPrefix6 && ipv6[5] === 0xffff) {
+      return isPrivateIpv4Octets((ipv6[6] >>> 8) & 0xff, ipv6[6] & 0xff);
+    }
+    // Unique Local Addresses fc00::/7
+    if ((ipv6[0] & 0xfe00) === 0xfc00) return true;
+    // Link-local unicast fe80::/10 (includes fec0..feff? fec0 is site-local deprecated)
+    if ((ipv6[0] & 0xffc0) === 0xfe80 || (ipv6[0] & 0xffc0) === 0xfec0) return true;
+    // Multicast ff00::/8
+    if ((ipv6[0] & 0xff00) === 0xff00) return true;
+    // NAT64 (64:ff9b::/96, 64:ff9b:1::/48)
+    if (ipv6[0] === 0x0064 && ipv6[1] === 0xff9b) return true;
+    // 6to4 (2002::/16)
+    if (ipv6[0] === 0x2002) return true;
+    // Documentation (2001:db8::/32), Benchmarking (2001:2::/48), Teredo (2001::/32)
+    if (ipv6[0] === 0x2001 && (ipv6[1] === 0x0db8 || (ipv6[1] === 0x0002 && ipv6[2] === 0x0000) || ipv6[1] === 0x0000)) {
+      return true;
+    }
+    // Discard prefix (100::/64)
+    if (ipv6[0] === 0x0100 && ipv6[1] === 0 && ipv6[2] === 0 && ipv6[3] === 0) return true;
+  } else if (host.includes(':')) {
+    // Fallback string checks for malformed/bracketed IPv6 edge forms
+    if (
+      host === '::1' ||
+      host === '::' ||
+      host.startsWith('fc') ||
+      host.startsWith('fd') ||
+      /^fe[89ab][0-9a-f]?:/i.test(host) ||
+      host.startsWith('fe80') ||
+      host.startsWith('ff') ||
+      host.startsWith('64:ff9b:') ||
+      host.startsWith('2002:') ||
+      host.startsWith('2001:db8:') ||
+      host.startsWith('2001:0db8:') ||
+      host.startsWith('2001:2:') ||
+      host.startsWith('2001:0002:') ||
+      host.startsWith('::ffff:')
+    ) {
+      return true;
+    }
   }
 
   return false;
@@ -164,24 +228,50 @@ export function validateUpstreamUrl(urlStr: string, allowLocal = false): void {
   }
 }
 
-export async function validateUpstreamDns(hostname: string, allowLocal = false): Promise<void> {
+export interface PinnedUpstreamAddress {
+  address: string;
+  family: 4 | 6;
+}
+
+export interface PinnedUpstreamResponse {
+  status: number;
+  headers: { get(name: string): string | null };
+  bodyStream: http.IncomingMessage;
+  text(): Promise<string>;
+  abort(): void;
+}
+
+export interface PinnedUpstreamFetchOptions {
+  method?: string;
+  headers?: Record<string, string>;
+  body?: string;
+  signal?: AbortSignal;
+  allowLocal?: boolean;
+  maxResponseBytes?: number;
+}
+
+export async function resolvePinnedUpstreamAddresses(
+  hostname: string,
+  allowLocal = false
+): Promise<PinnedUpstreamAddress[]> {
   const isExplicitlyAllowed = allowLocal || process.env.TOOLVETO_ALLOW_LOCAL_UPSTREAMS === 'true';
-  if (isExplicitlyAllowed) return;
+  if (isExplicitlyAllowed) return [];
 
   const cleanHost = hostname.toLowerCase().trim().replace(/^\[|\]$/g, '');
   const isProduction = process.env.NODE_ENV === 'production';
   const isStandardLoopback = cleanHost === 'localhost' || cleanHost === '127.0.0.1' || cleanHost === '::1';
 
   if (!isProduction && isStandardLoopback) {
-    return;
+    return [];
   }
 
   if (isPrivateIpOrBlockedHost(cleanHost)) {
     throw new Error(`[ToolVeto Gateway Security] SSRF DNS check blocked: Host '${hostname}' is a private or reserved address.`);
   }
 
-  if (/^\d+\.\d+\.\d+\.\d+$/.test(cleanHost) || cleanHost.includes(':')) {
-    return;
+  const literalIpFamily = net.isIP(cleanHost);
+  if (literalIpFamily === 4 || literalIpFamily === 6) {
+    return [{ address: cleanHost, family: literalIpFamily }];
   }
 
   const records = await dns.promises.lookup(cleanHost, { all: true });
@@ -189,16 +279,133 @@ export async function validateUpstreamDns(hostname: string, allowLocal = false):
     throw new Error(`[ToolVeto Gateway Security] SSRF DNS check failed: Unable to resolve host '${hostname}'.`);
   }
 
+  const pinned: PinnedUpstreamAddress[] = [];
   for (const record of records) {
     if (isPrivateIpOrBlockedHost(record.address)) {
       throw new Error(
         `[ToolVeto Gateway Security] SSRF DNS rebinding blocked: Host '${hostname}' resolved to private/internal IP '${record.address}'.`
       );
     }
+    pinned.push({ address: record.address, family: record.family === 6 ? 6 : 4 });
   }
+  return pinned;
 }
 
-async function readResponseWithLimit(res: Response, maxBytes = MAX_BODY): Promise<string> {
+export async function validateUpstreamDns(hostname: string, allowLocal = false): Promise<void> {
+  await resolvePinnedUpstreamAddresses(hostname, allowLocal);
+}
+
+export async function pinnedUpstreamFetch(
+  urlStr: string,
+  options: PinnedUpstreamFetchOptions = {}
+): Promise<PinnedUpstreamResponse> {
+  const allowLocal = Boolean(options.allowLocal);
+  validateUpstreamUrl(urlStr, allowLocal);
+  const parsed = new URL(urlStr);
+  const pinnedAddresses = await resolvePinnedUpstreamAddresses(parsed.hostname, allowLocal);
+  const maxBytes = options.maxResponseBytes ?? MAX_BODY;
+
+  const pinnedLookup =
+    pinnedAddresses.length > 0
+      ? (
+          _hostname: string,
+          optsOrCb:
+            | number
+            | dns.LookupOptions
+            | ((err: NodeJS.ErrnoException | null, address: string | dns.LookupAddress[], family?: number) => void),
+          maybeCb?: (err: NodeJS.ErrnoException | null, address: string | dns.LookupAddress[], family?: number) => void
+        ) => {
+          const callback = typeof optsOrCb === 'function' ? optsOrCb : maybeCb!;
+          const lookupOpts = typeof optsOrCb === 'object' && optsOrCb !== null ? optsOrCb : {};
+          if (lookupOpts.all) {
+            callback(
+              null,
+              pinnedAddresses.map((entry) => ({ address: entry.address, family: entry.family }))
+            );
+          } else {
+            callback(null, pinnedAddresses[0].address, pinnedAddresses[0].family);
+          }
+        }
+      : undefined;
+
+  return new Promise<PinnedUpstreamResponse>((resolve, reject) => {
+    const transport = parsed.protocol === 'https:' ? https : http;
+    const reqOptions: https.RequestOptions = {
+      method: options.method || 'GET',
+      headers: options.headers || {},
+      ...(pinnedLookup ? { lookup: pinnedLookup as any } : {}),
+      ...(parsed.protocol === 'https:' ? { servername: parsed.hostname } : {}),
+      ...(options.signal ? { signal: options.signal } : {}),
+    };
+
+    let settled = false;
+    const clientReq = transport.request(parsed, reqOptions, (incoming) => {
+      if (settled) return;
+      settled = true;
+
+      let cachedTextPromise: Promise<string> | null = null;
+      const responseObj: PinnedUpstreamResponse = {
+        status: incoming.statusCode || 502,
+        headers: {
+          get(name: string): string | null {
+            const val = incoming.headers[name.toLowerCase()];
+            if (Array.isArray(val)) return val.join(', ');
+            return typeof val === 'string' ? val : null;
+          },
+        },
+        bodyStream: incoming,
+        abort: () => {
+          incoming.destroy();
+          clientReq.destroy();
+        },
+        text: () => {
+          if (cachedTextPromise) return cachedTextPromise;
+          cachedTextPromise = new Promise<string>((resText, rejText) => {
+            const cl = incoming.headers['content-length'];
+            if (cl && parseInt(String(cl), 10) > maxBytes) {
+              incoming.destroy();
+              rejText(new Error(`Upstream response exceeds ${maxBytes} byte limit`));
+              return;
+            }
+            const chunks: Buffer[] = [];
+            let totalBytes = 0;
+            incoming.on('data', (chunk: Buffer | string) => {
+              const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+              totalBytes += buf.length;
+              if (totalBytes > maxBytes) {
+                incoming.destroy();
+                rejText(new Error(`Upstream response exceeds ${maxBytes} byte limit`));
+                return;
+              }
+              chunks.push(buf);
+            });
+            incoming.once('end', () => resText(Buffer.concat(chunks).toString('utf8')));
+            incoming.once('error', (err) => rejText(err));
+          });
+          return cachedTextPromise;
+        },
+      };
+      resolve(responseObj);
+    });
+
+    clientReq.once('error', (err) => {
+      if (!settled) {
+        settled = true;
+        reject(err);
+      }
+    });
+
+    if (options.body !== undefined) {
+      clientReq.write(options.body);
+    }
+    clientReq.end();
+  });
+}
+
+async function readResponseWithLimit(
+  res: { headers: { get(name: string): string | null }; text(): Promise<string> },
+  maxBytes = MAX_BODY
+): Promise<string> {
   const cl = res.headers.get('content-length');
   if (cl && parseInt(cl, 10) > maxBytes) {
     throw new Error(`Upstream response exceeds ${maxBytes} byte limit`);
@@ -347,7 +554,7 @@ export class CloudTelemetrySyncer {
   public reportToolDefinitions(upstreamName: string, tools: Array<Record<string, any>>): void {
     if (!this.isEnabled() || !this.syncDrift || !Array.isArray(tools) || tools.length === 0) return;
     const repoName = this.repo.includes('/') ? this.repo : `${this.repo}/${upstreamName}`;
-    const p = fetch(`${this.apiUrl}/api/v1/drift/check`, {
+    const p = pinnedUpstreamFetch(`${this.apiUrl}/api/v1/drift/check`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -360,6 +567,7 @@ export class CloudTelemetrySyncer {
         tools,
       }),
       signal: AbortSignal.timeout(5000),
+      allowLocal: process.env.NODE_ENV !== 'production',
     })
       .then(async (r) => {
         await r.text().catch(() => '');
@@ -381,7 +589,7 @@ export class CloudTelemetrySyncer {
     if (!this.isEnabled()) return;
     while (this.spanQueue.length > 0) {
       const batch = this.spanQueue.splice(0, 100);
-      const p = fetch(`${this.apiUrl}/api/v1/traces/ingest`, {
+      const p = pinnedUpstreamFetch(`${this.apiUrl}/api/v1/traces/ingest`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -396,6 +604,7 @@ export class CloudTelemetrySyncer {
           spans: batch,
         }),
         signal: AbortSignal.timeout(5000),
+        allowLocal: process.env.NODE_ENV !== 'production',
       })
         .then(async (r) => {
           await r.text().catch(() => '');
@@ -439,17 +648,36 @@ export function getShieldOptionsForPolicy(policy: GatewayPolicy = 'standard'): S
   }
 }
 
+const SECRET_COMPARE_HMAC_KEY = crypto.randomBytes(32);
+
+function timingSafeEqualFixedDigest(a: string, b: string): boolean {
+  const digestA = crypto.createHmac('sha256', SECRET_COMPARE_HMAC_KEY).update(a, 'utf8').digest();
+  const digestB = crypto.createHmac('sha256', SECRET_COMPARE_HMAC_KEY).update(b, 'utf8').digest();
+  return crypto.timingSafeEqual(digestA, digestB);
+}
+
 function timingSafeMatchesAnySecret(candidate: string, secrets: string[]): boolean {
-  const candBuf = Buffer.from(candidate);
+  if (!candidate) return false;
   let matched = false;
   for (const secret of secrets) {
     if (!secret || secret.length < 16) continue;
-    const secBuf = Buffer.from(secret);
-    if (candBuf.length === secBuf.length && crypto.timingSafeEqual(candBuf, secBuf)) {
+    if (timingSafeEqualFixedDigest(candidate, secret)) {
       matched = true;
     }
   }
   return matched;
+}
+
+function sanitizeHeaderValue(raw: string): string {
+  return raw.replace(/[\r\n\0]+/g, '').trim();
+}
+
+function sanitizeReflectedText(raw: string, maxLen = 120): string {
+  return raw
+    .replace(/[\r\n\0\t]+/g, ' ')
+    .replace(/[<>]/g, '')
+    .trim()
+    .slice(0, maxLen);
 }
 
 function copyMcpProtocolRequestHeaders(
@@ -457,37 +685,80 @@ function copyMcpProtocolRequestHeaders(
   targetHeaders: Record<string, string>
 ): void {
   const sessionId = req.headers['mcp-session-id'];
-  if (typeof sessionId === 'string' && sessionId.trim()) {
-    targetHeaders['Mcp-Session-Id'] = sessionId.trim();
+  if (typeof sessionId === 'string') {
+    const clean = sanitizeHeaderValue(sessionId);
+    if (clean) targetHeaders['Mcp-Session-Id'] = clean;
   }
   const protocolVersion = req.headers['mcp-protocol-version'];
-  if (typeof protocolVersion === 'string' && protocolVersion.trim()) {
-    targetHeaders['Mcp-Protocol-Version'] = protocolVersion.trim();
+  if (typeof protocolVersion === 'string') {
+    const clean = sanitizeHeaderValue(protocolVersion);
+    if (clean) targetHeaders['Mcp-Protocol-Version'] = clean;
   }
   const lastEventId = req.headers['last-event-id'];
-  if (typeof lastEventId === 'string' && lastEventId.trim()) {
-    targetHeaders['Last-Event-ID'] = lastEventId.trim();
+  if (typeof lastEventId === 'string') {
+    const clean = sanitizeHeaderValue(lastEventId);
+    if (clean) targetHeaders['Last-Event-ID'] = clean;
   }
 }
 
 function copyMcpProtocolResponseHeaders(
-  upstreamRes: Response,
+  upstreamRes: { headers: { get(name: string): string | null } },
   targetHeaders: Record<string, string>
 ): void {
   const sessionId = upstreamRes.headers.get('mcp-session-id');
   if (sessionId) {
-    targetHeaders['Mcp-Session-Id'] = sessionId;
+    const clean = sanitizeHeaderValue(sessionId);
+    if (clean) targetHeaders['Mcp-Session-Id'] = clean;
   }
   const protocolVersion = upstreamRes.headers.get('mcp-protocol-version');
   if (protocolVersion) {
-    targetHeaders['Mcp-Protocol-Version'] = protocolVersion;
+    const clean = sanitizeHeaderValue(protocolVersion);
+    if (clean) targetHeaders['Mcp-Protocol-Version'] = clean;
   }
 }
 
 export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.Server {
   const loadedConfig = { ...loadGatewayConfig(), ...config };
+  const isProductionBoot = process.env.NODE_ENV === 'production';
+  const allowUnauthenticatedBoot = process.env.TOOLVETO_ALLOW_UNAUTHENTICATED_GATEWAY === 'true';
+  if (isProductionBoot && !allowUnauthenticatedBoot) {
+    if (
+      loadedConfig.auth?.type !== 'bearer' ||
+      !loadedConfig.auth.secret ||
+      loadedConfig.auth.secret.length < 16
+    ) {
+      throw new Error(
+        '[ToolVeto Gateway Security] Fail-closed: Production gateway requires auth.type="bearer" with a secret >= 16 characters.'
+      );
+    }
+  }
   const ALLOWED_ORIGINS = new Set(['https://toolveto.ai', 'http://localhost:3000', 'http://localhost:8080']);
   const cloudSyncer = new CloudTelemetrySyncer(loadedConfig.cloud);
+
+  function checkGatewayAuth(req: http.IncomingMessage): { authorized: boolean; misconfigured?: boolean } {
+    const isProd = process.env.NODE_ENV === 'production';
+    const allowUnauth = process.env.TOOLVETO_ALLOW_UNAUTHENTICATED_GATEWAY === 'true';
+    const isBearer = loadedConfig.auth?.type === 'bearer';
+
+    if (!isBearer) {
+      if (isProd && !allowUnauth) {
+        return { authorized: false, misconfigured: true };
+      }
+      return { authorized: true };
+    }
+
+    const primarySecret = loadedConfig.auth?.secret || '';
+    const prevSecret = loadedConfig.auth?.previousSecret || process.env.TOOLVETO_GATEWAY_SECRET_PREV || '';
+    if (primarySecret.length < 16) {
+      return { authorized: false, misconfigured: true };
+    }
+    const authHeader = req.headers['authorization'];
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return { authorized: false };
+    }
+    const candidate = authHeader.slice(7).trim();
+    return { authorized: timingSafeMatchesAnySecret(candidate, [primarySecret, prevSecret]) };
+  }
 
   interface CompiledUpstreamRoute {
     key: string;
@@ -622,6 +893,22 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
 
     // 1. Healthcheck Endpoint
     if (req.method === 'GET' && (url.pathname === '/health' || url.pathname === '/healthz' || url.pathname === '/')) {
+      const authStatus = checkGatewayAuth(req);
+      const isProd = process.env.NODE_ENV === 'production';
+
+      if (isProd && !authStatus.authorized) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            status: 'healthy',
+            service: 'toolveto-gateway',
+            version: loadedConfig.version || '1.0',
+            upstreamCount: Object.keys(loadedConfig.upstreams).length,
+          })
+        );
+        return;
+      }
+
       const allMetrics: Record<string, any> = {};
       for (const [k, m] of middlewares.entries()) {
         allMetrics[k] = m.getMetrics();
@@ -634,12 +921,22 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
           service: 'toolveto-gateway',
           version: loadedConfig.version || '1.0',
           cloudSyncEnabled: cloudSyncer.isEnabled(),
-          upstreams: Object.keys(loadedConfig.upstreams).map((k) => ({
-            name: k,
-            url: loadedConfig.upstreams[k].url,
-            prefix: loadedConfig.upstreams[k].pathPrefix || 'none',
-            policy: loadedConfig.upstreams[k].policy || 'standard',
-          })),
+          upstreams: Object.keys(loadedConfig.upstreams).map((k) => {
+            const rawUrl = loadedConfig.upstreams[k].url;
+            let safeUrl = '[redacted]';
+            try {
+              const u = new URL(rawUrl);
+              safeUrl = `${u.origin}${u.pathname}`;
+            } catch {
+              safeUrl = rawUrl;
+            }
+            return {
+              name: k,
+              url: isProd ? '[redacted]' : safeUrl,
+              prefix: loadedConfig.upstreams[k].pathPrefix || 'none',
+              policy: loadedConfig.upstreams[k].policy || 'standard',
+            };
+          }),
           metrics: allMetrics,
         })
       );
@@ -648,6 +945,20 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
 
     // 2. Metrics Endpoint (Prometheus + JSON)
     if (req.method === 'GET' && url.pathname === '/metrics') {
+      const authStatus = checkGatewayAuth(req);
+      if (process.env.NODE_ENV === 'production' && process.env.TOOLVETO_ALLOW_UNAUTHENTICATED_METRICS !== 'true') {
+        if (authStatus.misconfigured) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32603, message: 'Server configuration error: Gateway secret missing or <16 chars' } }));
+          return;
+        }
+        if (!authStatus.authorized) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32000, message: 'Unauthorized: Invalid or missing Bearer token' } }));
+          return;
+        }
+      }
+
       const acceptsJson = req.headers.accept?.includes('application/json') || url.searchParams.get('format') === 'json';
 
       let totalCalls = 0;
@@ -708,23 +1019,15 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
       return;
     }
 
-    // 3. Auth Check (Bearer Token verification with dual-key rotation support)
-    if (loadedConfig.auth?.type === 'bearer') {
-      const primarySecret = loadedConfig.auth.secret || '';
-      const prevSecret = loadedConfig.auth.previousSecret || process.env.TOOLVETO_GATEWAY_SECRET_PREV || '';
-      if (primarySecret.length < 16) {
+    // 3. Auth Check (Fail-closed in production + HMAC constant-time dual-key rotation)
+    {
+      const authStatus = checkGatewayAuth(req);
+      if (authStatus.misconfigured) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32603, message: 'Server configuration error: Gateway secret missing or <16 chars' } }));
         return;
       }
-      const authHeader = req.headers['authorization'];
-      if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        res.writeHead(401, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32000, message: 'Unauthorized: Invalid or missing Bearer token' } }));
-        return;
-      }
-      const candidate = authHeader.slice(7).trim();
-      if (!timingSafeMatchesAnySecret(candidate, [primarySecret, prevSecret])) {
+      if (!authStatus.authorized) {
         res.writeHead(401, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32000, message: 'Unauthorized: Invalid or missing Bearer token' } }));
         return;
@@ -753,7 +1056,6 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
 
       try {
         validateUpstreamUrl(upstream.url, upstream.allowLocal);
-        await validateUpstreamDns(new URL(upstream.url).hostname, upstream.allowLocal);
 
         const headers: Record<string, string> = {
           Accept: req.method === 'GET' ? 'text/event-stream, application/json' : 'application/json',
@@ -765,24 +1067,36 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
         copyMcpProtocolRequestHeaders(req, headers);
 
         const controller = new AbortController();
+        const envSseMaxMs = Number(process.env.TOOLVETO_SSE_MAX_DURATION_MS);
+        const sseMaxMs = Number.isFinite(envSseMaxMs) && envSseMaxMs > 0 ? envSseMaxMs : Math.max(upstream.timeoutMs || 0, 5 * 60 * 1000);
         let nodeStream: Readable | null = null;
+        let maxDurationTimer: NodeJS.Timeout | null = null;
         const cleanupStream = () => {
-          controller.abort();
+          if (maxDurationTimer) {
+            clearTimeout(maxDurationTimer);
+            maxDurationTimer = null;
+          }
+          if (!controller.signal.aborted) {
+            controller.abort();
+          }
           if (nodeStream && !nodeStream.destroyed) {
             nodeStream.destroy();
           }
         };
         res.once('close', cleanupStream);
+        res.once('finish', cleanupStream);
         req.socket?.once('close', cleanupStream);
 
-        const upstreamRes = await fetch(upstream.url, {
+        const upstreamRes = await pinnedUpstreamFetch(upstream.url, {
           method: req.method,
           headers,
           signal: req.method === 'DELETE' ? AbortSignal.timeout(upstream.timeoutMs || 15000) : controller.signal,
-          redirect: 'manual',
+          allowLocal: upstream.allowLocal,
         });
 
         if (upstreamRes.status >= 300 && upstreamRes.status < 400) {
+          upstreamRes.abort();
+          cleanupStream();
           res.writeHead(502, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Upstream redirect disallowed (SSRF protection)' }));
           return;
@@ -790,31 +1104,45 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
 
         const outHeaders: Record<string, string> = {};
         const ct = upstreamRes.headers.get('content-type');
-        if (ct) outHeaders['Content-Type'] = ct;
+        if (ct) outHeaders['Content-Type'] = sanitizeHeaderValue(ct);
         copyMcpProtocolResponseHeaders(upstreamRes, outHeaders);
 
-        if (req.method === 'DELETE' || !ct?.includes('text/event-stream') || !upstreamRes.body) {
+        if (req.method === 'DELETE' || !ct?.includes('text/event-stream')) {
           const text = await readResponseWithLimit(upstreamRes, MAX_BODY);
+          cleanupStream();
           res.writeHead(upstreamRes.status, outHeaders);
           res.end(text);
           return;
         }
+
+        maxDurationTimer = setTimeout(() => {
+          cleanupStream();
+          if (!res.writableEnded) res.end();
+        }, sseMaxMs);
+        maxDurationTimer.unref?.();
 
         outHeaders['Cache-Control'] = 'no-cache';
         outHeaders['Connection'] = 'keep-alive';
         outHeaders['X-Accel-Buffering'] = 'no';
         res.writeHead(upstreamRes.status, outHeaders);
         res.flushHeaders();
-        nodeStream = Readable.fromWeb(upstreamRes.body as any);
+        nodeStream = upstreamRes.bodyStream;
+        nodeStream.once('end', cleanupStream);
+        nodeStream.once('close', cleanupStream);
         nodeStream.on('error', () => {
+          cleanupStream();
           if (!res.writableEnded) res.end();
         });
         nodeStream.pipe(res);
         return;
       } catch (err: any) {
         if (!res.headersSent) {
+          const safeMsg =
+            process.env.NODE_ENV === 'production' && !String(err?.message || '').startsWith('[ToolVeto Gateway')
+              ? 'Upstream connection failed'
+              : sanitizeReflectedText(String(err?.message || 'Upstream connection failed'), 200);
           res.writeHead(502, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: err.message || 'Upstream connection failed' }));
+          res.end(JSON.stringify({ error: safeMsg }));
         }
         return;
       }
@@ -877,8 +1205,6 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
           }
 
           if (upstream.url && upstream.url.startsWith('http')) {
-            validateUpstreamUrl(upstream.url, upstream.allowLocal);
-            await validateUpstreamDns(new URL(upstream.url).hostname, upstream.allowLocal);
             const headers: Record<string, string> = {
               'Content-Type': 'application/json',
               Accept: 'application/json, text/event-stream',
@@ -887,12 +1213,12 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
             if (upstream.authHeader) headers['Authorization'] = upstream.authHeader;
             copyMcpProtocolRequestHeaders(req, headers);
 
-            const upstreamRes = await fetch(upstream.url, {
+            const upstreamRes = await pinnedUpstreamFetch(upstream.url, {
               method: 'POST',
               headers,
               body,
               signal: AbortSignal.timeout(upstream.timeoutMs || 30000),
-              redirect: 'manual',
+              allowLocal: upstream.allowLocal,
             });
             const outHeaders: Record<string, string> = {};
             copyMcpProtocolResponseHeaders(upstreamRes, outHeaders);
@@ -917,8 +1243,6 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
             const upStart = performance.now();
             try {
               if (upstream.url && upstream.url.startsWith('http')) {
-                validateUpstreamUrl(upstream.url, upstream.allowLocal);
-                await validateUpstreamDns(new URL(upstream.url).hostname, upstream.allowLocal);
                 const headers: Record<string, string> = {
                   'Content-Type': 'application/json',
                   Accept: 'application/json, text/event-stream',
@@ -936,20 +1260,21 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
                   params: rpcReq.params,
                 };
 
-                const upstreamRes = await fetch(upstream.url, {
+                const upstreamRes = await pinnedUpstreamFetch(upstream.url, {
                   method: 'POST',
                   headers,
                   body: JSON.stringify(outboundRpc),
                   signal: AbortSignal.timeout(upstream.timeoutMs || 30000),
-                  redirect: 'manual',
+                  allowLocal: upstream.allowLocal,
                 });
 
                 copyMcpProtocolResponseHeaders(upstreamRes, upstreamProtocolHeaders);
 
                 if (upstreamRes.status >= 300 && upstreamRes.status < 400) {
+                  upstreamRes.abort();
                   return {
                     isError: true,
-                    content: [{ type: 'text', text: `[ToolVeto Gateway Security] Upstream redirect to ${upstreamRes.headers.get('location') || 'unknown'} disallowed (SSRF protection).` }],
+                    content: [{ type: 'text', text: '[ToolVeto Gateway Security] Upstream redirect disallowed (SSRF protection).' }],
                   };
                 }
 
@@ -964,14 +1289,14 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
                 } catch {
                   return {
                     isError: true,
-                    content: [{ type: 'text', text: `Upstream response was not valid JSON/SSE: ${responseText.slice(0, 200)}` }],
+                    content: [{ type: 'text', text: `Upstream response was not valid JSON/SSE (status ${upstreamRes.status}): ${sanitizeReflectedText(responseText, 120)}` }],
                   };
                 }
 
                 if (data?.error) {
                   return {
                     isError: true,
-                    content: [{ type: 'text', text: data.error.message || JSON.stringify(data.error) }],
+                    content: [{ type: 'text', text: sanitizeReflectedText(String(data.error.message || JSON.stringify(data.error)), 400) }],
                   };
                 }
                 return data?.result || data;
@@ -1027,8 +1352,6 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
 
         // Forward all other JSON-RPC methods (initialize, tools/list, resources/*, prompts/*) to upstream
         if (upstream.url && upstream.url.startsWith('http')) {
-          validateUpstreamUrl(upstream.url, upstream.allowLocal);
-          await validateUpstreamDns(new URL(upstream.url).hostname, upstream.allowLocal);
           const headers: Record<string, string> = {
             'Content-Type': 'application/json',
             Accept: 'application/json, text/event-stream',
@@ -1039,15 +1362,16 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
           }
           copyMcpProtocolRequestHeaders(req, headers);
 
-          const upstreamRes = await fetch(upstream.url, {
+          const upstreamRes = await pinnedUpstreamFetch(upstream.url, {
             method: 'POST',
             headers,
             body,
             signal: AbortSignal.timeout(upstream.timeoutMs || 30000),
-            redirect: 'manual',
+            allowLocal: upstream.allowLocal,
           });
 
           if (upstreamRes.status >= 300 && upstreamRes.status < 400) {
+            upstreamRes.abort();
             res.writeHead(502, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32603, message: 'Upstream redirect disallowed (SSRF protection)' } }));
             return;
@@ -1139,8 +1463,13 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
           })
         );
       } catch (err: any) {
+        const msg = String(err?.message || 'Internal gateway error');
+        const safeMsg =
+          process.env.NODE_ENV === 'production' && !msg.startsWith('[ToolVeto Gateway')
+            ? 'Internal gateway error'
+            : sanitizeReflectedText(msg, 300);
         res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32603, message: err.message } }));
+        res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32603, message: safeMsg } }));
       }
       return;
     }

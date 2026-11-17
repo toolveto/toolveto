@@ -50,10 +50,26 @@ export interface GatewayYamlConfig {
   upstreams: Record<string, UpstreamRouteConfig>;
 }
 
+const ALLOWED_CONFIG_ENV_PREFIXES = ['TOOLVETO_', 'GATEWAY_', 'UPSTREAM_', 'MCP_'];
+const ALLOWED_CONFIG_ENV_NAMES = new Set(['PORT', 'NODE_ENV', 'STRIPE_API_KEY', 'NEON_API_KEY', 'GITHUB_TOKEN']);
+const UNSAFE_OBJECT_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
+function isAllowedConfigEnvKey(key: string): boolean {
+  const normalized = key.trim();
+  if (ALLOWED_CONFIG_ENV_NAMES.has(normalized)) return true;
+  return ALLOWED_CONFIG_ENV_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+}
+
 function expandEnvPlaceholders(value: any): any {
   if (typeof value === 'string') {
     return value.replace(/\$\{([^}:]+)(?::-?([^}]*))?\}/g, (_, key, fallback) => {
-      const envVal = process.env[key];
+      const normalizedKey = String(key).trim();
+      if (!isAllowedConfigEnvKey(normalizedKey)) {
+        throw new Error(
+          `[ToolVeto Gateway] Disallowed environment variable placeholder "${normalizedKey}" in gateway config`
+        );
+      }
+      const envVal = process.env[normalizedKey];
       return envVal !== undefined && envVal !== '' ? envVal : (fallback ?? '');
     });
   }
@@ -63,7 +79,13 @@ function expandEnvPlaceholders(value: any): any {
   if (value && typeof value === 'object') {
     const out: Record<string, any> = {};
     for (const [k, v] of Object.entries(value)) {
-      out[k] = expandEnvPlaceholders(v);
+      if (UNSAFE_OBJECT_KEYS.has(k)) continue;
+      Object.defineProperty(out, k, {
+        value: expandEnvPlaceholders(v),
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
     }
     return out;
   }
@@ -91,7 +113,8 @@ export function loadLockfileHashesFromDisk(lockfilePath?: string): Record<string
 }
 
 export function parseGatewayYaml(content: string): GatewayYamlConfig {
-  const rawParsed = expandEnvPlaceholders(parseYaml(content) || {});
+  const parsed = parseYaml(content, { maxAliasCount: 32 });
+  const rawParsed = expandEnvPlaceholders(parsed || {});
   const defaultPolicy: GatewayPolicy =
     (rawParsed.defaultPolicy || rawParsed.policy || 'standard') as GatewayPolicy;
   const topAllowLocal =
@@ -206,12 +229,8 @@ export function loadGatewayConfig(targetDir = '.'): GatewayYamlConfig {
 
   for (const candidate of candidates) {
     if (fs.existsSync(candidate)) {
-      try {
-        const raw = fs.readFileSync(candidate, 'utf-8');
-        return parseGatewayYaml(raw);
-      } catch {
-        // Fall back to default
-      }
+      const raw = fs.readFileSync(candidate, 'utf-8');
+      return parseGatewayYaml(raw);
     }
   }
 

@@ -6,6 +6,37 @@ export interface PostgresClientLike {
 
 export interface PostgresShieldStorageOptions {
   vacuumIntervalCalls?: number; // default: 500 (0 disables automatic cleanup)
+  statementTimeoutMs?: number; // default: 5000ms (bounded DB query timeout)
+}
+
+export interface HardenedShieldPgConfig {
+  connectionString: string;
+  max: number;
+  connectionTimeoutMillis: number;
+  statement_timeout: number;
+  query_timeout: number;
+  idle_in_transaction_session_timeout: number;
+}
+
+export function createHardenedShieldPgConfig(
+  connectionString: string,
+  options: {
+    statementTimeoutMs?: number;
+    queryTimeoutMs?: number;
+    connectionTimeoutMillis?: number;
+    max?: number;
+  } = {}
+): HardenedShieldPgConfig {
+  const statementTimeoutMs = Math.max(100, Math.min(options.statementTimeoutMs ?? 5000, 10000));
+  const queryTimeoutMs = Math.max(100, Math.min(options.queryTimeoutMs ?? statementTimeoutMs, 10000));
+  return {
+    connectionString,
+    max: options.max ?? 20,
+    connectionTimeoutMillis: options.connectionTimeoutMillis ?? 5000,
+    statement_timeout: statementTimeoutMs,
+    query_timeout: queryTimeoutMs,
+    idle_in_transaction_session_timeout: 10000,
+  };
 }
 
 export class PostgresShieldStorage implements ShieldStorage {
@@ -13,32 +44,54 @@ export class PostgresShieldStorage implements ShieldStorage {
   private callCounter = 0;
   private vacuumInFlight = false;
   private vacuumIntervalCalls: number;
+  private statementTimeoutMs: number;
 
   constructor(
     private client: PostgresClientLike,
     options: PostgresShieldStorageOptions = {}
   ) {
     this.vacuumIntervalCalls = options.vacuumIntervalCalls ?? 500;
+    this.statementTimeoutMs = options.statementTimeoutMs ?? 5000;
+  }
+
+  private async runQuery(sql: string, params?: any[]): Promise<{ rows: any[] }> {
+    if (this.statementTimeoutMs <= 0) {
+      return this.client.query(sql, params);
+    }
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      return await Promise.race([
+        this.client.query(sql, params),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            reject(new Error(`[ToolVeto Shield Postgres] Query exceeded ${this.statementTimeoutMs}ms statementTimeoutMs`));
+          }, this.statementTimeoutMs);
+          timer.unref?.();
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   private async ensureTables(): Promise<void> {
     if (this.tablesInitialized) return;
     try {
-      await this.client.query(`
+      await this.runQuery(`
         CREATE TABLE IF NOT EXISTS toolveto_shield_cache (
           key VARCHAR(255) PRIMARY KEY,
           value TEXT NOT NULL,
           expires_at BIGINT
         );
       `);
-      await this.client.query(`
+      await this.runQuery(`
         CREATE TABLE IF NOT EXISTS toolveto_shield_calls (
           key VARCHAR(255) NOT NULL,
           call_timestamp BIGINT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_toolveto_shield_calls_key_time ON toolveto_shield_calls(key, call_timestamp);
       `);
-      await this.client.query(`
+      await this.runQuery(`
         CREATE TABLE IF NOT EXISTS toolveto_shield_locks (
           key VARCHAR(255) PRIMARY KEY,
           expires_at BIGINT NOT NULL
@@ -57,14 +110,14 @@ export class PostgresShieldStorage implements ShieldStorage {
   async get(key: string): Promise<McpCallResponse | undefined> {
     await this.ensureTables();
     const now = Date.now();
-    const res = await this.client.query(
+    const res = await this.runQuery(
       `SELECT value, expires_at FROM toolveto_shield_cache WHERE key = $1`,
       [key]
     );
     if (!res.rows || res.rows.length === 0) return undefined;
     const row = res.rows[0];
     if (row.expires_at && Number(row.expires_at) < now) {
-      this.client.query(`DELETE FROM toolveto_shield_cache WHERE key = $1`, [key]).catch(() => {});
+      this.runQuery(`DELETE FROM toolveto_shield_cache WHERE key = $1`, [key]).catch(() => {});
       return undefined;
     }
     try {
@@ -78,7 +131,7 @@ export class PostgresShieldStorage implements ShieldStorage {
     await this.ensureTables();
     const expiresAt = ttlMs ? Date.now() + ttlMs : null;
     const serialized = JSON.stringify(value);
-    await this.client.query(
+    await this.runQuery(
       `INSERT INTO toolveto_shield_cache (key, value, expires_at)
        VALUES ($1, $2, $3)
        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, expires_at = EXCLUDED.expires_at`,
@@ -91,7 +144,7 @@ export class PostgresShieldStorage implements ShieldStorage {
     const windowStart = timestamp - windowMs;
 
     // Single-RTT CTE combining INSERT and sliding-window COUNT(*)
-    const countRes = await this.client.query(
+    const countRes = await this.runQuery(
       `WITH inserted AS (
          INSERT INTO toolveto_shield_calls (key, call_timestamp) VALUES ($1, $2)
        )
@@ -108,8 +161,7 @@ export class PostgresShieldStorage implements ShieldStorage {
     ) {
       this.callCounter = 0;
       this.vacuumInFlight = true;
-      this.client
-        .query(`DELETE FROM toolveto_shield_calls WHERE call_timestamp < $1`, [windowStart])
+      this.runQuery(`DELETE FROM toolveto_shield_calls WHERE call_timestamp < $1`, [windowStart])
         .catch(() => {})
         .finally(() => {
           this.vacuumInFlight = false;
@@ -123,7 +175,7 @@ export class PostgresShieldStorage implements ShieldStorage {
     await this.ensureTables();
     const now = Date.now();
     const expiresAt = now + ttlMs;
-    const res = await this.client.query(
+    const res = await this.runQuery(
       `INSERT INTO toolveto_shield_locks (key, expires_at)
        VALUES ($1, $2)
        ON CONFLICT (key) DO UPDATE SET expires_at = EXCLUDED.expires_at
@@ -136,12 +188,12 @@ export class PostgresShieldStorage implements ShieldStorage {
 
   async releaseLock(key: string): Promise<void> {
     await this.ensureTables();
-    await this.client.query(`DELETE FROM toolveto_shield_locks WHERE key = $1`, [key]);
+    await this.runQuery(`DELETE FROM toolveto_shield_locks WHERE key = $1`, [key]);
   }
 
   async clear(): Promise<void> {
     await this.ensureTables();
-    await this.client.query(`TRUNCATE TABLE toolveto_shield_cache, toolveto_shield_calls, toolveto_shield_locks`);
+    await this.runQuery(`TRUNCATE TABLE toolveto_shield_cache, toolveto_shield_calls, toolveto_shield_locks`);
   }
 }
 
