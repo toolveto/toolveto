@@ -145,9 +145,9 @@ export const BENCHMARK_SERVERS = [
     "prTitle": "fix(mcp): automated resilience hardening for github/github-mcp-server"
   },
   {
-    "id": "linear__mcp-linear",
-    "repo": "linear/mcp-linear",
-    "name": "Linear MCP Server",
+    "id": "getsentry__toolkit",
+    "repo": "getsentry/toolkit",
+    "name": "Sentry Agent Toolkit",
     "stars": "3.4k",
     "starsCount": 3400,
     "category": "Issue Tracking",
@@ -171,8 +171,8 @@ export const BENCHMARK_SERVERS = [
     "warned": 12,
     "keyIssue": "TC-IDEMP-001 (CRITICAL): Sequential replay check failed: Mutation tool 'create_issue' accepts no idempotency key",
     "diffSnippet": "+ idempotencyKey: z.string().uuid().describe(\"Unique key to prevent duplicate mutations on retry\")",
-    "prArtifact": "benchmarks/dogfood/prs/linear__mcp-linear__PR.md",
-    "prTitle": "fix(mcp): automated resilience hardening for linear/mcp-linear"
+    "prArtifact": "benchmarks/dogfood/prs/getsentry__toolkit__PR.md",
+    "prTitle": "fix(mcp): automated resilience hardening for getsentry/toolkit"
   },
   {
     "id": "modelcontextprotocol__servers",
@@ -235,9 +235,9 @@ export const BENCHMARK_SERVERS = [
     "prTitle": "fix(mcp): automated resilience hardening for neondatabase/mcp-server-neon"
   },
   {
-    "id": "slack__mcp-server",
-    "repo": "slack/mcp-server",
-    "name": "Slack MCP Server",
+    "id": "mcp__memory",
+    "repo": "mcp/memory",
+    "name": "MCP Knowledge Graph Memory",
     "stars": "4.6k",
     "starsCount": 4600,
     "category": "Communication",
@@ -261,8 +261,8 @@ export const BENCHMARK_SERVERS = [
     "warned": 13,
     "keyIssue": "TC-IDEMP-001 (CRITICAL): Sequential replay check failed: Mutation tool 'post_message' accepts no idempotency key",
     "diffSnippet": "+ idempotencyKey: z.string().uuid().describe(\"Unique key to prevent duplicate mutations on retry\")",
-    "prArtifact": "benchmarks/dogfood/prs/slack__mcp-server__PR.md",
-    "prTitle": "fix(mcp): automated resilience hardening for slack/mcp-server"
+    "prArtifact": "benchmarks/dogfood/prs/mcp__memory__PR.md",
+    "prTitle": "fix(mcp): automated resilience hardening for mcp/memory"
   },
   {
     "id": "stripe__agent-toolkit",

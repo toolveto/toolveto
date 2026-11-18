@@ -592,6 +592,64 @@ export function runToolRugPullBloatCheck(
   };
 }
 
+function isCatchAllRegexPattern(pattern: string): boolean {
+  const trimmed = pattern.trim();
+  if (!trimmed) return true;
+  return /^(?:\^)?(?:\.\*|\.\+|\(\.\*\)|\(\.\+\)|\[\\s\\S\]\*|\[\\s\\S\]\+|\[\\w\\W\]\*|\[\^\]\*)(?:\$)?$/.test(trimmed);
+}
+
+function hasMeaningfulAllowlistConstraint(s: any): boolean {
+  if (!s || typeof s !== 'object') return false;
+  if (s.const !== undefined) return true;
+  if (Array.isArray(s.enum) && s.enum.length > 0) return true;
+  if (typeof s.pattern === 'string' && !isCatchAllRegexPattern(s.pattern)) return true;
+  return false;
+}
+
+const BENIGN_CODE_SUFFIX_RE =
+  /^(?:currency|status|postal|country|zip|area|error|promo|discount|invite|auth|verification|totp|mfa|lang|language|color|airport|iata|icao|mcc|sic|naics|hs|tax|reason|response|http|exit|return)_code$/i;
+const EXPANDED_EXEC_SQL_PARAM_RE =
+  /(?:^|_)(?:command|cmd|shell|bash|zsh|powershell|sh|exec|eval|code|script|raw_sql|sql|sql_query|query_raw)(?:_|$)/i;
+const EXPANDED_PATH_PARAM_RE =
+  /(?:^|_)(?:file_path|filepath|dir_path|directory|target_path|local_path|output_path)(?:_|$)/i;
+
+function collectNestedParameters(
+  schema: any,
+  out: Array<{ name: string; schema: any }> = [],
+  visited = new WeakSet<object>(),
+  depth = 0
+): Array<{ name: string; schema: any }> {
+  if (!schema || typeof schema !== 'object' || depth > 16) return out;
+  if (visited.has(schema)) return out;
+  visited.add(schema);
+
+  if (schema.properties && typeof schema.properties === 'object') {
+    for (const [key, propSchema] of Object.entries(schema.properties)) {
+      out.push({ name: key, schema: propSchema });
+      collectNestedParameters(propSchema, out, visited, depth + 1);
+    }
+  }
+  if (schema.items && typeof schema.items === 'object') {
+    collectNestedParameters(schema.items, out, visited, depth + 1);
+  }
+  for (const branchKey of ['anyOf', 'oneOf', 'allOf'] as const) {
+    if (Array.isArray(schema[branchKey])) {
+      for (const sub of schema[branchKey]) {
+        collectNestedParameters(sub, out, visited, depth + 1);
+      }
+    }
+  }
+  return out;
+}
+
+function isStringAcceptingSchema(s: any): boolean {
+  if (!s || typeof s !== 'object') return true;
+  if (s.type === undefined || s.type === 'string') return true;
+  if (Array.isArray(s.type) && s.type.includes('string')) return true;
+  if (s.type === 'array' && (!s.items || s.items.type === undefined || s.items.type === 'string')) return true;
+  return false;
+}
+
 /**
  * TC-SEC-004 (D2): Audits tool/param names for Unicode homoglyphs/control chars, unsanitized command/SQL sinks, and prompt overrides.
  */
@@ -600,12 +658,13 @@ export function runParamNameAndSinkSecurityCheck(
   prompts?: McpPromptDefinition[]
 ): CheckResult {
   const start = Date.now();
-  const props = tool.inputSchema?.properties || {};
-  const identifiers = [tool.name, ...Object.keys(props)];
+  const nestedParams = collectNestedParameters(tool.inputSchema);
+  const identifiers = [tool.name, ...nestedParams.map((p) => p.name)];
 
   for (const id of identifiers) {
     if (
       INVISIBLE_OR_BIDI_PATTERN.test(id) ||
+      /[\uFF00-\uFFEF]/.test(id) ||
       MIXED_SCRIPT_HOMOGLYPH_PATTERN.test(id) ||
       !SAFE_TOOL_NAME_PATTERN.test(id)
     ) {
@@ -625,8 +684,16 @@ export function runParamNameAndSinkSecurityCheck(
 
   if (prompts && prompts.length > 0) {
     for (const p of prompts) {
-      const text = `${p.name} ${p.description || ''} ${p.templateText || ''}`;
-      if (INVISIBLE_OR_BIDI_PATTERN.test(text) || /ignore (all )?(previous|prior) instructions/i.test(text)) {
+      const rawText = `${p.name} ${p.description || ''} ${p.templateText || ''}`;
+      const normalizedText = rawText
+        .normalize('NFKC')
+        .replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFEFF]/g, '');
+      if (
+        INVISIBLE_OR_BIDI_PATTERN.test(rawText) ||
+        /(?:ignore|disregard|forget)\s+(?:all\s+)?(?:previous|prior|above)\s+(?:instructions|prompts|rules|directives)|system\s*override|<system>|<<SYS>>|you\s+are\s+now\s+(?:DAN|unfiltered|jailbroken)/i.test(
+          normalizedText
+        )
+      ) {
         return {
           checkId: 'TC-SEC-004',
           dimension: 'D2',
@@ -644,14 +711,18 @@ export function runParamNameAndSinkSecurityCheck(
 
   const execSqlSinks: string[] = [];
   const pathSinks: string[] = [];
-  for (const [key, rawSchema] of Object.entries(props)) {
+  for (const { name: key, schema: rawSchema } of nestedParams) {
     const s: any = rawSchema || {};
-    const hasConstraint = Boolean(Array.isArray(s.enum) || s.pattern || s.const !== undefined);
-    if (DANGEROUS_EXEC_SQL_PARAM_PATTERN.test(key) && s.type === 'string' && !hasConstraint) {
+    if (!isStringAcceptingSchema(s)) continue;
+    const hasConstraint = hasMeaningfulAllowlistConstraint(s);
+    const isExecSqlName =
+      DANGEROUS_EXEC_SQL_PARAM_PATTERN.test(key) ||
+      (EXPANDED_EXEC_SQL_PARAM_RE.test(key) && !BENIGN_CODE_SUFFIX_RE.test(key));
+
+    if (isExecSqlName && !hasConstraint) {
       execSqlSinks.push(key);
-    } else if (DANGEROUS_PATH_PARAM_PATTERN.test(key) && s.type === 'string' && !hasConstraint) {
-      const mentionsSafeScope = /relative|allowed|workspace|root|sandbox/i.test(`${tool.description || ''} ${s.description || ''}`);
-      if (!mentionsSafeScope) pathSinks.push(key);
+    } else if ((DANGEROUS_PATH_PARAM_PATTERN.test(key) || EXPANDED_PATH_PARAM_RE.test(key)) && !hasConstraint) {
+      pathSinks.push(key);
     }
   }
 
@@ -839,6 +910,34 @@ export function runHttpTransportAuthCheck(
   };
 }
 
+function stripSourceComments(content: string): string {
+  return content
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/^\s*\/\/.*$/gm, ' ')
+    .replace(/^\s*#.*$/gm, ' ');
+}
+
+function fileHasRealPathContainmentGuard(content: string): boolean {
+  const clean = stripSourceComments(content);
+  const hasCanonicalize =
+    /\b(?:path\.resolve|fs\.realpath|fs\.realpathSync|realpath|os\.path\.realpath|os\.path\.abspath|\.resolve\s*\(|filepath\.Clean|filepath\.EvalSymlinks)\b/.test(
+      clean
+    );
+  const hasContainmentCheck =
+    /\b(?:startsWith|path\.relative|commonpath|is_relative_to|strings\.HasPrefix)\b/.test(clean);
+  return hasCanonicalize && hasContainmentCheck;
+}
+
+function isSsrfResourceUriTemplate(uriTemplate: string): boolean {
+  const trimmed = (uriTemplate || '').trim();
+  // 1. Variable inside HTTP(S) authority/host before first path slash: https://{host}/x or https://api.{host}/x
+  if (/^https?:\/\/[^/?#]*\{[^}]+\}/i.test(trimmed)) return true;
+  // 2. Variable scheme or full URL expansion at start: {url}, {+url}, {scheme}://{host}/x
+  if (/^\{[+#./;?&]?[A-Za-z0-9_]+\}(?::\/\/|\/|$)/.test(trimmed)) return true;
+  if (/^[A-Za-z0-9+.-]*\{[^}]+\}[A-Za-z0-9+.-]*:\/\//.test(trimmed)) return true;
+  return false;
+}
+
 /**
  * TC-RES-003 (D5): Checks MCP resource templates for path-traversal URI variables, SSRF hosts, and missing mimeType.
  */
@@ -848,14 +947,26 @@ export function runResourceTemplateSecurityCheck(
 ): CheckResult {
   const start = Date.now();
   const templates = resourceTemplates || [];
-  const hasTraversalGuardInSource = Boolean(
-    sourceFiles?.some((f) => /\bpath\.resolve\b|\brealpath\b|\.startsWith\s*\(/.test(f.content))
-  );
 
+  const hasGuardForTemplate = (tpl: McpResourceTemplateDefinition): boolean => {
+    if (!sourceFiles || sourceFiles.length === 0) return false;
+    if (tpl.sourceFile) {
+      const matching = sourceFiles.find((f) => f.path === tpl.sourceFile || f.path.endsWith(tpl.sourceFile!));
+      if (matching) {
+        return fileHasRealPathContainmentGuard(matching.content);
+      }
+    }
+    return sourceFiles.some((f) => fileHasRealPathContainmentGuard(f.content));
+  };
+
+  const ssrfTemplates = templates.filter((t) => isSsrfResourceUriTemplate(t.uriTemplate));
   const traversalTemplates = templates.filter(
-    (t) => /^file:\/\//i.test(t.uriTemplate) && /\{[^}]+\}/.test(t.uriTemplate) && !hasTraversalGuardInSource
+    (t) =>
+      !isSsrfResourceUriTemplate(t.uriTemplate) &&
+      /^file:\/\//i.test(t.uriTemplate) &&
+      /\{[^}]+\}/.test(t.uriTemplate) &&
+      !hasGuardForTemplate(t)
   );
-  const ssrfTemplates = templates.filter((t) => /^https?:\/\/\{/i.test(t.uriTemplate));
   const missingMime = templates.filter((t) => !t.mimeType);
 
   if (traversalTemplates.length > 0) {

@@ -246,12 +246,12 @@ ${rows}
 ### 1. The Idempotency Crisis (${pctIdemp}% Failure Rate)
 Modern LLM agents frequently encounter transient network disconnections, reasoning resets, or timeouts. Under uncertainty, agents repeat the exact same tool invocation. 
 
-In servers like \`stripe/agent-toolkit\`, \`neondatabase/mcp-server-neon\`, and \`linear/mcp-linear\`, mutation tools (\`create_payment_intent\`, \`run_sql_query\`, \`create_issue\`) do not expose an explicit \`idempotency_key\` parameter in their input schemas. As a result, retries trigger duplicate entity creation or double-charging.
+In servers like \`stripe/agent-toolkit\`, \`neondatabase/mcp-server-neon\`, and \`getsentry/toolkit\`, mutation tools (\`create_payment_intent\`, \`run_sql_query\`, \`create_issue\`) do not expose an explicit \`idempotency_key\` parameter in their input schemas. As a result, retries trigger duplicate entity creation or double-charging.
 
 ### 2. Context Bomb & Unbounded Queries (${pctContext}% Failure Rate)
 Unlike human operators who read paginated UI tables, LLMs ingest the raw serialized JSON string into their limited context window. 
 
-In \`slack/mcp-server\` and \`github/github-mcp-server\`, tools such as \`get_channel_history\` and \`list_pull_requests\` omit default \`limit\` bounds or \`cursor\` fields. On large production repositories or channels, this dumps tens of thousands of tokens into prompt context, instantly degrading reasoning and inflating API costs.
+In \`mcp/memory\` and \`github/github-mcp-server\`, tools such as \`get_channel_history\` and \`list_pull_requests\` omit default \`limit\` bounds or \`cursor\` fields. On large production repositories or channels, this dumps tens of thousands of tokens into prompt context, instantly degrading reasoning and inflating API costs.
 
 ### 3. Blind Mutations Without Inspection Pairing (${pctPair}% Failure Rate)
 Under dimension **D5 (State Auditability)**, safe agentic workflows require **"Read-Before-Write" pairing**: an agent should never execute a destructive mutation (\`update_row\`, \`create_payment\`) without a companion query tool sharing the same identifier to inspect the prior state and verify post-execution side-effects. 

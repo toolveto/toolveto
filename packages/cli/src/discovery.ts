@@ -28,33 +28,22 @@ export interface DiscoveredToolsResult {
   transportMode?: 'stdio' | 'http' | 'sse' | 'dual' | 'unknown';
 }
 
-export function resolvePythonInterpreter(baseDir?: string): string {
-  const candidates: string[] = [];
-  if (baseDir) {
-    candidates.push(path.join(baseDir, '.venv', 'bin', 'python'));
-    candidates.push(path.join(baseDir, '.venv', 'Scripts', 'python.exe'));
-  }
-  const activeVenv = (process.env.VIRTUAL_ENV || '').trim();
-  if (activeVenv) {
-    candidates.push(path.join(activeVenv, 'bin', 'python'));
-    candidates.push(path.join(activeVenv, 'Scripts', 'python.exe'));
-  }
-  const activeConda = (process.env.CONDA_PREFIX || '').trim();
-  if (activeConda) {
-    candidates.push(path.join(activeConda, 'bin', 'python'));
-    candidates.push(path.join(activeConda, 'Scripts', 'python.exe'));
-  }
+const BLOCKED_DISCOVERY_LOADER_ENV_VARS = new Set([
+  'NODE_OPTIONS',
+  'LD_PRELOAD',
+  'LD_LIBRARY_PATH',
+  'DYLD_INSERT_LIBRARIES',
+  'DYLD_LIBRARY_PATH',
+  'DYLD_FRAMEWORK_PATH',
+  'PYTHONPATH',
+  'PYTHONSTARTUP',
+  'BASH_ENV',
+  'ENV',
+]);
 
-  for (const c of candidates) {
-    try {
-      if (fs.existsSync(c) && fs.statSync(c).isFile()) {
-        return c;
-      }
-    } catch {
-      // Ignore unreadable path
-    }
-  }
-
+export function resolvePythonInterpreter(_baseDir?: string): string {
+  // Security ([CRIT-02]): NEVER execute <targetDir>/.venv/bin/python or <targetDir>/.venv/Scripts/python.exe
+  // inside an untrusted target repository; resolve system python3 / python on PATH only.
   const pathDirs = (process.env.PATH || '').split(path.delimiter).filter(Boolean);
   const binNames =
     process.platform === 'win32'
@@ -302,46 +291,62 @@ export function extractToolsStaticallyFromDir(dirPath: string): McpToolDefinitio
   const byName = new Map<string, McpToolDefinition>();
   const skipDirs = new Set(['vendor', 'node_modules', '.git', 'dist', 'build', '.turbo', 'testdata']);
 
-  const walk = (current: string) => {
-    let entries: fs.Dirent[];
-    try {
-      entries = fs.readdirSync(current, { withFileTypes: true });
-    } catch {
-      return;
-    }
+  if (fs.existsSync(dirPath)) {
+    const lstat = fs.lstatSync(dirPath);
+    if (!lstat.isSymbolicLink()) {
+      if (lstat.isDirectory()) {
+        const realRoot = fs.realpathSync(dirPath);
+        const visitedDirs = new Set<string>([realRoot]);
 
-    for (const entry of entries) {
-      if (entry.isDirectory()) {
-        if (skipDirs.has(entry.name)) continue;
-        walk(path.join(current, entry.name));
-      } else if (entry.isFile() && entry.name.endsWith('.go') && !entry.name.endsWith('_test.go')) {
-        const fullPath = path.join(current, entry.name);
-        try {
-          const content = fs.readFileSync(fullPath, 'utf-8');
-          for (const tool of parseGoSourceForTools(content)) {
-            if (!byName.has(tool.name)) {
-              byName.set(tool.name, tool);
+        const walk = (current: string) => {
+          let entries: fs.Dirent[];
+          try {
+            entries = fs.readdirSync(current, { withFileTypes: true });
+          } catch {
+            return;
+          }
+
+          for (const entry of entries) {
+            if (entry.isSymbolicLink()) continue;
+            const fullPath = path.join(current, entry.name);
+            let realFull: string;
+            try {
+              realFull = fs.realpathSync(fullPath);
+            } catch {
+              continue;
+            }
+            const rel = path.relative(realRoot, realFull);
+            if (rel.startsWith('..') || path.isAbsolute(rel)) continue;
+
+            if (entry.isDirectory()) {
+              if (skipDirs.has(entry.name) || visitedDirs.has(realFull)) continue;
+              visitedDirs.add(realFull);
+              walk(fullPath);
+            } else if (entry.isFile() && entry.name.endsWith('.go') && !entry.name.endsWith('_test.go')) {
+              try {
+                const content = fs.readFileSync(realFull, 'utf-8');
+                for (const tool of parseGoSourceForTools(content)) {
+                  if (!byName.has(tool.name)) {
+                    byName.set(tool.name, tool);
+                  }
+                }
+              } catch {
+                // Ignore unreadable Go source file
+              }
             }
           }
-        } catch {
-          // Ignore unreadable Go source file
-        }
-      }
-    }
-  };
+        };
 
-  if (fs.existsSync(dirPath)) {
-    const stat = fs.statSync(dirPath);
-    if (stat.isDirectory()) {
-      walk(dirPath);
-    } else if (stat.isFile() && dirPath.endsWith('.go') && !dirPath.endsWith('_test.go')) {
-      try {
-        const content = fs.readFileSync(dirPath, 'utf-8');
-        for (const tool of parseGoSourceForTools(content)) {
-          byName.set(tool.name, tool);
+        walk(dirPath);
+      } else if (lstat.isFile() && dirPath.endsWith('.go') && !dirPath.endsWith('_test.go')) {
+        try {
+          const content = fs.readFileSync(fs.realpathSync(dirPath), 'utf-8');
+          for (const tool of parseGoSourceForTools(content)) {
+            byName.set(tool.name, tool);
+          }
+        } catch {
+          // Ignore unreadable Go file
         }
-      } catch {
-        // Ignore unreadable Go file
       }
     }
   }
@@ -367,19 +372,29 @@ export function extractToolsFromJson(parsed: any, baseDir: string): McpToolDefin
   }
   if (parsed && parsed.mcpServers && typeof parsed.mcpServers === 'object') {
     const collected: McpToolDefinition[] = [];
+    let realBaseDir: string | null = null;
+    try {
+      realBaseDir = fs.existsSync(baseDir) ? fs.realpathSync(baseDir) : null;
+    } catch {
+      realBaseDir = null;
+    }
+
     for (const [, serverCfg] of Object.entries<any>(parsed.mcpServers)) {
       if (!serverCfg || typeof serverCfg !== 'object') continue;
       if (Array.isArray(serverCfg.tools)) {
         collected.push(...serverCfg.tools);
-      } else if (typeof serverCfg.toolsPath === 'string') {
+      } else if (typeof serverCfg.toolsPath === 'string' && realBaseDir) {
         const tp = path.resolve(baseDir, serverCfg.toolsPath);
-        const rel = path.relative(baseDir, tp);
-        if (!rel.startsWith('..') && !path.isAbsolute(rel) && fs.existsSync(tp)) {
+        if (fs.existsSync(tp) && !fs.lstatSync(tp).isSymbolicLink()) {
           try {
-            const sub = JSON.parse(fs.readFileSync(tp, 'utf-8'));
-            collected.push(...extractToolsFromJson(sub, path.dirname(tp)));
+            const realTp = fs.realpathSync(tp);
+            const rel = path.relative(realBaseDir, realTp);
+            if (!rel.startsWith('..') && !path.isAbsolute(rel)) {
+              const sub = JSON.parse(fs.readFileSync(realTp, 'utf-8'));
+              collected.push(...extractToolsFromJson(sub, path.dirname(realTp)));
+            }
           } catch {
-            // Ignore invalid sub-config
+            // Ignore invalid or escaping sub-config
           }
         }
       }
@@ -394,11 +409,11 @@ async function discoverLiveToolsFromMcpConfig(
   timeoutMs: number,
   allowExec?: boolean
 ): Promise<McpToolDefinition[]> {
-  if (!parsed || typeof parsed.mcpServers !== 'object' || parsed.mcpServers === null) {
+  const execAllowed = allowExec === true && process.env.TOOLVETO_DISALLOW_AUTO_EXEC !== '1';
+  if (!execAllowed || !parsed || typeof parsed.mcpServers !== 'object' || parsed.mcpServers === null) {
     return [];
   }
   const collected: McpToolDefinition[] = [];
-  const execAllowed = allowExec === true && process.env.TOOLVETO_DISALLOW_AUTO_EXEC !== '1';
 
   for (const [, serverCfg] of Object.entries<any>(parsed.mcpServers)) {
     if (!serverCfg || typeof serverCfg !== 'object') continue;
@@ -411,11 +426,14 @@ async function discoverLiveToolsFromMcpConfig(
       } finally {
         await httpClient.close().catch(() => {});
       }
-    } else if (execAllowed && typeof serverCfg.command === 'string' && serverCfg.command.trim()) {
+    } else if (typeof serverCfg.command === 'string' && serverCfg.command.trim()) {
       const args = Array.isArray(serverCfg.args) ? serverCfg.args.map(String) : [];
       const envObj: Record<string, string> = {};
       if (serverCfg.env && typeof serverCfg.env === 'object') {
         for (const [k, v] of Object.entries(serverCfg.env)) {
+          if (BLOCKED_DISCOVERY_LOADER_ENV_VARS.has(k.trim().toUpperCase())) {
+            continue;
+          }
           if (typeof v === 'string' && !v.startsWith('${ENV:')) {
             envObj[k] = v;
           }
@@ -445,6 +463,7 @@ export async function discoverToolsFromTarget(
 ): Promise<DiscoveredToolsResult> {
   const timeoutMs = options.timeoutMs || 15000;
   const normalizedTarget = (targetPath || '.').replace(/^stdio:\/\//i, '');
+  const execAllowed = options.allowExec === true && process.env.TOOLVETO_DISALLOW_AUTO_EXEC !== '1';
   let tools: McpToolDefinition[] = [];
   let client: McpClient | null = null;
 
@@ -473,7 +492,7 @@ export async function discoverToolsFromTarget(
           const content = fs.readFileSync(resolvedTarget, 'utf-8');
           const parsed = JSON.parse(content);
           tools = extractToolsFromJson(parsed, path.dirname(resolvedTarget));
-          if (tools.length === 0 && parsed?.mcpServers) {
+          if (tools.length === 0 && parsed?.mcpServers && execAllowed) {
             tools = await discoverLiveToolsFromMcpConfig(parsed, timeoutMs, options.allowExec);
           }
         }
@@ -484,24 +503,23 @@ export async function discoverToolsFromTarget(
         ) {
           tools = extractToolsStaticallyFromDir(resolvedTarget);
         }
-        // 3. Executable Server script (Node / Python) or Compiled Binary (with --allow-exec)
+        // 3. Executable Server script (Node / Python) or Compiled Binary (zero-exec by default unless --allow-exec)
         else if (stat.isFile()) {
           const ext = path.extname(resolvedTarget).toLowerCase();
           const isScriptExt = new Set(['.js', '.mjs', '.cjs', '.py']).has(ext);
           const isCompiledBin =
             (ext === '' || ext === '.exe') &&
-            options.allowExec === true &&
-            process.env.TOOLVETO_DISALLOW_AUTO_EXEC !== '1' &&
+            execAllowed &&
             isExecutableBinaryFile(resolvedTarget);
 
           if (!isScriptExt && !isCompiledBin) {
-            throw new Error(`Refusing to auto-exec '${ext || path.basename(resolvedTarget)}'`);
+            throw new Error(`Refusing to auto-exec '${ext || path.basename(resolvedTarget)}' without --allow-exec`);
           }
-          if (options.allowExec === false || process.env.TOOLVETO_DISALLOW_AUTO_EXEC === '1') {
+          if (!execAllowed) {
             if (isScriptExt) {
               tools = extractToolsStaticallyFromDir(resolvedTarget);
             } else {
-              throw new Error('auto-exec disabled');
+              throw new Error('Refusing to auto-exec binary without --allow-exec');
             }
           } else {
             const baseDir = path.dirname(resolvedTarget);
@@ -529,6 +547,7 @@ export async function discoverToolsFromTarget(
         }
         // 4. Directory containing server files, manifests, Go sources, or client configs
         else if (stat.isDirectory()) {
+          const realTargetDir = fs.realpathSync(resolvedTarget);
           const jsonCandidates = [
             path.join(resolvedTarget, 'tools.json'),
             path.join(resolvedTarget, 'mcp.json'),
@@ -539,14 +558,18 @@ export async function discoverToolsFromTarget(
           ];
 
           for (const candidate of jsonCandidates) {
-            if (fs.existsSync(candidate)) {
-              const parsed = JSON.parse(fs.readFileSync(candidate, 'utf-8'));
-              const extracted = extractToolsFromJson(parsed, path.dirname(candidate));
+            if (fs.existsSync(candidate) && !fs.lstatSync(candidate).isSymbolicLink()) {
+              const realCandidate = fs.realpathSync(candidate);
+              const relCand = path.relative(realTargetDir, realCandidate);
+              if (relCand.startsWith('..') || path.isAbsolute(relCand)) continue;
+
+              const parsed = JSON.parse(fs.readFileSync(realCandidate, 'utf-8'));
+              const extracted = extractToolsFromJson(parsed, path.dirname(realCandidate));
               if (extracted.length > 0) {
                 tools = extracted;
                 break;
               }
-              if (parsed?.mcpServers) {
+              if (execAllowed && parsed?.mcpServers) {
                 const liveTools = await discoverLiveToolsFromMcpConfig(parsed, timeoutMs, options.allowExec);
                 if (liveTools.length > 0) {
                   tools = liveTools;
@@ -557,7 +580,6 @@ export async function discoverToolsFromTarget(
           }
 
           if (tools.length === 0) {
-            const realTargetDir = fs.realpathSync(resolvedTarget);
             const ALLOWED_EXEC_EXTENSIONS = new Set(['.js', '.mjs', '.cjs', '.py']);
             const isSafeEntrypoint = (candidatePath: string): string | null => {
               if (!fs.existsSync(candidatePath) || !fs.statSync(candidatePath).isFile()) return null;
@@ -577,7 +599,7 @@ export async function discoverToolsFromTarget(
 
             let entrypoint: string | null = null;
             const pkgJsonPath = path.join(resolvedTarget, 'package.json');
-            if (fs.existsSync(pkgJsonPath)) {
+            if (fs.existsSync(pkgJsonPath) && !fs.lstatSync(pkgJsonPath).isSymbolicLink()) {
               let pkg: any;
               try {
                 pkg = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf-8'));
@@ -606,7 +628,7 @@ export async function discoverToolsFromTarget(
               }
             }
 
-            if (!entrypoint) {
+            if (execAllowed && !entrypoint) {
               const scriptCandidates = [
                 path.join(resolvedTarget, 'index.js'),
                 path.join(resolvedTarget, 'index.mjs'),
@@ -624,10 +646,7 @@ export async function discoverToolsFromTarget(
               }
             }
 
-            const execDisallowed =
-              options.allowExec === false || process.env.TOOLVETO_DISALLOW_AUTO_EXEC === '1';
-
-            if (entrypoint && !execDisallowed) {
+            if (entrypoint && execAllowed) {
               const command = entrypoint.endsWith('.py')
                 ? resolvePythonInterpreter(resolvedTarget)
                 : process.execPath;
@@ -646,13 +665,13 @@ export async function discoverToolsFromTarget(
               }
             }
 
-            // Static Go MCP tool discovery (safe, zero execution)
+            // Static MCP tool discovery (safe, zero execution)
             if (tools.length === 0) {
               tools = extractToolsStaticallyFromDir(resolvedTarget);
             }
 
             // Optional compiled binary discovery when --allow-exec is explicitly authorized
-            if (tools.length === 0 && options.allowExec === true && !execDisallowed) {
+            if (tools.length === 0 && execAllowed) {
               const dirBase = path.basename(resolvedTarget);
               const binaryCandidates = [
                 path.join(resolvedTarget, dirBase),
@@ -663,6 +682,7 @@ export async function discoverToolsFromTarget(
                 path.join(resolvedTarget, 'bin', 'server'),
               ];
               for (const bc of binaryCandidates) {
+                if (fs.existsSync(bc) && fs.lstatSync(bc).isSymbolicLink()) continue;
                 if (!isExecutableBinaryFile(bc)) continue;
                 const realBin = fs.realpathSync(bc);
                 const relBin = path.relative(realTargetDir, realBin);

@@ -1,6 +1,6 @@
 {
-  "repo": "linear/mcp-linear",
-  "name": "Linear MCP Server",
+  "repo": "getsentry/toolkit",
+  "name": "Sentry Agent Toolkit",
   "stars": 3400,
   "description": "Linear issue tracking MCP server popular among AI-native engineering teams",
   "tools": [

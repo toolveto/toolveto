@@ -686,10 +686,21 @@ export function extractSourceContextFromDir(targetPath: string): {
     }
   };
 
-  const stat = fs.statSync(targetPath);
+  const stat = fs.lstatSync(targetPath);
+  if (stat.isSymbolicLink()) {
+    return { tools, sourceFiles, resourceTemplates, prompts, transportMode: 'unknown' };
+  }
   if (stat.isFile()) {
     collectFile(targetPath, path.basename(targetPath));
   } else if (stat.isDirectory()) {
+    let realTargetRoot: string;
+    try {
+      realTargetRoot = fs.realpathSync(targetPath);
+    } catch {
+      return { tools, sourceFiles, resourceTemplates, prompts, transportMode: 'unknown' };
+    }
+    const visitedDirs = new Set<string>([realTargetRoot]);
+
     const walk = (dir: string) => {
       if (sourceFiles.length >= MAX_SOURCE_FILES) return;
       let entries: fs.Dirent[];
@@ -701,9 +712,24 @@ export function extractSourceContextFromDir(targetPath: string): {
       for (const entry of entries) {
         if (sourceFiles.length >= MAX_SOURCE_FILES) break;
         if (IGNORED_DIRS.has(entry.name)) continue;
+        if (entry.isSymbolicLink()) continue;
         const full = path.join(dir, entry.name);
-        if (entry.isDirectory()) walk(full);
-        else if (entry.isFile()) collectFile(full, path.relative(targetPath, full));
+        let realFull: string;
+        try {
+          realFull = fs.realpathSync(full);
+        } catch {
+          continue;
+        }
+        const rel = path.relative(realTargetRoot, realFull);
+        if (rel.startsWith('..') || path.isAbsolute(rel)) continue;
+
+        if (entry.isDirectory()) {
+          if (visitedDirs.has(realFull)) continue;
+          visitedDirs.add(realFull);
+          walk(full);
+        } else if (entry.isFile()) {
+          collectFile(realFull, path.relative(targetPath, full));
+        }
       }
     };
     walk(targetPath);

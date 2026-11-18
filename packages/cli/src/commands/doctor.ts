@@ -166,7 +166,7 @@ function isFloatingPackageArg(cmd: string, args: string[]): { floating: boolean;
   return { floating: false };
 }
 
-function saveSecretsToToolVetoVault(extracted: Map<string, string>): string {
+function saveSecretsToToolVetoVault(extractedByServer: Map<string, Map<string, string>>): string {
   const home = process.env.HOME || os.homedir();
   const vaultDir = path.join(home, '.toolveto');
   if (!fs.existsSync(vaultDir)) {
@@ -177,28 +177,60 @@ function saveSecretsToToolVetoVault(extracted: Map<string, string>): string {
   } catch {}
 
   const envFilePath = path.join(vaultDir, 'secrets.env');
-  const existingMap = new Map<string, string>();
+  const existingUnscoped = new Map<string, string>();
+  const existingScoped = new Map<string, Map<string, string>>();
 
   if (fs.existsSync(envFilePath)) {
+    let currentSection: string | null = null;
     const lines = fs.readFileSync(envFilePath, 'utf-8').split(/\r?\n/);
     for (const line of lines) {
-      const m = line.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const secMatch = trimmed.match(/^\[([^\]]+)\]$/);
+      if (secMatch) {
+        currentSection = secMatch[1].trim();
+        if (!existingScoped.has(currentSection)) {
+          existingScoped.set(currentSection, new Map());
+        }
+        continue;
+      }
+      const m = trimmed.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
       if (m) {
-        existingMap.set(m[1], m[2]);
+        if (currentSection) {
+          existingScoped.get(currentSection)!.set(m[1], m[2]);
+        } else {
+          existingUnscoped.set(m[1], m[2]);
+        }
       }
     }
   }
 
-  for (const [k, v] of extracted) {
-    existingMap.set(k, JSON.stringify(v));
+  for (const [serverName, secMap] of extractedByServer) {
+    if (!existingScoped.has(serverName)) {
+      existingScoped.set(serverName, new Map());
+    }
+    const targetMap = existingScoped.get(serverName)!;
+    for (const [k, v] of secMap) {
+      targetMap.set(k, JSON.stringify(v));
+    }
   }
 
-  const serialized =
-    [
-      '# ToolVeto IDE Doctor — Secrets Vault (chmod 0600)',
-      '# Automatically loaded at runtime by `toolveto proxy --stdio`.',
-      ...Array.from(existingMap.entries()).map(([k, v]) => `${k}=${v}`),
-    ].join('\n') + '\n';
+  const outLines: string[] = [
+    '# ToolVeto IDE Doctor — Secrets Vault (chmod 0600)',
+    '# Automatically loaded at runtime by `toolveto proxy --stdio --server <name>`.',
+  ];
+  for (const [k, v] of existingUnscoped.entries()) {
+    outLines.push(`${k}=${v}`);
+  }
+  for (const [serverName, secMap] of existingScoped.entries()) {
+    if (secMap.size === 0) continue;
+    outLines.push(`[${serverName}]`);
+    for (const [k, v] of secMap.entries()) {
+      outLines.push(`${k}=${v}`);
+    }
+  }
+
+  const serialized = outLines.join('\n') + '\n';
 
   fs.writeFileSync(envFilePath, serialized, { encoding: 'utf-8', mode: 0o600 });
   try {
@@ -209,7 +241,7 @@ function saveSecretsToToolVetoVault(extracted: Map<string, string>): string {
   return envFilePath;
 }
 
-function wrapEntryWithShieldProxy(entry: Record<string, any>, npxBin: string): boolean {
+function wrapEntryWithShieldProxy(entry: Record<string, any>, npxBin: string, serverName?: string): boolean {
   if (entry._toolvetoOriginal) return true;
   const hasHttpUrl = typeof entry.url === 'string' && /^https?:\/\//i.test(entry.url);
   const hasStdioCommand = typeof entry.command === 'string' && entry.command.trim().length > 0;
@@ -228,7 +260,15 @@ function wrapEntryWithShieldProxy(entry: Record<string, any>, npxBin: string): b
     ...(origUrl !== undefined ? { url: origUrl } : {}),
   };
 
-  const baseProxyArgs = ['-y', 'toolveto', 'proxy', '--stdio', '--token-budget', '4000'];
+  const baseProxyArgs = [
+    '-y',
+    'toolveto',
+    'proxy',
+    '--stdio',
+    '--token-budget',
+    '4000',
+    ...(serverName ? ['--server', serverName] : []),
+  ];
   if (hasHttpUrl && !hasStdioCommand) {
     delete entry.url;
     entry.command = npxBin;
@@ -273,7 +313,7 @@ export async function doctorCommand(
   const serverEntries = Object.entries(servers);
   const findings: DoctorFinding[] = [];
   const unhealthyServerSet = new Set<string>();
-  const extractedSecrets = new Map<string, string>();
+  const extractedSecrets = new Map<string, Map<string, string>>();
   let fixedCount = 0;
 
   for (const [serverName, entry] of serverEntries) {
@@ -328,7 +368,7 @@ export async function doctorCommand(
       });
 
       if (options.fix) {
-        if (wrapEntryWithShieldProxy(entry, npxBin)) {
+        if (wrapEntryWithShieldProxy(entry, npxBin, serverName)) {
           isWrapped = true;
           fixedCount++;
         }
@@ -359,7 +399,10 @@ export async function doctorCommand(
           });
 
           if (options.fix && isWrapped) {
-            extractedSecrets.set(envKey, strVal);
+            if (!extractedSecrets.has(serverName)) {
+              extractedSecrets.set(serverName, new Map());
+            }
+            extractedSecrets.get(serverName)!.set(envKey, strVal);
             migratedKeys.push(envKey);
             fixedCount++;
           }

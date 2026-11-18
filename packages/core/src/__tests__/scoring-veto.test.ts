@@ -401,7 +401,9 @@ describe('Scoring & Fatal Veto Engine', () => {
     await new Promise<void>((resolve) => llmServer.listen(0, '127.0.0.1', () => resolve()));
     const port = (llmServer.address() as any).port;
     const prevEndpoint = process.env.TOOLVETO_LLM_ENDPOINT;
+    const prevAllowLocalLlm = process.env.TOOLVETO_ALLOW_LOCAL_LLM;
     process.env.TOOLVETO_LLM_ENDPOINT = `http://127.0.0.1:${port}/v1/chat/completions`;
+    process.env.TOOLVETO_ALLOW_LOCAL_LLM = 'true';
 
     try {
       const brokenDateTool: McpToolDefinition = {
@@ -435,6 +437,8 @@ describe('Scoring & Fatal Veto Engine', () => {
     } finally {
       if (prevEndpoint === undefined) delete process.env.TOOLVETO_LLM_ENDPOINT;
       else process.env.TOOLVETO_LLM_ENDPOINT = prevEndpoint;
+      if (prevAllowLocalLlm === undefined) delete process.env.TOOLVETO_ALLOW_LOCAL_LLM;
+      else process.env.TOOLVETO_ALLOW_LOCAL_LLM = prevAllowLocalLlm;
       await new Promise<void>((resolve) => llmServer.close(() => resolve()));
     }
   });

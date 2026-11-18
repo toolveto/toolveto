@@ -6,8 +6,10 @@ import * as readline from 'node:readline';
 import { Readable, Writable } from 'node:stream';
 import { ShieldMiddleware } from '@toolveto/shield';
 import {
+  ALLOWED_CLIENT_NOTIFICATIONS,
   CloudTelemetrySyncer,
   loadLockfileHashesFromDisk,
+  MAX_JSONRPC_BATCH_SIZE,
   parseGatewayUpstreamBody,
 } from 'toolveto-gateway';
 
@@ -15,6 +17,7 @@ export interface StdioShieldProxyOptions {
   command?: string;
   args?: string[];
   env?: Record<string, string>;
+  serverName?: string;
   upstreamUrl?: string;
   upstreamHeaders?: Record<string, string>;
   tokenBudget?: number;
@@ -37,16 +40,95 @@ export interface StdioProxyHandle {
   middleware: ShieldMiddleware;
 }
 
-export function loadToolVetoSecretsEnv(customHomeDir?: string): Record<string, string> {
-  const result: Record<string, string> = {};
+const SAFE_PARENT_ENV_ALLOWLIST = new Set([
+  'PATH',
+  'HOME',
+  'USER',
+  'LOGNAME',
+  'SHELL',
+  'LANG',
+  'LC_ALL',
+  'LC_CTYPE',
+  'TERM',
+  'TMPDIR',
+  'TEMP',
+  'TMP',
+  'TZ',
+  'SYSTEMROOT',
+  'WINDIR',
+  'COMSPEC',
+  'PATHEXT',
+  'APPDATA',
+  'LOCALAPPDATA',
+  'USERPROFILE',
+  'NODE_ENV',
+  'NODE_EXTRA_CA_CERTS',
+  'SSL_CERT_FILE',
+  'SSL_CERT_DIR',
+  'NPM_CONFIG_CACHE',
+  'XDG_CACHE_HOME',
+  'XDG_CONFIG_HOME',
+  'XDG_DATA_HOME',
+]);
+
+const BLOCKED_LOADER_ENV_VARS = new Set([
+  'NODE_OPTIONS',
+  'LD_PRELOAD',
+  'DYLD_INSERT_LIBRARIES',
+  'DYLD_LIBRARY_PATH',
+  'PYTHONPATH',
+  'BASH_ENV',
+  'ENV',
+]);
+
+function buildSanitizedChildEnv(
+  vaultSecrets: Record<string, string>,
+  explicitEnv?: Record<string, string>
+): Record<string, string> {
+  const safeParentEnv: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (typeof v === 'string' && SAFE_PARENT_ENV_ALLOWLIST.has(k) && !BLOCKED_LOADER_ENV_VARS.has(k.toUpperCase())) {
+      safeParentEnv[k] = v;
+    }
+  }
+  const safeVaultSecrets: Record<string, string> = {};
+  for (const [k, v] of Object.entries(vaultSecrets || {})) {
+    if (typeof v === 'string' && !BLOCKED_LOADER_ENV_VARS.has(k.toUpperCase())) {
+      safeVaultSecrets[k] = v;
+    }
+  }
+  const merged: Record<string, string> = {
+    ...safeParentEnv,
+    ...safeVaultSecrets,
+  };
+  if (explicitEnv && typeof explicitEnv === 'object') {
+    for (const [k, v] of Object.entries(explicitEnv)) {
+      if (typeof v === 'string' && !BLOCKED_LOADER_ENV_VARS.has(k.toUpperCase())) {
+        merged[k] = v;
+      }
+    }
+  }
+  return merged;
+}
+
+export function loadToolVetoSecretsEnv(customHomeDir?: string, serverName?: string): Record<string, string> {
+  const unscoped: Record<string, string> = {};
+  const scoped: Record<string, Record<string, string>> = {};
   try {
     const home = customHomeDir || process.env.HOME || os.homedir();
     const secretsPath = path.join(home, '.toolveto', 'secrets.env');
-    if (!fs.existsSync(secretsPath)) return result;
+    if (!fs.existsSync(secretsPath)) return unscoped;
     const raw = fs.readFileSync(secretsPath, 'utf-8');
+    let currentSection: string | null = null;
     for (const line of raw.split(/\r?\n/)) {
       const trimmed = line.trim();
       if (!trimmed || trimmed.startsWith('#')) continue;
+      const sectionMatch = trimmed.match(/^\[([^\]]+)\]$/);
+      if (sectionMatch) {
+        currentSection = sectionMatch[1].trim();
+        if (!scoped[currentSection]) scoped[currentSection] = {};
+        continue;
+      }
       const m = trimmed.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
       if (!m) continue;
       const key = m[1];
@@ -58,12 +140,19 @@ export function loadToolVetoSecretsEnv(customHomeDir?: string): Record<string, s
           val = val.slice(1, -1);
         }
       }
-      result[key] = val;
+      if (currentSection) {
+        scoped[currentSection][key] = val;
+      } else {
+        unscoped[key] = val;
+      }
     }
   } catch {
     // Ignore unreadable secrets vault
   }
-  return result;
+  if (serverName && scoped[serverName]) {
+    return { ...unscoped, ...scoped[serverName] };
+  }
+  return unscoped;
 }
 
 function resolveSavedCloudCredentials(): { apiUrl?: string; licenseKey?: string; customerId?: string } {
@@ -140,7 +229,7 @@ export async function startStdioShieldProxy(options: StdioShieldProxyOptions): P
     },
   });
 
-  const writeDownstream = (msg: Record<string, any>): void => {
+  const writeDownstream = (msg: Record<string, any> | Array<Record<string, any>>): void => {
     outputStream.write(JSON.stringify(msg) + '\n');
   };
 
@@ -167,11 +256,11 @@ export async function startStdioShieldProxy(options: StdioShieldProxyOptions): P
       process.platform === 'win32' && options.command.toLowerCase() === 'npx'
         ? 'npx.cmd'
         : options.command;
-    const vaultSecrets = loadToolVetoSecretsEnv();
+    const vaultSecrets = loadToolVetoSecretsEnv(undefined, options.serverName);
 
     child = spawn(resolvedCmd, options.args || [], {
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...vaultSecrets, ...process.env, ...(options.env || {}) },
+      env: buildSanitizedChildEnv(vaultSecrets, options.env),
       ...(process.platform === 'win32' && /\.(cmd|bat)$/i.test(resolvedCmd) ? { shell: true } : {}),
     });
 
@@ -213,7 +302,10 @@ export async function startStdioShieldProxy(options: StdioShieldProxyOptions): P
       }
 
       if (parsed && typeof parsed === 'object' && parsed.method === 'notifications/tools/list_changed') {
-        middleware.handleNotification(parsed);
+        const decision = middleware.handleNotification(parsed);
+        if (!decision.allowed) {
+          return;
+        }
       }
 
       // Pass through upstream notifications or server->client requests (sampling/roots/ping)
@@ -283,8 +375,12 @@ export async function startStdioShieldProxy(options: StdioShieldProxyOptions): P
       method: 'POST',
       headers,
       body: JSON.stringify(rpcMsg),
+      redirect: 'error',
       signal: AbortSignal.timeout(timeoutMs),
     });
+    if (res.status >= 300 && res.status < 400) {
+      throw new Error(`Upstream HTTP redirect (${res.status}) disallowed by SSRF policy`);
+    }
 
     const sid = res.headers.get('mcp-session-id');
     if (sid) {
@@ -307,37 +403,74 @@ export async function startStdioShieldProxy(options: StdioShieldProxyOptions): P
     return parsed;
   };
 
-  const handleClientLine = async (line: string): Promise<void> => {
-    const trimmed = line.trim();
-    if (!trimmed) return;
-
-    let msg: any;
-    try {
-      msg = JSON.parse(trimmed);
-    } catch {
-      writeDownstream({
+  const processSingleClientRpc = async (msg: any): Promise<Record<string, any> | undefined> => {
+    if (msg === null || typeof msg !== 'object' || Array.isArray(msg)) {
+      return {
         jsonrpc: '2.0',
         id: null,
-        error: { code: -32700, message: 'Parse error: Invalid JSON-RPC frame' },
-      });
-      return;
+        error: { code: -32600, message: 'Invalid Request: JSON-RPC message must be an object' },
+      };
     }
 
-    const isNotification =
-      msg && typeof msg === 'object' && typeof msg.method === 'string' && (msg.id === undefined || msg.id === null);
     const isClientResponse =
-      msg && typeof msg === 'object' && !msg.method && msg.id !== undefined && ('result' in msg || 'error' in msg);
+      !msg.method &&
+      (typeof msg.id === 'string' || typeof msg.id === 'number') &&
+      ('result' in msg || 'error' in msg);
 
-    if (isNotification || isClientResponse) {
+    if (isClientResponse) {
+      try {
+        await sendToUpstream(msg, false);
+      } catch (err: any) {
+        stderrStream.write(`[ToolVeto Shield] Failed forwarding client response: ${err.message}\n`);
+      }
+      return undefined;
+    }
+
+    if (typeof msg.method !== 'string' || !msg.method.trim()) {
+      return {
+        jsonrpc: '2.0',
+        id: typeof msg.id === 'string' || typeof msg.id === 'number' ? msg.id : null,
+        error: { code: -32600, message: 'Invalid Request: JSON-RPC method must be a non-empty string' },
+      };
+    }
+
+    if (
+      msg.id !== undefined &&
+      msg.id !== null &&
+      typeof msg.id !== 'string' &&
+      typeof msg.id !== 'number'
+    ) {
+      return {
+        jsonrpc: '2.0',
+        id: null,
+        error: { code: -32600, message: 'Invalid Request: JSON-RPC id must be string or number' },
+      };
+    }
+
+    // Strict JSON-RPC 2.0 notification validation (rejects id: null and smuggled tools/call without id)
+    if (msg.id === undefined || msg.id === null) {
+      if (msg.id === null || !ALLOWED_CLIENT_NOTIFICATIONS.has(msg.method)) {
+        return {
+          jsonrpc: '2.0',
+          id: null,
+          error: {
+            code: -32600,
+            message: `Invalid Request: Method '${msg.method}' requires a request id or is not an allowlisted client notification`,
+          },
+        };
+      }
       if (msg.method === 'notifications/tools/list_changed') {
-        middleware.handleNotification(msg);
+        const dec = middleware.handleNotification(msg);
+        if (!dec.allowed) {
+          return undefined;
+        }
       }
       try {
         await sendToUpstream(msg, false);
       } catch (err: any) {
         stderrStream.write(`[ToolVeto Shield] Failed forwarding notification: ${err.message}\n`);
       }
-      return;
+      return undefined;
     }
 
     if (msg.method === 'tools/list') {
@@ -347,39 +480,42 @@ export async function startStdioShieldProxy(options: StdioShieldProxyOptions): P
         if (Array.isArray(listedTools)) {
           cloudSyncer.reportToolDefinitions(upstreamLabel, listedTools);
           const verifyRes = middleware.verifyToolDefinitions(listedTools);
-          if (!verifyRes.valid && options.strict) {
-            writeDownstream({
-              jsonrpc: '2.0',
-              id: msg.id,
-              error: {
-                code: -32004,
-                message: `ToolVeto Shield Rug-Pull Blocked: Tool schema drift detected in [${verifyRes.driftedTools.join(', ')}]`,
-                data: { driftedTools: verifyRes.driftedTools },
-              },
-            });
-            return;
+          if (!verifyRes.valid) {
+            if (options.strict) {
+              return {
+                jsonrpc: '2.0',
+                id: msg.id,
+                error: {
+                  code: -32004,
+                  message: `ToolVeto Shield Rug-Pull Blocked: Tool schema drift detected in [${verifyRes.driftedTools.join(', ')}]`,
+                  data: { driftedTools: verifyRes.driftedTools },
+                },
+              };
+            }
+            const driftedSet = new Set(verifyRes.driftedTools);
+            upstreamRes.result.tools = listedTools.filter(
+              (t: any) => typeof t?.name === 'string' && !driftedSet.has(t.name)
+            );
           }
         }
-        writeDownstream(upstreamRes);
+        return upstreamRes;
       } catch (err: any) {
-        writeDownstream({
+        return {
           jsonrpc: '2.0',
           id: msg.id ?? null,
           error: { code: -32603, message: `ToolVeto Shield Upstream Error: ${err.message}` },
-        });
+        };
       }
-      return;
     }
 
     if (msg.method === 'tools/call') {
       const toolName = msg.params?.name;
       if (typeof toolName !== 'string' || !toolName.trim()) {
-        writeDownstream({
+        return {
           jsonrpc: '2.0',
           id: msg.id ?? null,
           error: { code: -32602, message: 'Invalid params: tools/call requires string params.name' },
-        });
-        return;
+        };
       }
 
       try {
@@ -409,55 +545,108 @@ export async function startStdioShieldProxy(options: StdioShieldProxyOptions): P
               shieldedResult._shield.promptInjectionAction === 'block'))
         ) {
           const code = shieldedResult._shield.rugPullBlocked ? -32004 : -32000;
-          writeDownstream({
+          return {
             jsonrpc: '2.0',
             id: msg.id,
             error: {
               code,
               message: shieldedResult.content?.[0]?.text || 'ToolVeto Shield blocked execution',
             },
-          });
-          return;
+          };
         }
 
-        writeDownstream({
+        return {
           jsonrpc: '2.0',
           id: msg.id,
           result: shieldedResult,
-        });
+        };
       } catch (err: any) {
         if (err?.rpcError) {
-          writeDownstream({
+          return {
             jsonrpc: '2.0',
             id: msg.id,
             error: err.rpcError,
-          });
-        } else {
-          writeDownstream({
-            jsonrpc: '2.0',
-            id: msg.id,
-            error: {
-              code: -32000,
-              message: `ToolVeto Shield Blocked Execution: ${err.message}`,
-            },
-          });
+          };
         }
+        return {
+          jsonrpc: '2.0',
+          id: msg.id,
+          error: {
+            code: -32000,
+            message: `ToolVeto Shield Blocked Execution: ${err.message}`,
+          },
+        };
       }
-      return;
     }
 
     // All other JSON-RPC requests (initialize, ping, resources/*, prompts/*)
     try {
-      const upstreamRes = await sendToUpstream(msg, true);
-      if (upstreamRes !== undefined) {
-        writeDownstream(upstreamRes);
-      }
+      return await sendToUpstream(msg, true);
     } catch (err: any) {
-      writeDownstream({
+      return {
         jsonrpc: '2.0',
         id: msg.id ?? null,
         error: { code: -32603, message: `ToolVeto Shield Upstream Error: ${err.message}` },
+      };
+    }
+  };
+
+  const handleClientLine = async (line: string): Promise<void> => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+
+    let msg: any;
+    try {
+      msg = JSON.parse(trimmed);
+    } catch {
+      writeDownstream({
+        jsonrpc: '2.0',
+        id: null,
+        error: { code: -32700, message: 'Parse error: Invalid JSON-RPC frame' },
       });
+      return;
+    }
+
+    if (msg === null || typeof msg !== 'object') {
+      writeDownstream({
+        jsonrpc: '2.0',
+        id: null,
+        error: { code: -32600, message: 'Invalid Request: JSON-RPC payload must be an object or batch array' },
+      });
+      return;
+    }
+
+    if (Array.isArray(msg)) {
+      if (msg.length === 0 || msg.length > MAX_JSONRPC_BATCH_SIZE) {
+        writeDownstream({
+          jsonrpc: '2.0',
+          id: null,
+          error: {
+            code: -32600,
+            message:
+              msg.length === 0
+                ? 'Invalid Request: JSON-RPC batch array must not be empty'
+                : `Invalid Request: JSON-RPC batch exceeds maximum size (${MAX_JSONRPC_BATCH_SIZE})`,
+          },
+        });
+        return;
+      }
+      const batchResponses: Record<string, any>[] = [];
+      for (const item of msg) {
+        const itemRes = await processSingleClientRpc(item);
+        if (itemRes !== undefined) {
+          batchResponses.push(itemRes);
+        }
+      }
+      if (batchResponses.length > 0) {
+        writeDownstream(batchResponses);
+      }
+      return;
+    }
+
+    const singleRes = await processSingleClientRpc(msg);
+    if (singleRes !== undefined) {
+      writeDownstream(singleRes);
     }
   };
 
@@ -498,6 +687,7 @@ export async function startStdioShieldProxy(options: StdioShieldProxyOptions): P
             'Mcp-Protocol-Version': httpProtocolVersion,
             ...(options.upstreamHeaders || {}),
           },
+          redirect: 'error',
           signal: AbortSignal.timeout(2000),
         });
       } catch {

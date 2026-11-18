@@ -40,7 +40,7 @@ export function createProgram(): Command {
     .option('--with-llm', 'Enable Stage 4 LLM E_heal self-heal judge (requires API key)')
     .option('--allow-destructive', 'Authorize live stateful replay and concurrent burst mutations (D1)')
     .option('--allow-exec', 'Authorize spawning local server entrypoint scripts or binaries discovered inside target directory')
-    .option('--ephemeral-mock', 'Zero-setup ephemeral mock evaluation on static manifests with live VERIFIED runtime evidence')
+    .option('--ephemeral-mock', 'Zero-setup ephemeral mock evaluation on static manifests with SIMULATED runtime evidence')
     .option('--json', 'Output machine-readable JSON report')
     .option('-f, --format <format>', 'Output format: terminal, json, github-pr, or sarif', 'terminal')
     .option('-t, --threshold <score>', 'Minimum certification score threshold (0-100)')
@@ -107,6 +107,8 @@ export function createProgram(): Command {
     .passThroughOptions()
     .argument('[commandArgs...]', 'Upstream stdio server command and arguments (after `--`)')
     .option('-p, --port <port>', 'Proxy port to listen on (HTTP mode)', '8080')
+    .option('-H, --host <host>', 'Host interface to bind on (HTTP mode)', '127.0.0.1')
+    .option('--server <name>', 'Scoped MCP server name for ~/.toolveto/secrets.env lookup')
     .option('-u, --upstream <url>', 'Upstream MCP Streamable HTTP server URL')
     .option('-t, --token-budget <tokens>', 'Maximum token ceiling for response truncation', '4000')
     .option('--loop-limit <count>', 'Maximum identical calls within 30s before circuit breaker trips', '5')
@@ -154,6 +156,7 @@ export function createProgram(): Command {
     .option('-s, --secret <secret>', 'Shared HMAC secret for offline HS256 verification')
     .option('-k, --public-key <key>', 'Public key (PEM, JWK, or path) for ES256 verification')
     .option('--api-url <url>', 'ToolVeto Cloud API URL for automatic JWKS ES256 public key discovery')
+    .option('--allow-no-exp', 'Allow verifying legacy JWS tokens that omit an exp expiration claim')
     .action(async (token, options) => {
       await verifyCommand(token, options);
     });

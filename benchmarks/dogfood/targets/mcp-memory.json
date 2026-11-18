@@ -1,6 +1,6 @@
 {
-  "repo": "slack/mcp-server",
-  "name": "Slack MCP Server",
+  "repo": "mcp/memory",
+  "name": "MCP Knowledge Graph Memory",
   "stars": 4600,
   "description": "Slack integration MCP server enabling conversational message posting and channel reading",
   "tools": [

@@ -28,10 +28,10 @@ When autonomous agents interact with today's open-source MCP ecosystem:
 | **Atlassian Confluence Server** (`atlassian/mcp-server-confluence`) | 2,400 | **75/100** | Failed | 🔴 4 Critical | 🔴 Blocked |
 | **Cloudflare MCP Server** (`cloudflare/mcp-server-cloudflare`) | 5,400 | **64/100** | Failed | 🔴 6 Critical | 🔴 Blocked |
 | **GitHub Official MCP Server** (`github/github-mcp-server`) | 15,800 | **74/100** | Failed | 🔴 4 Critical | 🔴 Blocked |
-| **Linear MCP Server** (`linear/mcp-linear`) | 3,400 | **75/100** | Failed | 🔴 4 Critical | 🔴 Blocked |
+| **Sentry Agent Toolkit** (`getsentry/toolkit`) | 3,400 | **75/100** | Failed | 🔴 4 Critical | 🔴 Blocked |
 | **Reference MCP Servers** (`modelcontextprotocol/servers`) | 42,000 | **79/100** | Failed | 🔴 4 Critical | 🔴 Blocked |
 | **Neon Database Server** (`neondatabase/mcp-server-neon`) | 6,200 | **63/100** | Failed | 🔴 6 Critical | 🔴 Blocked |
-| **Slack MCP Server** (`slack/mcp-server`) | 4,600 | **72/100** | Failed | 🔴 4 Critical | 🔴 Blocked |
+| **MCP Knowledge Graph Memory** (`mcp/memory`) | 4,600 | **72/100** | Failed | 🔴 4 Critical | 🔴 Blocked |
 | **Stripe Agent Toolkit** (`stripe/agent-toolkit`) | 8,500 | **63/100** | Failed | 🔴 6 Critical | 🔴 Blocked |
 | **Supabase MCP Server** (`supabase/mcp-server-supabase`) | 8,200 | **63/100** | Failed | 🔴 6 Critical | 🔴 Blocked |
 
@@ -42,12 +42,12 @@ When autonomous agents interact with today's open-source MCP ecosystem:
 ### 1. The Idempotency Crisis (100% Failure Rate)
 Modern LLM agents frequently encounter transient network disconnections, reasoning resets, or timeouts. Under uncertainty, agents repeat the exact same tool invocation. 
 
-In servers like `stripe/agent-toolkit`, `neondatabase/mcp-server-neon`, and `linear/mcp-linear`, mutation tools (`create_payment_intent`, `run_sql_query`, `create_issue`) do not expose an explicit `idempotency_key` parameter in their input schemas. As a result, retries trigger duplicate entity creation or double-charging.
+In servers like `stripe/agent-toolkit`, `neondatabase/mcp-server-neon`, and `getsentry/toolkit`, mutation tools (`create_payment_intent`, `run_sql_query`, `create_issue`) do not expose an explicit `idempotency_key` parameter in their input schemas. As a result, retries trigger duplicate entity creation or double-charging.
 
 ### 2. Context Bomb & Unbounded Queries (90% Failure Rate)
 Unlike human operators who read paginated UI tables, LLMs ingest the raw serialized JSON string into their limited context window. 
 
-In `slack/mcp-server` and `github/github-mcp-server`, tools such as `get_channel_history` and `list_pull_requests` omit default `limit` bounds or `cursor` fields. On large production repositories or channels, this dumps tens of thousands of tokens into prompt context, instantly degrading reasoning and inflating API costs.
+In `mcp/memory` and `github/github-mcp-server`, tools such as `get_channel_history` and `list_pull_requests` omit default `limit` bounds or `cursor` fields. On large production repositories or channels, this dumps tens of thousands of tokens into prompt context, instantly degrading reasoning and inflating API costs.
 
 ### 3. Blind Mutations Without Inspection Pairing (80% Failure Rate)
 Under dimension **D5 (State Auditability)**, safe agentic workflows require **"Read-Before-Write" pairing**: an agent should never execute a destructive mutation (`update_row`, `create_payment`) without a companion query tool sharing the same identifier to inspect the prior state and verify post-execution side-effects. 

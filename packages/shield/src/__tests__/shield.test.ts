@@ -364,6 +364,9 @@ describe('ToolVeto Shield Runtime Middleware', () => {
           mockDb[params?.[0]] = params?.[1];
           return { rows: [] };
         }
+        if (sql.includes('INSERT INTO toolveto_shield_locks')) {
+          return { rows: [{ key: params?.[0] }] };
+        }
         if (sql.includes('COUNT(*)')) {
           return { rows: [{ count: 1 }] };
         }
@@ -841,6 +844,7 @@ describe('ToolVeto Shield Runtime Middleware', () => {
     const raw = new MockServer();
     const shielded = shield(raw, {
       idempotency: true,
+      trustClientMeta: true,
       loopLimit: { count: 2, windowMs: 10000 },
       tokenBudget: 100, // 400 chars max
       promptInjectionScan: { action: 'block' },

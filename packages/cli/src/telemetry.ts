@@ -304,30 +304,82 @@ export function computeClusterUidHash(orgSeed: string): string {
   const k8sPort = (process.env.KUBERNETES_SERVICE_PORT || '').trim();
   const clusterOverride = (process.env.TOOLVETO_CLUSTER_ID || '').trim();
   const hostSeed = clusterOverride || (k8sHost ? `k8s:${k8sHost}:${k8sPort}` : `host:${os.hostname()}`);
-  return `clu_${crypto.createHash('sha256').update(`${hostSeed}|${orgSeed}`).digest('hex').slice(0, 12)}`;
+  const canonicalInput = `${hostSeed.length}:${hostSeed}|${orgSeed.length}:${orgSeed}`;
+  return `clu_${crypto.createHash('sha256').update(canonicalInput).digest('hex').slice(0, 32)}`;
 }
 
 export interface OfflineLicenseLifecycle {
-  runtimeAllowed: true;
+  runtimeAllowed: boolean;
   attestationValid: boolean;
   clusterBindingMatch: boolean;
-  state: 'VALID' | 'EXPIRING_SOON' | 'GRACE_PERIOD' | 'EXPIRED_FAIL_OPEN' | 'CLUSTER_MISMATCH_WARN' | 'UNCONFIGURED';
+  state:
+    | 'VALID'
+    | 'EXPIRING_SOON'
+    | 'GRACE_PERIOD'
+    | 'EXPIRED_FAIL_OPEN'
+    | 'CLUSTER_MISMATCH_WARN'
+    | 'UNVERIFIED_OFFLINE'
+    | 'UNCONFIGURED';
   daysRemaining?: number;
   graceHoursRemaining?: number;
   watermark?: 'UNATTESTED_LICENSE_EXPIRED' | 'CLUSTER_BINDING_MISMATCH';
   warningBanner?: string;
 }
 
+function resolveOfflineEs256PublicKey(publicKeyOrPem?: string): crypto.KeyObject | null {
+  let raw = (publicKeyOrPem || process.env.TOOLVETO_ES256_PUBLIC_KEY || '').trim();
+  if (!raw) return null;
+  try {
+    if (fs.existsSync(raw) && fs.statSync(raw).isFile()) {
+      raw = fs.readFileSync(raw, 'utf-8').trim();
+    }
+    if (raw.startsWith('{')) {
+      const parsed = JSON.parse(raw);
+      if (typeof parsed.publicKeyPem === 'string') return crypto.createPublicKey(parsed.publicKeyPem);
+      if (typeof parsed.publicKey === 'string') return crypto.createPublicKey(parsed.publicKey);
+      if (parsed.publicKey && typeof parsed.publicKey === 'object') {
+        return crypto.createPublicKey({ key: parsed.publicKey, format: 'jwk' });
+      }
+      if (parsed.jwk && typeof parsed.jwk === 'object') {
+        return crypto.createPublicKey({ key: parsed.jwk, format: 'jwk' });
+      }
+      return crypto.createPublicKey({ key: parsed, format: 'jwk' });
+    }
+    return crypto.createPublicKey(raw);
+  } catch {
+    return null;
+  }
+}
+
+function verifyEs256DetachedJws(headerB64: string, payloadB64: string, signatureB64: string, pubKey: crypto.KeyObject): boolean {
+  const signingInput = Buffer.from(`${headerB64}.${payloadB64}`);
+  const sigBytes = Buffer.from(signatureB64, 'base64url');
+  if (sigBytes.length === 0) return false;
+  try {
+    if (crypto.verify('sha256', signingInput, { key: pubKey, dsaEncoding: 'ieee-p1363' }, sigBytes)) {
+      return true;
+    }
+  } catch {
+    // Fallback to DER encoding check
+  }
+  try {
+    return crypto.verify('sha256', signingInput, pubKey, sigBytes);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Evaluates offline / air-gapped enterprise license lifecycle locally without network egress.
- * CRITICAL INVARIANT: `runtimeAllowed` is ALWAYS `true` so production MCP traffic and local CI
- * checks NEVER stop working due to license expiration; expiry only triggers warnings, OTel
- * renewal alerts, and unattested JWS watermarks.
+ * Cryptographically verifies `tv_ent_*` ES256 signatures against `TOOLVETO_ES256_PUBLIC_KEY`.
+ * Forged or unverified tokens fail closed (`runtimeAllowed: false, state: 'UNVERIFIED_OFFLINE'`),
+ * while cryptographically authentic air-gapped licenses fail-open on expiration with watermarks.
  */
 export function evaluateOfflineLicenseLifecycle(
   token?: string,
   nowMs: number = Date.now(),
-  currentClusterHash?: string
+  currentClusterHash?: string,
+  publicKeyOrPem?: string
 ): OfflineLicenseLifecycle {
   const raw = (token || '').trim();
   if (!raw || (!raw.startsWith('tv_ent_') && !raw.startsWith('tv_live_'))) {
@@ -339,25 +391,55 @@ export function evaluateOfflineLicenseLifecycle(
     };
   }
 
+  if (raw.startsWith('tv_live_')) {
+    return {
+      runtimeAllowed: false,
+      attestationValid: false,
+      clusterBindingMatch: false,
+      state: 'UNVERIFIED_OFFLINE',
+    };
+  }
+
   try {
-    let payloadB64 = '';
-    if (raw.startsWith('tv_ent_')) {
-      const parts = raw.slice('tv_ent_'.length).split('.');
-      if (parts.length !== 3 || !parts[1]) {
-        return { runtimeAllowed: true, attestationValid: false, clusterBindingMatch: true, state: 'UNCONFIGURED' };
-      }
-      payloadB64 = parts[1];
-    } else {
-      const parts = raw.slice('tv_live_'.length).split('.');
-      if (parts.length !== 2 || !parts[0]) {
-        return { runtimeAllowed: true, attestationValid: false, clusterBindingMatch: true, state: 'UNCONFIGURED' };
-      }
-      payloadB64 = parts[0];
+    const parts = raw.slice('tv_ent_'.length).split('.');
+    if (parts.length !== 3 || !parts[0] || !parts[1] || !parts[2]) {
+      return {
+        runtimeAllowed: false,
+        attestationValid: false,
+        clusterBindingMatch: false,
+        state: 'UNVERIFIED_OFFLINE',
+      };
     }
 
-    const claims = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf-8')) as Record<string, any>;
+    const header = JSON.parse(Buffer.from(parts[0], 'base64url').toString('utf-8')) as Record<string, any>;
+    if (!header || header.alg !== 'ES256') {
+      return {
+        runtimeAllowed: false,
+        attestationValid: false,
+        clusterBindingMatch: false,
+        state: 'UNVERIFIED_OFFLINE',
+      };
+    }
+
+    const pubKey = resolveOfflineEs256PublicKey(publicKeyOrPem);
+    if (!pubKey || !verifyEs256DetachedJws(parts[0], parts[1], parts[2], pubKey)) {
+      return {
+        runtimeAllowed: false,
+        attestationValid: false,
+        clusterBindingMatch: false,
+        state: 'UNVERIFIED_OFFLINE',
+        warningBanner: 'Offline tv_ent_* ES256 signature verification failed or TOOLVETO_ES256_PUBLIC_KEY is not configured.',
+      };
+    }
+
+    const claims = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf-8')) as Record<string, any>;
     if (!claims || typeof claims.exp !== 'number') {
-      return { runtimeAllowed: true, attestationValid: false, clusterBindingMatch: true, state: 'UNCONFIGURED' };
+      return {
+        runtimeAllowed: false,
+        attestationValid: false,
+        clusterBindingMatch: false,
+        state: 'UNVERIFIED_OFFLINE',
+      };
     }
 
     const allowedCluster = typeof claims.allowedClusterHash === 'string' ? claims.allowedClusterHash.trim() : '';

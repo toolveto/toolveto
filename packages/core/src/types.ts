@@ -2,7 +2,7 @@ export type CheckSeverity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFO';
 
 export type CheckStatus = 'PASS' | 'FAIL' | 'WARN' | 'SKIPPED';
 
-export type EvidenceQuality = 'VERIFIED' | 'PARTIAL' | 'STATIC-ONLY';
+export type EvidenceQuality = 'VERIFIED' | 'SIMULATED' | 'PARTIAL' | 'STATIC-ONLY';
 
 export type Dimension = 'D1' | 'D2' | 'D3' | 'D4' | 'D5';
 
