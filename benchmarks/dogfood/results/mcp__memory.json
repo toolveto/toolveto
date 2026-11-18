@@ -1,5 +1,5 @@
 {
-  "target": "slack/mcp-server",
+  "target": "mcp/memory",
   "totalChecks": 69,
   "passed": 45,
   "failed": 11,

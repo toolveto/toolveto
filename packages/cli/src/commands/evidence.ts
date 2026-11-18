@@ -1,12 +1,14 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import {
   runSuite,
   McpToolDefinition,
   McpClient,
   SuiteSummary,
 } from '@toolveto/core';
+import { computeToolDefinitionHash, canonicalizeJson } from '@toolveto/shield';
 import { discoverToolsFromTarget } from '../discovery.js';
 
 export interface EvidenceOptions {
@@ -97,25 +99,117 @@ function signAttestationJws(payload: Record<string, unknown>, keyId = 'toolveto-
   return `${header}.${body}.${sig}`;
 }
 
-function tryLoadPrecomputedSummary(resolvedTarget: string): SuiteSummary | null {
+function resolveGitCommitSha(startPath: string): string | undefined {
+  const envSha = (process.env.GITHUB_SHA || process.env.CI_COMMIT_SHA || '').trim();
+  if (envSha) return envSha;
   try {
-    if (!fs.existsSync(resolvedTarget) || !fs.statSync(resolvedTarget).isFile() || !resolvedTarget.endsWith('.json')) {
-      return null;
+    let cwd = process.cwd();
+    if (fs.existsSync(startPath)) {
+      const st = fs.statSync(startPath);
+      cwd = st.isDirectory() ? startPath : path.dirname(startPath);
     }
-    const parsed = JSON.parse(fs.readFileSync(resolvedTarget, 'utf-8'));
-    if (
-      parsed &&
-      typeof parsed === 'object' &&
-      typeof parsed.score === 'number' &&
-      typeof parsed.tier === 'string' &&
-      Array.isArray(parsed.results)
-    ) {
-      return parsed as SuiteSummary;
-    }
+    const sha = execFileSync('git', ['rev-parse', 'HEAD'], {
+      cwd,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 2000,
+    }).trim();
+    if (/^[0-9a-f]{7,40}$/i.test(sha)) return sha;
   } catch {
-    // Fall through to live/static evaluation
+    // Not inside a git repository
   }
-  return null;
+  return undefined;
+}
+
+function computeToolsManifestHash(tools: McpToolDefinition[]): string {
+  const perToolHashes: Record<string, string> = {};
+  for (const tool of [...tools].sort((a, b) => a.name.localeCompare(b.name))) {
+    perToolHashes[tool.name] = computeToolDefinitionHash(tool as unknown as Record<string, any>);
+  }
+  return 'sha256:' + crypto.createHash('sha256').update(canonicalizeJson(perToolHashes)).digest('hex');
+}
+
+function tryLoadVerifiedPrecomputedSummary(
+  resolvedTarget: string,
+  signingSecret: string,
+  isEphemeralDemoSignature: boolean
+): { summary: SuiteSummary; manifestHash: string } | null {
+  if (!fs.existsSync(resolvedTarget) || !fs.statSync(resolvedTarget).isFile() || !resolvedTarget.endsWith('.json')) {
+    return null;
+  }
+  let parsed: any;
+  try {
+    parsed = JSON.parse(fs.readFileSync(resolvedTarget, 'utf-8'));
+  } catch {
+    return null;
+  }
+  if (
+    !parsed ||
+    typeof parsed !== 'object' ||
+    Array.isArray(parsed) ||
+    typeof parsed.score !== 'number' ||
+    typeof parsed.tier !== 'string' ||
+    !Array.isArray(parsed.results) ||
+    Array.isArray(parsed.tools) ||
+    parsed.mcpServers ||
+    parsed.inputSchema
+  ) {
+    return null;
+  }
+
+  if (isEphemeralDemoSignature || !signingSecret || signingSecret.length < 32) {
+    throw new Error(
+      'Refusing to sign unauthenticated precomputed SuiteSummary JSON without a verified cryptographic signature or HMAC.'
+    );
+  }
+
+  let verified = false;
+  if (typeof parsed.jws === 'string') {
+    const parts = parsed.jws.trim().split('.');
+    if (parts.length === 3) {
+      const [hB64, pB64, sB64] = parts;
+      const expectedSig = crypto.createHmac('sha256', signingSecret).update(`${hB64}.${pB64}`).digest('base64url');
+      const sigBuf = Buffer.from(sB64);
+      const expBuf = Buffer.from(expectedSig);
+      if (sigBuf.length === expBuf.length && crypto.timingSafeEqual(sigBuf, expBuf)) {
+        const jwsHeader = JSON.parse(Buffer.from(hB64, 'base64url').toString('utf-8'));
+        const jwsPayload = JSON.parse(Buffer.from(pB64, 'base64url').toString('utf-8'));
+        if (
+          jwsHeader?.alg === 'HS256' &&
+          jwsPayload?.score === parsed.score &&
+          String(jwsPayload?.tier) === String(parsed.tier)
+        ) {
+          verified = true;
+        }
+      }
+    }
+  } else if (typeof parsed.hmac === 'string') {
+    const canonicalSummary = canonicalizeJson({
+      score: parsed.score,
+      tier: parsed.tier,
+      phi: parsed.phi ?? 1.0,
+      results: parsed.results,
+    });
+    const expectedHmac = crypto.createHmac('sha256', signingSecret).update(canonicalSummary).digest('hex');
+    const providedBuf = Buffer.from(parsed.hmac.replace(/^sha256:/, ''), 'utf-8');
+    const expectedBuf = Buffer.from(expectedHmac, 'utf-8');
+    if (providedBuf.length === expectedBuf.length && crypto.timingSafeEqual(providedBuf, expectedBuf)) {
+      verified = true;
+    }
+  }
+
+  if (!verified) {
+    throw new Error(
+      'Refusing to sign unauthenticated precomputed SuiteSummary JSON: missing or invalid HMAC/JWS signature.'
+    );
+  }
+
+  const manifestHash =
+    typeof parsed.manifestHash === 'string' && parsed.manifestHash.startsWith('sha256:')
+      ? parsed.manifestHash
+      : 'sha256:' + crypto.createHash('sha256').update(canonicalizeJson(parsed.results)).digest('hex');
+
+  return { summary: parsed as SuiteSummary, manifestHash };
 }
 
 export async function evidenceCommand(
@@ -153,9 +247,11 @@ export async function evidenceCommand(
   let client: McpClient | null = null;
 
   try {
-    let summary: SuiteSummary | null = !targetPath.startsWith('http')
-      ? tryLoadPrecomputedSummary(resolvedTarget)
+    const precomputed = !targetPath.startsWith('http')
+      ? tryLoadVerifiedPrecomputedSummary(resolvedTarget, effectiveSecret, isEphemeralDemoSignature)
       : null;
+    let summary: SuiteSummary | null = precomputed?.summary ?? null;
+    let manifestHash = precomputed?.manifestHash ?? '';
 
     if (!summary) {
       const discovered = await discoverToolsFromTarget(rawTarget, {
@@ -174,6 +270,7 @@ export async function evidenceCommand(
         return;
       }
 
+      manifestHash = computeToolsManifestHash(tools);
       summary = await runSuite(targetPath, tools, {
         client: client || undefined,
         targetDir: targetPath.startsWith('http') ? '.' : targetPath,
@@ -183,6 +280,8 @@ export async function evidenceCommand(
         transportMode: discovered.transportMode,
       });
     }
+
+    const commitSha = resolveGitCommitSha(targetPath.startsWith('http') ? process.cwd() : resolvedTarget);
 
     // Map checks to compliance controls (honest NOT_APPLICABLE when 0 checks apply)
     const controlEvaluations: Record<
@@ -229,6 +328,8 @@ export async function evidenceCommand(
       aud: 'ciso-compliance-review',
       iat: Math.floor(Date.now() / 1000),
       exp: Math.floor(Date.now() / 1000) + 90 * 86400,
+      ...(commitSha ? { commit: commitSha } : {}),
+      manifestHash,
       score: summary.score,
       tier: summary.tier,
       phi: summary.phi ?? 1.0,

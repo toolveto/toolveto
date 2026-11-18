@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { notifyOnboardingStep } from '../telemetry.js';
+import { CLI_VERSION, notifyOnboardingStep } from '../telemetry.js';
 
 export interface InitOptions {
   ci?: string;
@@ -46,9 +46,9 @@ jobs:
           TOOLVETO_LICENSE_KEY: \${{ secrets.TOOLVETO_LICENSE_KEY }}
           TOOLVETO_TOKEN: \${{ secrets.TOOLVETO_LICENSE_KEY }}
         run: |
-          npx --yes toolveto@latest check . --ephemeral-mock --threshold 80 --repo "\${{ github.repository }}"
+          npx --yes toolveto@${CLI_VERSION} check . --ephemeral-mock --threshold 80 --repo "\${{ github.repository }}"
           if [ -f "toolveto.lock.json" ]; then
-            npx --yes toolveto@latest lock . --verify --repo "\${{ github.repository }}"
+            npx --yes toolveto@${CLI_VERSION} lock . --verify --repo "\${{ github.repository }}"
           fi
 `;
 
@@ -64,10 +64,10 @@ toolveto_reliability_gate:
   variables:
     TOOLVETO_LICENSE_KEY: $TOOLVETO_LICENSE_KEY
   script:
-    - npx --yes toolveto@latest check . --ephemeral-mock --threshold 80 --repo "$CI_PROJECT_PATH"
+    - npx --yes toolveto@${CLI_VERSION} check . --ephemeral-mock --threshold 80 --repo "$CI_PROJECT_PATH"
     - |
       if [ -f "toolveto.lock.json" ]; then
-        npx --yes toolveto@latest lock . --verify --repo "$CI_PROJECT_PATH"
+        npx --yes toolveto@${CLI_VERSION} lock . --verify --repo "$CI_PROJECT_PATH"
       fi
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
@@ -95,7 +95,7 @@ export async function initCommand(targetDir = '.', options: InitOptions = {}): P
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
   fs.writeFileSync(outPath, template, 'utf-8');
   console.log(`\n✅ Initialized ToolVeto ${ciProvider} gate at ${outPath}`);
-  console.log(`   Next step: npx toolveto@latest lock . --output toolveto.lock.json\n`);
+  console.log(`   Next step: npx toolveto@${CLI_VERSION} lock . --output toolveto.lock.json\n`);
   await notifyOnboardingStep('step_1_ci_gate', '.github/workflows/toolveto.yml', {
     apiUrl: options.apiUrl,
     licenseKey: options.licenseKey,

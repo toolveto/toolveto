@@ -1,5 +1,5 @@
 {
-  "target": "linear/mcp-linear",
+  "target": "getsentry/toolkit",
   "totalChecks": 69,
   "passed": 48,
   "failed": 9,

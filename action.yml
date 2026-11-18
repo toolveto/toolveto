@@ -74,6 +74,16 @@ runs:
       env:
         INPUT_TARGET: ${{ inputs.server-url || inputs.target || inputs.server-path }}
         INPUT_LICENSE: ${{ inputs.license-key || inputs.toolveto-token }}
+        INPUT_FAIL_ON_SEVERITY: ${{ inputs.fail-on-severity }}
+        INPUT_THRESHOLD: ${{ inputs.threshold }}
+        INPUT_API_URL: ${{ inputs.api-url }}
+        INPUT_FAIL_ON_VETO: ${{ inputs.fail-on-veto }}
+        INPUT_SERVER_URL: ${{ inputs.server-url }}
+        INPUT_EPHEMERAL_MOCK: ${{ inputs.ephemeral-mock }}
+        INPUT_WITH_LLM: ${{ inputs.with-llm }}
+        INPUT_LOCKFILE_VERIFY: ${{ inputs.lockfile-verify }}
+        GITHUB_REPO: ${{ github.repository }}
+        ACTION_PATH: ${{ github.action_path }}
         TOOLVETO_API_URL: ${{ inputs.api-url }}
       run: |
         TARGET="${INPUT_TARGET:-.}"
@@ -84,31 +94,31 @@ runs:
         ARGS=(
           "$TARGET"
           "--format" "json"
-          "--fail-on-severity" "${{ inputs.fail-on-severity }}"
-          "--threshold" "${{ inputs.threshold }}"
-          "--repo" "${{ github.repository }}"
-          "--api-url" "${{ inputs.api-url }}"
+          "--fail-on-severity" "$INPUT_FAIL_ON_SEVERITY"
+          "--threshold" "$INPUT_THRESHOLD"
+          "--repo" "$GITHUB_REPO"
+          "--api-url" "$INPUT_API_URL"
         )
-        if [ "${{ inputs.fail-on-veto }}" = "false" ]; then
+        if [ "$INPUT_FAIL_ON_VETO" = "false" ]; then
           ARGS+=("--no-fail-on-veto")
         fi
-        if [ -z "${{ inputs.server-url }}" ] && [ "${{ inputs.ephemeral-mock }}" = "true" ]; then
+        if [ -z "$INPUT_SERVER_URL" ] && [ "$INPUT_EPHEMERAL_MOCK" = "true" ]; then
           ARGS+=("--ephemeral-mock")
         fi
-        if [ "${{ inputs.with-llm }}" = "true" ]; then
+        if [ "$INPUT_WITH_LLM" = "true" ]; then
           ARGS+=("--with-llm")
         fi
 
-        # Run action via local repository CLI bundle if present, published npm package if live,
+        # Run action via local repository CLI bundle if present, pinned published npm package if live,
         # or build cleanly from checked-out action source so external customers work out-of-the-box.
-        if [ -f "${{ github.action_path }}/packages/cli/dist/bin/toolveto.js" ]; then
-          CLI_CMD="node ${{ github.action_path }}/packages/cli/dist/bin/toolveto.js"
-        elif npm view toolveto version >/dev/null 2>&1; then
-          CLI_CMD="npx --yes toolveto@latest"
+        if [ -f "$ACTION_PATH/packages/cli/dist/bin/toolveto.js" ]; then
+          CLI_CMD=("node" "$ACTION_PATH/packages/cli/dist/bin/toolveto.js")
+        elif npm view toolveto@0.2.0 version >/dev/null 2>&1; then
+          CLI_CMD=("npx" "--yes" "toolveto@0.2.0")
         else
           echo "🔧 Building ToolVeto CLI from checked-out GitHub Action source..." >&2
           (
-            cd "${{ github.action_path }}"
+            cd "$ACTION_PATH"
             corepack enable >/dev/null 2>&1 || true
             if ! command -v pnpm >/dev/null 2>&1; then
               npm install -g pnpm@10.5.2 >/dev/null 2>&1
@@ -116,11 +126,11 @@ runs:
             pnpm install --frozen-lockfile >&2
             pnpm --filter toolveto... run build >&2
           )
-          CLI_CMD="node ${{ github.action_path }}/packages/cli/dist/bin/toolveto.js"
+          CLI_CMD=("node" "$ACTION_PATH/packages/cli/dist/bin/toolveto.js")
         fi
 
         set +e
-        REPORT_JSON=$($CLI_CMD check "${ARGS[@]}" 2>&1)
+        REPORT_JSON=$("${CLI_CMD[@]}" check "${ARGS[@]}" 2>&1)
         EXIT_CODE=$?
         set -e
 
@@ -144,13 +154,13 @@ runs:
 
         # Optional rug-pull lockfile verification when toolveto.lock.json is committed
         LOCK_EXIT=0
-        if [ "${{ inputs.lockfile-verify }}" = "true" ] && [ -f "${TARGET%/}/toolveto.lock.json" ]; then
+        if [ "$INPUT_LOCKFILE_VERIFY" = "true" ] && [ -f "${TARGET%/}/toolveto.lock.json" ]; then
           set +e
-          $CLI_CMD lock "$TARGET" --verify --output "${TARGET%/}/toolveto.lock.json" --repo "${{ github.repository }}" --api-url "${{ inputs.api-url }}"
+          "${CLI_CMD[@]}" lock "$TARGET" --verify --output "${TARGET%/}/toolveto.lock.json" --repo "$GITHUB_REPO" --api-url "$INPUT_API_URL"
           LOCK_EXIT=$?
           set -e
           if [ "$LOCK_EXIT" -ne 0 ]; then
-            EXIT_CODE=$LOCK_EXIT
+            EXIT_CODE="$LOCK_EXIT"
           fi
         fi
 
@@ -167,6 +177,6 @@ runs:
 
         if [ "$EXIT_CODE" -ne 0 ]; then
           echo "❌ ToolVeto reliability gate blocked with exit code $EXIT_CODE."
-          exit $EXIT_CODE
+          exit "$EXIT_CODE"
         fi
         echo "✅ ToolVeto reliability gate passed with score $SCORE/100 [$TIER]."

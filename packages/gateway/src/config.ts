@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { parse as parseYaml } from 'yaml';
-import type { ToolShieldOverride } from '@toolveto/shield';
+import type { ToolShieldOverride, ShieldPolicyOptions } from '@toolveto/shield';
 
 export type GatewayPolicy = 'strict' | 'standard' | 'permissive';
 
@@ -26,6 +26,12 @@ export interface UpstreamRouteConfig {
   tokenBudget?: number;
   loopLimit?: { count: number; windowMs: number };
   toolOverrides?: Record<string, ToolShieldOverride>;
+  blockedTools?: string[];
+  requireDryRunForDestructive?: boolean;
+  elicitOnDestructive?: boolean;
+  maxLimit?: number;
+  trustClientMeta?: boolean;
+  shieldPolicy?: ShieldPolicyOptions;
   lockfilePath?: string;
   lockfileHashes?: Record<string, string>;
   tools?: Array<string | { name: string }>;
@@ -44,6 +50,12 @@ export interface GatewayYamlConfig {
   tokenBudget?: number;
   loopLimit?: { count: number; windowMs: number };
   toolOverrides?: Record<string, ToolShieldOverride>;
+  blockedTools?: string[];
+  requireDryRunForDestructive?: boolean;
+  elicitOnDestructive?: boolean;
+  maxLimit?: number;
+  trustClientMeta?: boolean;
+  shieldPolicy?: ShieldPolicyOptions;
   lockfilePath?: string;
   lockfileHashes?: Record<string, string>;
   cloud?: GatewayCloudConfig;
@@ -137,6 +149,25 @@ export function parseGatewayYaml(content: string): GatewayYamlConfig {
       rawParsed.toolOverrides && typeof rawParsed.toolOverrides === 'object'
         ? rawParsed.toolOverrides
         : undefined,
+    blockedTools: Array.isArray(rawParsed.blockedTools)
+      ? rawParsed.blockedTools.map(String)
+      : undefined,
+    requireDryRunForDestructive:
+      rawParsed.requireDryRunForDestructive !== undefined
+        ? Boolean(rawParsed.requireDryRunForDestructive)
+        : undefined,
+    elicitOnDestructive:
+      rawParsed.elicitOnDestructive !== undefined
+        ? Boolean(rawParsed.elicitOnDestructive)
+        : undefined,
+    maxLimit:
+      rawParsed.maxLimit !== undefined ? Number(rawParsed.maxLimit) : undefined,
+    trustClientMeta:
+      rawParsed.trustClientMeta !== undefined ? Boolean(rawParsed.trustClientMeta) : undefined,
+    shieldPolicy:
+      rawParsed.shieldPolicy && typeof rawParsed.shieldPolicy === 'object'
+        ? rawParsed.shieldPolicy
+        : undefined,
     lockfilePath: rawParsed.lockfilePath ? String(rawParsed.lockfilePath) : undefined,
     lockfileHashes:
       rawParsed.lockfileHashes && typeof rawParsed.lockfileHashes === 'object'
@@ -194,6 +225,25 @@ export function parseGatewayYaml(content: string): GatewayYamlConfig {
         toolOverrides:
           rawUp.toolOverrides && typeof rawUp.toolOverrides === 'object'
             ? rawUp.toolOverrides
+            : undefined,
+        blockedTools: Array.isArray(rawUp.blockedTools)
+          ? rawUp.blockedTools.map(String)
+          : undefined,
+        requireDryRunForDestructive:
+          rawUp.requireDryRunForDestructive !== undefined
+            ? Boolean(rawUp.requireDryRunForDestructive)
+            : undefined,
+        elicitOnDestructive:
+          rawUp.elicitOnDestructive !== undefined
+            ? Boolean(rawUp.elicitOnDestructive)
+            : undefined,
+        maxLimit:
+          rawUp.maxLimit !== undefined ? Number(rawUp.maxLimit) : undefined,
+        trustClientMeta:
+          rawUp.trustClientMeta !== undefined ? Boolean(rawUp.trustClientMeta) : undefined,
+        shieldPolicy:
+          rawUp.shieldPolicy && typeof rawUp.shieldPolicy === 'object'
+            ? rawUp.shieldPolicy
             : undefined,
         lockfilePath: rawUp.lockfilePath ? String(rawUp.lockfilePath) : undefined,
         lockfileHashes:

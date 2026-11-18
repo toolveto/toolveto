@@ -4,6 +4,8 @@ import { notifyOnboardingStep, resolveCloudCredentials, resolveRepoSlug } from '
 
 export interface ProxyOptions {
   port?: string | number;
+  host?: string;
+  server?: string;
   upstream?: string;
   tokenBudget?: string | number;
   loopLimit?: string | number;
@@ -55,6 +57,7 @@ export async function proxyCommand(
     const handle = await startStdioShieldProxy({
       command: childCommand,
       args: childArgs,
+      serverName: options.server,
       upstreamUrl,
       tokenBudget,
       loopLimit,
@@ -125,11 +128,13 @@ export async function proxyCommand(
     },
   });
 
+  const bindHost = options.host || process.env.TOOLVETO_PROXY_HOST || '127.0.0.1';
+
   return new Promise((resolve) => {
-    server.listen(port, () => {
-      console.log(`✅ ToolVeto Shield Gateway is active on http://localhost:${port}`);
-      console.log(`   - MCP Reverse Proxy: POST/GET/DELETE http://localhost:${port}/mcp`);
-      console.log(`   - Health & Telemetry: GET             http://localhost:${port}/health\n`);
+    server.listen(port, bindHost, () => {
+      console.log(`✅ ToolVeto Shield Gateway is active on http://${bindHost}:${port}`);
+      console.log(`   - MCP Reverse Proxy: POST/GET/DELETE http://${bindHost}:${port}/mcp`);
+      console.log(`   - Health & Telemetry: GET             http://${bindHost}:${port}/health\n`);
       resolve(server);
     });
   });

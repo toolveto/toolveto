@@ -170,6 +170,7 @@ export class RedisShieldStorage implements ShieldStorage {
           const err: any = new Error(`[ToolVeto Shield Strict] Failed to acquire distributed lock for key '${key}'`);
           err.code = -32001;
           err.status = 503;
+          err.lockContention = true;
           throw err;
         }
         return acquired;
@@ -181,6 +182,7 @@ export class RedisShieldStorage implements ShieldStorage {
           const err: any = new Error(`[ToolVeto Shield Strict] Failed to acquire distributed lock for key '${key}'`);
           err.code = -32001;
           err.status = 503;
+          err.lockContention = true;
           throw err;
         }
         return acquired;

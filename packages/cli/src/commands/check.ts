@@ -95,7 +95,7 @@ export function createEphemeralMockClient(tools: McpToolDefinition[]): InMemoryM
     toolMap.set(tool.name, tool);
   }
 
-  return new InMemoryMcpClient(tools, async (toolName: string, rawArgs: Record<string, any> = {}) => {
+  const mockClient = new InMemoryMcpClient(tools, async (toolName: string, rawArgs: Record<string, any> = {}) => {
     const tool = toolMap.get(toolName);
     if (!tool) {
       return {
@@ -267,6 +267,8 @@ export function createEphemeralMockClient(tools: McpToolDefinition[]): InMemoryM
       ],
     };
   });
+  (mockClient as McpClient).isSimulated = true;
+  return mockClient;
 }
 
 export async function checkCommand(

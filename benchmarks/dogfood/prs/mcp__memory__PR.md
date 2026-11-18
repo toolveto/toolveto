@@ -1,7 +1,7 @@
 # fix(mcp): add idempotency keys, query pairing & pagination bounds
 
 ## Summary
-This automated pull request applies resilience and safety hardening to the MCP tool schemas in `slack/mcp-server`, addressing common agentic failure patterns identified by the **ToolVeto Static Verification Engine**:
+This automated pull request applies resilience and safety hardening to the MCP tool schemas in `mcp/memory`, addressing common agentic failure patterns identified by the **ToolVeto Static Verification Engine**:
 
 - **CRITICAL Issues Found:** 4
 - **HIGH Issues Found:** 7

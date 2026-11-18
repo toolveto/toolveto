@@ -82,7 +82,12 @@ jobs:
 
       - name: Verify Live PostgreSQL 16 & Redis 7 Shield Stores Executed (Zero Skips)
         run: |
-          node --test packages/shield/dist/__tests__/live-stores.test.js
+          LIVE_OUT=$(node --test packages/shield/dist/__tests__/live-stores.test.js 2>&1)
+          echo "$LIVE_OUT"
+          if ! echo "$LIVE_OUT" | grep -q "skipped 0"; then
+            echo "❌ Expected 0 skipped tests in live-stores.test.js!"
+            exit 1
+          fi
 
       - name: Verify Real Official @modelcontextprotocol/sdk Gateway & Stdio Proxy E2E
         run: |

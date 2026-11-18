@@ -20,8 +20,8 @@ const categories = {
   'cloudflare/mcp-server-cloudflare': 'Cloud Infrastructure',
   'supabase/mcp-server-supabase': 'Database & Backend',
   'anthropic/anthropic-quickstarts': 'Official Reference',
-  'linear/mcp-linear': 'Issue Tracking',
-  'slack/mcp-server': 'Communication',
+  'getsentry/toolkit': 'Issue Tracking',
+  'mcp/memory': 'Communication',
   'atlassian/mcp-server-confluence': 'Enterprise Wiki',
 };
 
@@ -33,8 +33,8 @@ const primaryWrecks = {
   'cloudflare/mcp-server-cloudflare': 'Unformatted Error Trap & Mutation Idempotency Gap',
   'supabase/mcp-server-supabase': 'Unbounded SQL Query (> 8,000 Tokens)',
   'anthropic/anthropic-quickstarts': 'Blind SQL Write Without Read-After-Write Verification',
-  'linear/mcp-linear': 'Duplicate Issue Creation on Network Timeout',
-  'slack/mcp-server': 'Chat Replay Storm (Missing Client Message ID Dedupe)',
+  'getsentry/toolkit': 'Duplicate Issue Creation on Network Timeout',
+  'mcp/memory': 'Chat Replay Storm (Missing Client Message ID Dedupe)',
   'atlassian/mcp-server-confluence': 'Unbounded Wiki Page Dumps (> 128k Tokens)',
 };
 
