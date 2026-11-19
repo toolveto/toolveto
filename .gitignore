@@ -43,3 +43,14 @@ Thumbs.db
 .agentproof/
 scratch/
 tmp/
+
+# Secrets, keys & local state databases
+.secrets/
+*.pem
+*.key
+*.p12
+*.pfx
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.tvbackup.json
