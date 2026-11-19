@@ -255,7 +255,9 @@ function scanObjectForInjection(
   visited = new WeakSet<object>(),
   depth = 0
 ): { detected: boolean; match?: string } {
-  if (depth > 32) return { detected: false };
+  if (depth > 32) {
+    return { detected: true, match: '[MAX_NESTING_DEPTH_EXCEEDED]' };
+  }
   if (typeof obj === 'string') {
     return detectInjectionInString(obj, patterns);
   }
@@ -269,9 +271,11 @@ function scanObjectForInjection(
         if (res.detected) return res;
       }
     } else {
-      for (const val of Object.values(obj)) {
-        const res = scanObjectForInjection(val, patterns, visited, depth + 1);
-        if (res.detected) return res;
+      for (const [key, val] of Object.entries(obj)) {
+        const keyRes = detectInjectionInString(key, patterns);
+        if (keyRes.detected) return keyRes;
+        const valRes = scanObjectForInjection(val, patterns, visited, depth + 1);
+        if (valRes.detected) return valRes;
       }
     }
   }
@@ -284,7 +288,7 @@ function sanitizeObject(
   visited = new WeakSet<object>(),
   depth = 0
 ): any {
-  if (depth > 32) return obj;
+  if (depth > 32) return '[REDACTED_MAX_DEPTH_EXCEEDED]';
   if (typeof obj === 'string') {
     return sanitizeText(obj, patterns);
   }
@@ -297,7 +301,8 @@ function sanitizeObject(
     }
     const res: Record<string, any> = {};
     for (const [k, v] of Object.entries(obj)) {
-      res[k] = sanitizeObject(v, patterns, visited, depth + 1);
+      const safeKey = sanitizeText(k, patterns);
+      res[safeKey] = sanitizeObject(v, patterns, visited, depth + 1);
     }
     return res;
   }

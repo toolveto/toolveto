@@ -3,6 +3,20 @@ import { BENCHMARK_SERVERS, BENCHMARK_SUMMARY, PRESET_SCHEMAS } from './benchmar
 // State
 let activeWreckIndex = 0;
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function safePct(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : 0;
+}
+
 function fallbackExecCopy(text) {
   if (typeof document === "undefined" || !document.body || typeof document.execCommand !== "function") {
     return false;
@@ -608,58 +622,68 @@ function initBenchmarkGrid() {
     filtered.forEach(s => {
       const card = document.createElement("div");
       card.className = "benchmark-card";
+      const safeTierClass = String(s.tier || "").toLowerCase().replace(/[^a-z0-9_-]/g, "");
+      const safeRepoPath = String(s.repo || "")
+        .split("/")
+        .map((seg) => encodeURIComponent(seg))
+        .join("/");
+      const d1 = safePct(s.dimensions?.d1);
+      const d2 = safePct(s.dimensions?.d2);
+      const d3 = safePct(s.dimensions?.d3);
+      const d4 = safePct(s.dimensions?.d4);
+      const d5 = safePct(s.dimensions?.d5);
       card.innerHTML = `
         <div class="card-header">
           <div class="repo-meta">
-            <span class="repo-category">${s.category}</span>
-            <h4 class="repo-name">${s.name}</h4>
-            <a href="https://github.com/${s.repo}" target="_blank" rel="noreferrer" class="repo-link">${s.repo}</a>
+            <span class="repo-category">${escapeHtml(s.category)}</span>
+            <h4 class="repo-name">${escapeHtml(s.name)}</h4>
+            <a href="https://github.com/${safeRepoPath}" target="_blank" rel="noreferrer" class="repo-link">${escapeHtml(s.repo)}</a>
           </div>
           <div class="stars-badge">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
-            ${s.stars}
+            ${escapeHtml(s.stars)}
           </div>
         </div>
         
         <div class="score-row">
           <div class="score-pill">
-            <span class="score-val">${s.score}</span>
+            <span class="score-val">${escapeHtml(s.score)}</span>
             <span class="score-denom">/100</span>
           </div>
-          <span class="tier-pill tier-${s.tier.toLowerCase()}">${s.tier}</span>
-          <span class="gate-pill">CI: ${s.ciGate} (${s.criticalFailures} Crit)</span>
+          <span class="tier-pill tier-${safeTierClass}">${escapeHtml(s.tier)}</span>
+          <span class="gate-pill">CI: ${escapeHtml(s.ciGate)} (${escapeHtml(s.criticalFailures)} Crit)</span>
         </div>
 
         <div class="dim-micro-bars">
-          <div class="micro-bar-col" title="D1 Idempotency: ${s.dimensions.d1}%">
+          <div class="micro-bar-col" title="D1 Idempotency: ${d1}%">
             <span class="dim-label">D1</span>
-            <div class="micro-track"><div class="micro-fill" style="height: ${s.dimensions.d1}%"></div></div>
+            <div class="micro-track"><div class="micro-fill" style="height: ${d1}%"></div></div>
           </div>
-          <div class="micro-bar-col" title="D2 Errors: ${s.dimensions.d2}%">
+          <div class="micro-bar-col" title="D2 Errors: ${d2}%">
             <span class="dim-label">D2</span>
-            <div class="micro-track"><div class="micro-fill" style="height: ${s.dimensions.d2}%"></div></div>
+            <div class="micro-track"><div class="micro-fill" style="height: ${d2}%"></div></div>
           </div>
-          <div class="micro-bar-col" title="D3 Context: ${s.dimensions.d3}%">
+          <div class="micro-bar-col" title="D3 Context: ${d3}%">
             <span class="dim-label">D3</span>
-            <div class="micro-track"><div class="micro-fill" style="height: ${s.dimensions.d3}%"></div></div>
+            <div class="micro-track"><div class="micro-fill" style="height: ${d3}%"></div></div>
           </div>
-          <div class="micro-bar-col" title="D4 Bounds: ${s.dimensions.d4}%">
+          <div class="micro-bar-col" title="D4 Bounds: ${d4}%">
             <span class="dim-label">D4</span>
-            <div class="micro-track"><div class="micro-fill" style="height: ${s.dimensions.d4}%"></div></div>
+            <div class="micro-track"><div class="micro-fill" style="height: ${d4}%"></div></div>
           </div>
-          <div class="micro-bar-col" title="D5 Audit: ${s.dimensions.d5}%">
+          <div class="micro-bar-col" title="D5 Audit: ${d5}%">
             <span class="dim-label">D5</span>
-            <div class="micro-track"><div class="micro-fill" style="height: ${s.dimensions.d5}%"></div></div>
+            <div class="micro-track"><div class="micro-fill" style="height: ${d5}%"></div></div>
           </div>
         </div>
 
         <div class="issue-box">
           <strong>Primary Vulnerability:</strong>
-          <p>${s.keyIssue}</p>
+          <p>${escapeHtml(s.keyIssue)}</p>
         </div>
 
         <div class="card-footer">
-          <button type="button" class="open-pr-btn" data-action="open-pr-diff" data-server-id="${s.id}">
+          <button type="button" class="open-pr-btn" data-action="open-pr-diff" data-server-id="${escapeHtml(s.id)}">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="18" cy="18" r="3"></circle><circle cx="6" cy="6" r="3"></circle><path d="M13 6h3a2 2 0 0 1 2 2v7"></path><line x1="6" y1="9" x2="6" y2="21"></line></svg>
             Inspect PR Diff
           </button>
@@ -717,11 +741,11 @@ function openDiffModal(server) {
   if (modalDiffText) modalDiffText.textContent = server.diffSnippet;
   if (modalSummary) {
     modalSummary.innerHTML = `
-      <p><strong>Evaluated Score:</strong> <span class="score-highlight">${server.score}/100</span> [Tier: ${server.tier}]</p>
-      <p><strong>CI Merge Gate:</strong> <strong style="color: #ff8095;">🔴 ${server.ciGate} (${server.criticalFailures} Critical Failures)</strong></p>
-      <p><strong>Fatal Veto Code:</strong> <code>${server.criticalVeto}</code></p>
-      <p><strong>Root Cause:</strong> ${server.keyIssue}</p>
-      <p><strong>Prepared Patch Manifest:</strong> <code>${server.prArtifact}</code></p>
+      <p><strong>Evaluated Score:</strong> <span class="score-highlight">${escapeHtml(server.score)}/100</span> [Tier: ${escapeHtml(server.tier)}]</p>
+      <p><strong>CI Merge Gate:</strong> <strong style="color: #ff8095;">🔴 ${escapeHtml(server.ciGate)} (${escapeHtml(server.criticalFailures)} Critical Failures)</strong></p>
+      <p><strong>Fatal Veto Code:</strong> <code>${escapeHtml(server.criticalVeto)}</code></p>
+      <p><strong>Root Cause:</strong> ${escapeHtml(server.keyIssue)}</p>
+      <p><strong>Prepared Patch Manifest:</strong> <code>${escapeHtml(server.prArtifact)}</code></p>
     `;
   }
 

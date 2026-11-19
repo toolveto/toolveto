@@ -124,9 +124,9 @@ function parseNonStandardOrStandardIpv4(rawHost: string): [number, number, numbe
 export function isPrivateIpOrBlockedHost(hostname: string): boolean {
   const raw = hostname.toLowerCase().trim();
   const unbracketed = raw.startsWith('[') && raw.endsWith(']') ? raw.slice(1, -1) : raw;
-  const host = unbracketed.split('%')[0];
+  const host = unbracketed.split('%')[0].replace(/\.+$/, '');
 
-  if (BLOCKED_PRIVATE_HOSTNAMES.has(raw) || BLOCKED_PRIVATE_HOSTNAMES.has(host)) return true;
+  if (!host || BLOCKED_PRIVATE_HOSTNAMES.has(raw) || BLOCKED_PRIVATE_HOSTNAMES.has(host)) return true;
   if (host.endsWith('.localhost') || host.endsWith('.internal') || host.endsWith('.local')) return true;
 
   if (/^(0x[0-9a-f]+|0[0-7]+)(\.(0x[0-9a-f]+|0[0-7]*|\d+))*$/i.test(host)) {
@@ -153,22 +153,40 @@ export function isPrivateIpOrBlockedHost(hostname: string): boolean {
     if (isAllZeroPrefix6 && ipv6[5] === 0xffff) {
       return isPrivateIpv4Octets((ipv6[6] >>> 8) & 0xff, ipv6[6] & 0xff);
     }
+    // IPv4-translated SIIT ::ffff:0:w.x.y.z (::ffff:0:0:0/96)
+    if (ipv6[0] === 0 && ipv6[1] === 0 && ipv6[2] === 0 && ipv6[3] === 0 && ipv6[4] === 0xffff && ipv6[5] === 0) {
+      return true;
+    }
+    // ISATAP (RFC 5214) embedded IPv4 (::0000:5efe:w.x.y.z or ::0200:5efe:w.x.y.z)
+    if ((ipv6[4] === 0x0000 || ipv6[4] === 0x0200) && ipv6[5] === 0x5efe) {
+      return true;
+    }
     // Unique Local Addresses fc00::/7
     if ((ipv6[0] & 0xfe00) === 0xfc00) return true;
-    // Link-local unicast fe80::/10 (includes fec0..feff? fec0 is site-local deprecated)
+    // Link-local unicast fe80::/10 & deprecated site-local fec0::/10
     if ((ipv6[0] & 0xffc0) === 0xfe80 || (ipv6[0] & 0xffc0) === 0xfec0) return true;
     // Multicast ff00::/8
     if ((ipv6[0] & 0xff00) === 0xff00) return true;
     // NAT64 (64:ff9b::/96, 64:ff9b:1::/48)
     if (ipv6[0] === 0x0064 && ipv6[1] === 0xff9b) return true;
-    // 6to4 (2002::/16)
-    if (ipv6[0] === 0x2002) return true;
-    // Documentation (2001:db8::/32), Benchmarking (2001:2::/48), Teredo (2001::/32)
-    if (ipv6[0] === 0x2001 && (ipv6[1] === 0x0db8 || (ipv6[1] === 0x0002 && ipv6[2] === 0x0000) || ipv6[1] === 0x0000)) {
+    // 6to4 (2002::/16), 6bone (3ffe::/16), and RFC 9637 documentation (3fff::/20)
+    if (ipv6[0] === 0x2002 || ipv6[0] === 0x3ffe || (ipv6[0] === 0x3fff && (ipv6[1] & 0xf000) === 0x0000)) return true;
+    // Documentation (2001:db8::/32), Benchmarking (2001:2::/48), Teredo (2001::/32), AMT (2001:3::/32), ORCHID (2001:10::/28, 2001:20::/28)
+    if (
+      ipv6[0] === 0x2001 &&
+      (ipv6[1] === 0x0db8 ||
+        (ipv6[1] === 0x0002 && ipv6[2] === 0x0000) ||
+        ipv6[1] === 0x0000 ||
+        ipv6[1] === 0x0003 ||
+        (ipv6[1] & 0xfff0) === 0x0010 ||
+        (ipv6[1] & 0xfff0) === 0x0020)
+    ) {
       return true;
     }
     // Discard prefix (100::/64)
     if (ipv6[0] === 0x0100 && ipv6[1] === 0 && ipv6[2] === 0 && ipv6[3] === 0) return true;
+    // Block all non-Global-Unicast IPv6 space (outside 2000::/3)
+    if ((ipv6[0] & 0xe000) !== 0x2000) return true;
   } else if (host.includes(':')) {
     // Fallback string checks for malformed/bracketed IPv6 edge forms
     if (
@@ -215,7 +233,7 @@ export function validateUpstreamUrl(urlStr: string, allowLocal = false): void {
     throw new Error(`[ToolVeto Gateway Security] SSRF blocked: Embedded credentials in upstream URL '${urlStr}' are forbidden.`);
   }
 
-  const host = parsed.hostname.toLowerCase();
+  const host = parsed.hostname.toLowerCase().replace(/\.+$/, '');
 
   if (host === '169.254.169.254' || host === 'metadata.google.internal' || host === 'instance-data') {
     throw new Error(`[ToolVeto Gateway Security] SSRF blocked: Access to cloud instance metadata (${host}) is forbidden.`);
