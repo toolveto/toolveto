@@ -10,6 +10,7 @@ import { lockCommand } from './commands/lock.js';
 import { exportPolicyCommand } from './commands/export-policy.js';
 import { wrapCommand } from './commands/wrap.js';
 import { doctorCommand } from './commands/doctor.js';
+import { discoverCommand } from './commands/discover.js';
 import { initCommand } from './commands/init.js';
 
 export function createProgram(): Command {
@@ -99,6 +100,20 @@ export function createProgram(): Command {
     .option('--json', 'Output machine-readable JSON report')
     .action(async (target, options) => {
       await doctorCommand(target, options);
+    });
+
+  program
+    .command('discover')
+    .description('Zero-secret MDM/laptop sweep for Shadow MCP servers across Cursor, Claude Desktop, VS Code, Windsurf, and Claude Code')
+    .argument('[target]', 'Optional project workspace directory to include alongside global IDE configs', '.')
+    .option('--json', 'Output machine-readable JSON for Jamf Pro / Kandji / Microsoft Intune / CrowdStrike')
+    .option('--upload', 'Push zero-secret inventory to ToolVeto Cloud (POST /api/v1/fleet/inventory)')
+    .option('--enforce-catalog', 'Verify discovered servers against the organization Approved Catalog and exit non-zero on quarantined servers')
+    .option('--policy-file <path>', 'Local signed org catalog policy JSON file for offline enforcement')
+    .option('--token <token>', 'Org enrollment token (tv_enroll_...) or license key')
+    .option('--api-url <url>', 'ToolVeto Cloud API base URL')
+    .action(async (target, options) => {
+      await discoverCommand({ ...options, target });
     });
 
   program

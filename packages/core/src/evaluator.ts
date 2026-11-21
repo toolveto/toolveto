@@ -28,7 +28,8 @@ import { runPaginationSchemaCheck } from './checks/d3-lite/schema-linter.js';
 import { runDescriptionClarityCheck } from './checks/d3-lite/description-clarity.js';
 import { runAdditionalPropertiesCheck } from './checks/d3-lite/additional-properties.js';
 import { runDescriptionAmbiguityCheck, runParamSteerabilityCheck } from './checks/d4-steerability/ambiguity.js';
-import { runReadBeforeWritePairingCheck } from './checks/d5-auditability/pairing.js';
+import { runReadBeforeWritePairingCheck, runTriPhaseReadProbeCheck } from './checks/d5-auditability/pairing.js';
+import { runToxicFlowCheck } from './checks/toxic-flow.js';
 import { runDryRunCheck } from './checks/d5-auditability/dry-run.js';
 import { runTenantIsolationCheck, runOAuthScopeCheck, runRootsPathTraversalCheck } from './checks/tc-auth.js';
 import { runResourceListCheck, runResourceReadCheck, runServerCapabilityCheck } from './checks/resources-coverage.js';
@@ -159,7 +160,11 @@ export async function runSuite(
         toolResults.push(runStaticOutputSchemaCheck(normalizedTool));
 
         // D5 Checks (State auditability, Tenant Isolation, Auth, Roots)
-        toolResults.push(runReadBeforeWritePairingCheck(tool, tools));
+        if (client && destructiveAuthorization && tool.isMutation) {
+          toolResults.push(await runTriPhaseReadProbeCheck(tool, tools, client));
+        } else {
+          toolResults.push(runReadBeforeWritePairingCheck(tool, tools));
+        }
         toolResults.push(runDryRunCheck(tool));
         toolResults.push(runOAuthScopeCheck(tool));
         if (client) {
@@ -183,6 +188,7 @@ export async function runSuite(
     results.push(await runHeterogeneousInterleavingCheck(tools, client, destructiveAuthorization));
   }
   results.push(runToolShadowingCheck(tools));
+  results.push(runToxicFlowCheck(tools));
   results.push(runStdioStdoutCheck(options.sourceFiles, target, options.transportMode));
   results.push(runToolRugPullBloatCheck(tools, options.sourceFiles));
   results.push(runHttpTransportAuthCheck(options.sourceFiles, target));

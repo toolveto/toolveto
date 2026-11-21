@@ -5,6 +5,7 @@
     <em>Shield stops them in production if you missed them.</em>
   </p>
   <p align="center">
+    <a href="https://toolveto.ai/index">Public MCP Trust Index</a> •
     <a href="#quickstart">Quickstart</a> •
     <a href="#why-toolveto">Why ToolVeto</a> •
     <a href="#the-cli-gate-toolveto-check">CLI Gate</a> •
@@ -67,31 +68,41 @@ Auto-apply the suggested AST code patches directly to your source files, pin too
 # Auto-remediate TypeScript/Zod, Python/FastMCP, Go, or JSON manifests
 npx toolveto@latest fix --apply
 
+# Zero-secret Shadow MCP sweep across Cursor, Claude Desktop, VS Code, Windsurf & Claude Code
+npx toolveto@latest discover --json
+
 # Generate a cryptographic SHA-256 lockfile (toolveto.lock.json) to prevent rug-pulls
 npx toolveto@latest lock ./my-mcp-server
 
-# Export least-privilege AWS Cedar or Open Policy Agent (Rego) rules from MCP annotations
-npx toolveto@latest export-policy ./my-mcp-server --format cedar
+# Export least-privilege AWS Cedar, OPA Rego, or WeaveProof taint-boundary policies (blocks TC-TOXIC-001)
+npx toolveto@latest export-policy ./my-mcp-server --format weaveproof
 ```
 
-### GitHub Actions CI Gate (`toolveto/toolveto@v1`)
+### GitHub Actions CI Gate (`toolveto/toolveto@v2` — SARIF 2.1.0 + Sticky PR Bot)
 
-Block unsafe MCP tool regressions on every pull request in under 90 seconds:
+Block unsafe MCP tool regressions on every pull request in under 90 seconds, upload native alerts to **GitHub Security → Code Scanning**, and upsert a sticky PR summary with auto-fix diffs:
 
 ```yaml
 name: ToolVeto MCP Gate
 on: [pull_request]
+permissions:
+  contents: read
+  pull-requests: write
+  security-events: write
 jobs:
   mcp-gate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: toolveto/toolveto@v1
+      - uses: toolveto/toolveto@v2
         with:
           target: './src/mcp-server.ts'
           threshold: '80'
           fail-on-severity: 'CRITICAL'
           fail-on-veto: 'true'
+          upload-sarif: 'true'
+          comment-pr: 'true'
+          lockfile-verify: 'true'
           license-key: ${{ secrets.TOOLVETO_LICENSE_KEY }}
 ```
 

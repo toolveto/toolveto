@@ -398,6 +398,31 @@ export async function checkCommand(
     if (options.json || options.format === 'json') {
       console.log(JSON.stringify(summary, null, 2));
     } else if (options.format === 'sarif') {
+      const toolLocationMap = new Map<string, { file: string; line: number }>();
+      for (const t of tools) {
+        if (t.sourceLocation?.file) {
+          toolLocationMap.set(t.name, { file: t.sourceLocation.file, line: Math.max(1, t.sourceLocation.line || 1) });
+        }
+      }
+      const mapCheckTags = (checkId: string, dimension: string): string[] => {
+        const tags = ['security', 'mcp', `dimension/${dimension.toLowerCase()}`];
+        if (checkId.startsWith('TC-IDEMP') || checkId.startsWith('TC-RACE')) {
+          tags.push('OWASP-MCP04', 'external/cwe/cwe-362', 'external/cwe/cwe-841');
+        } else if (checkId.startsWith('TC-SEC') || checkId.startsWith('TC-POISON') || checkId.startsWith('TC-SAMPLING')) {
+          tags.push('OWASP-MCP01', 'OWASP-MCP03', 'external/cwe/cwe-74', 'external/cwe/cwe-94');
+        } else if (checkId.startsWith('TC-TOXIC')) {
+          tags.push('OWASP-MCP02', 'OWASP-MCP06', 'external/cwe/cwe-200', 'external/cwe/cwe-918');
+        } else if (checkId.startsWith('TC-AUTH') || checkId.startsWith('TC-HTTP')) {
+          tags.push('OWASP-MCP07', 'external/cwe/cwe-22', 'external/cwe/cwe-285');
+        } else if (checkId.startsWith('TC-CTX') || checkId.startsWith('TC-SCHEMA')) {
+          tags.push('OWASP-MCP05', 'external/cwe/cwe-400', 'external/cwe/cwe-770');
+        } else if (checkId.startsWith('TC-PAIR') || checkId.startsWith('TC-DRYRUN')) {
+          tags.push('OWASP-MCP08', 'external/cwe/cwe-754');
+        } else {
+          tags.push('OWASP-MCP09', 'external/cwe/cwe-693');
+        }
+        return tags;
+      };
       const sarifReport = {
         $schema: 'https://json.schemastore.org/sarif-2.1.0.json',
         version: '2.1.0',
@@ -411,8 +436,15 @@ export async function checkCommand(
                 rules: Array.from(new Map(summary.results.map((r) => [r.checkId, r])).values()).map((r) => ({
                   id: r.checkId,
                   name: `${r.dimension}-${r.checkId}`,
+                  helpUri: `https://toolveto.ai/docs/checks/${encodeURIComponent(r.checkId)}`,
                   shortDescription: { text: r.description },
                   fullDescription: { text: r.description },
+                  properties: {
+                    tags: mapCheckTags(r.checkId, r.dimension),
+                    precision: r.evidence.evidenceQuality === 'VERIFIED' ? 'very-high' : 'high',
+                    'security-severity':
+                      r.severity === 'CRITICAL' ? '9.5' : r.severity === 'HIGH' ? '7.8' : r.severity === 'MEDIUM' ? '5.3' : '2.5',
+                  },
                   defaultConfiguration: {
                     level: r.severity === 'CRITICAL' || r.severity === 'HIGH' ? 'error' : 'warning',
                   },
@@ -421,22 +453,25 @@ export async function checkCommand(
             },
             results: summary.results
               .filter((r) => r.status === 'FAIL' || r.status === 'WARN')
-              .map((r) => ({
-                ruleId: r.checkId,
-                level: r.status === 'FAIL' && (r.severity === 'CRITICAL' || r.severity === 'HIGH') ? 'error' : 'warning',
-                message: {
-                  text: `[${r.dimension}] Tool '${r.tool}': ${r.description} (Evidence: ${r.evidence.evidenceQuality})`,
-                },
-                locations: [
-                  {
-                    physicalLocation: {
-                      artifactLocation: {
-                        uri: summary.target.startsWith('http') ? 'mcp-tools.json' : summary.target,
+              .map((r) => {
+                const loc = toolLocationMap.get(r.tool);
+                const artifactUri = loc?.file || (summary.target.startsWith('http') ? 'mcp-tools.json' : summary.target);
+                return {
+                  ruleId: r.checkId,
+                  level: r.status === 'FAIL' && (r.severity === 'CRITICAL' || r.severity === 'HIGH') ? 'error' : 'warning',
+                  message: {
+                    text: `[${r.dimension}] Tool '${r.tool}': ${r.description} (Evidence: ${r.evidence.evidenceQuality})`,
+                  },
+                  locations: [
+                    {
+                      physicalLocation: {
+                        artifactLocation: { uri: artifactUri },
+                        ...(loc?.line ? { region: { startLine: loc.line } } : {}),
                       },
                     },
-                  },
-                ],
-              })),
+                  ],
+                };
+              }),
           },
         ],
       };
