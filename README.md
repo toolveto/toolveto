@@ -129,7 +129,7 @@ ToolVeto operates on a **Two-Repository Topology** to guarantee frictionless ope
    ├─────────────────────────────────────────┤     ├─────────────────────────────────────────┤
    │  packages/core        (MIT)             │     │  apps/web (Next.js SaaS Dashboard)      │
    │  packages/cli         (MIT)             │     │  apps/api (Control Plane & Billing)     │
-   │  packages/shield      (Apache 2.0)      │     │  services/runner-fleet (gVisor/K8s)     │
+   │  packages/shield      (BSL 1.1)         │     │  services/runner-fleet (gVisor/K8s)     │
    │  packages/gateway     (BSL 1.1)         │     │  packages/sealed-corpus (Private 60%)   │
    │  benchmarks/overhead  (MIT)             │     │  packages/failure-lakehouse (ClickHouse)│
    └─────────────────────────────────────────┘     └─────────────────────────────────────────┘
@@ -139,7 +139,7 @@ ToolVeto operates on a **Two-Repository Topology** to guarantee frictionless ope
 | :--- | :--- | :--- | :--- |
 | **`@toolveto/core`** | [`packages/core`](./packages/core) | **MIT** | Deterministic check engine, schema validators, local Docker sandbox adapter |
 | **`toolveto`** | [`packages/cli`](./packages/cli) | **MIT** | CLI entrypoint for `toolveto check`, `fix --apply`, and terminal reports |
-| **`@toolveto/shield`**| [`packages/shield`](./packages/shield) | **Apache-2.0** | Runtime idempotency deduplication proxy and sliding-window loop limiter |
+| **`@toolveto/shield`**| [`packages/shield`](./packages/shield) | **BUSL-1.1** | Runtime idempotency deduplication proxy, cursor virtualization, and sliding-window loop limiter (converts to Apache 2.0 after 4 years) |
 | **`toolveto-gateway`**| [`packages/gateway`](./packages/gateway) | **BUSL-1.1** | Standalone proxy gateway binary for multi-server enterprise deployments (converts to Apache 2.0 after 4 years) |
 | **`benchmarks/overhead`**| [`benchmarks/overhead`](./benchmarks/overhead) | **MIT** | Transparent k6 / autocannon latency benchmark test harness |
 | **`corpus/published`** | [`corpus/published`](./corpus/published) | **CC-BY-4.0** | 40% public fuzzing and idempotency test fixtures |

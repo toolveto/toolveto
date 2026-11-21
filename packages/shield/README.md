@@ -2,7 +2,7 @@
 
 Runtime idempotency deduplication, sliding-window loop limiter, and token budget enforcement middleware for Model Context Protocol (MCP) servers.
 
-- **License**: Apache-2.0
+- **License**: Business Source License 1.1 (`BUSL-1.1`), converting to Apache-2.0 after 4 years.
 
 ## Quickstart
 
@@ -18,4 +18,4 @@ export default shield(myMcpServer, {
 
 ## Licensing & Patent Notice
 
-Distributed under the Apache-2.0 License with an [Explicit Patent Reservation](./LICENSE). For production multi-tenant edge proxying, distributed Redis deduplication mesh, and runtime protocol firewalling, see [ToolVeto Gateway](file:///Users/samirsavla/git/ToolVeto/toolveto/packages/gateway) (BSL-1.1) and ToolVeto Cloud.
+Distributed under the [Business Source License 1.1 (`BUSL-1.1`)](./LICENSE). Free for local development and internal production use protecting your organization's MCP servers; commercial competing hosted/managed gateway offerings require a commercial license. U.S. Patent Pending (`64/176,790` / `TOOLVETO-OMNI-PROV-01` & `TOOLVETO-OMNI-PROV-02`). For standalone multi-upstream enterprise deployments, see [ToolVeto Gateway](../gateway) (`BUSL-1.1`) and ToolVeto Cloud.
