@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import type { ToolShieldOverride, ShieldPolicyOptions } from '@toolveto/shield';
+import type { OrgCatalogPolicyDocument } from '@toolveto/core';
 
 export type GatewayPolicy = 'strict' | 'standard' | 'permissive';
 
@@ -58,6 +59,8 @@ export interface GatewayYamlConfig {
   shieldPolicy?: ShieldPolicyOptions;
   lockfilePath?: string;
   lockfileHashes?: Record<string, string>;
+  catalogPolicy?: OrgCatalogPolicyDocument;
+  catalogPolicyFile?: string;
   cloud?: GatewayCloudConfig;
   upstreams: Record<string, UpstreamRouteConfig>;
 }

@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { McpToolDefinition } from '@toolveto/core';
+import { analyzeToxicFlow, type McpToolDefinition } from '@toolveto/core';
 import { computeToolDefinitionHash } from '@toolveto/shield';
 import { discoverToolsFromTarget } from '../discovery.js';
 import { notifyOnboardingStep } from '../telemetry.js';
@@ -153,17 +153,24 @@ allow if {
 }
 
 export function generateWeaveProofCedarPolicy(tools: McpToolDefinition[]): string {
+  const toxicAnalysis = analyzeToxicFlow(tools);
+  const untrustedIngestSet = new Set(toxicAnalysis.untrustedIngestTools.map((t) => t.toolName));
+  const egressSet = new Set(toxicAnalysis.externalEgressTools.map((t) => t.toolName));
+
   const blocks: string[] = [
     '// ============================================================================',
     '// ToolVeto x WeaveProof Enterprise Runtime Governance Policy Pack',
     '// Upgrades static ToolVeto D1-D5 checks with CRM @clamp ceilings,',
     '// 2-of-2 SOX Dual-Quorum HITL approvals, and Cross-MCP Taint Blocking',
+    `// Lethal Trifecta Analysis: ${toxicAnalysis.lethalTrifectaDetected ? `CRITICAL (${toxicAnalysis.toxicPaths.length} chain(s) neutralized)` : `Risk ${toxicAnalysis.riskLevel}`}`,
     '// ============================================================================',
   ];
 
   for (const tool of tools) {
     const destructive = isDestructiveTool(tool);
     const readOnly = isReadOnlyTool(tool);
+    const isUntrustedIngest = untrustedIngestSet.has(tool.name);
+    const isExternalEgress = egressSet.has(tool.name);
     const lower = tool.name.toLowerCase();
     const safeName = escapeCedarString(tool.name);
     const safeIdSlug = lower.replace(/[^a-z0-9]/g, '-');
@@ -171,9 +178,19 @@ export function generateWeaveProofCedarPolicy(tools: McpToolDefinition[]): strin
       lower.includes(k)
     );
 
-    if (destructive) {
+    if (isUntrustedIngest) {
       blocks.push(`
-// Tool '${safeName}' (Destructive Mutation — 2-of-2 Dual-Quorum SOX/SOC2 HITL)
+// Tool '${safeName}' (Untrusted External Ingest — marks session taint for WeaveProof Gateway)
+@id("tv-wp-taint-source-${safeIdSlug}")
+@taint_source("UNTRUSTED_EXTERNAL_INGEST")
+permit (
+  principal,
+  action == Action::"tools/call",
+  resource == Tool::"${safeName}"
+);`);
+    } else if (destructive) {
+      blocks.push(`
+// Tool '${safeName}' (Destructive Mutation — 2-of-2 Dual-Quorum SOX/SOC2 HITL + Taint Guard)
 @id("tv-wp-quorum-${safeIdSlug}")
 @approval(quorum=2, roles=["security_admin", "controller"], min_dwell_ms=800)
 permit (
@@ -181,11 +198,11 @@ permit (
   action == Action::"tools/call",
   resource == Tool::"${safeName}"
 ) when {
-  context.humanApproved == true
+  context.humanApproved == true && !context.session_taint.contains("UNTRUSTED_EXTERNAL_INGEST")
 };`);
-    } else if (isFinancial || !readOnly) {
+    } else if (isFinancial || isExternalEgress || !readOnly) {
       blocks.push(`
-// Tool '${safeName}' (Financial / State Mutation — CRM-Hydrated @clamp + Idempotency)
+// Tool '${safeName}' (Financial / Egress / State Mutation — CRM-Hydrated @clamp + Idempotency + Taint Guard)
 @id("tv-wp-clamp-${safeIdSlug}")
 @clamp(field="amount", limit=250000, currency="USD")
 permit (
@@ -211,6 +228,10 @@ permit (
 }
 
 export function generateWeaveProofGenomeManifest(tools: McpToolDefinition[]): string {
+  const toxicAnalysis = analyzeToxicFlow(tools);
+  const untrustedIngestSet = new Set(toxicAnalysis.untrustedIngestTools.map((t) => t.toolName));
+  const egressSet = new Set(toxicAnalysis.externalEgressTools.map((t) => t.toolName));
+
   const toolEntries = tools.map((tool) => {
     const destructive = isDestructiveTool(tool);
     const readOnly = isReadOnlyTool(tool);
@@ -234,6 +255,8 @@ export function generateWeaveProofGenomeManifest(tools: McpToolDefinition[]): st
       contextSlicingEligible: readOnly && !destructive,
       requiresMonotonicLeaseFence: !readOnly || destructive,
       requiresIdempotencyKey: !readOnly || destructive,
+      taintSourceLabel: untrustedIngestSet.has(tool.name) ? 'UNTRUSTED_EXTERNAL_INGEST' : undefined,
+      blockWhenSessionTainted: egressSet.has(tool.name) || destructive || isFinancial || !readOnly,
     };
   });
 
@@ -245,6 +268,11 @@ export function generateWeaveProofGenomeManifest(tools: McpToolDefinition[]): st
     portfolioHandoff: {
       ciGatekeeper: 'ToolVeto (D1-D5 Pre-Merge & IDE Config Certification)',
       runtimeControlPlane: 'WeaveProof Gateway (Context Slicing + Lease-Fenced HITL + WeaveDigest)',
+    },
+    toxicFlowSummary: {
+      lethalTrifectaDetected: toxicAnalysis.lethalTrifectaDetected,
+      riskLevel: toxicAnalysis.riskLevel,
+      chainCount: toxicAnalysis.toxicPaths.length,
     },
     pinnedTools: toolEntries,
   };

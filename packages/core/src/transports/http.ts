@@ -101,6 +101,10 @@ export class HttpMcpClient implements McpClient {
     }
   }
 
+  public getEndpointUrl(): string {
+    return this.baseUrl;
+  }
+
   private buildRequestHeaders(): Record<string, string> {
     const reqHeaders: Record<string, string> = {
       'Content-Type': 'application/json',
