@@ -41,6 +41,5 @@ node packages/cli/dist/bin/toolveto.js check ./sample
 ## Licensing of Contributions
 
 - Contributions to `packages/core`, `packages/cli`, and `benchmarks/overhead` are licensed under the MIT License.
-- Contributions to `packages/shield` are licensed under the Apache License 2.0.
-- Contributions to `packages/gateway` are licensed under the Business Source License 1.1.
+- Contributions to `packages/shield` and `packages/gateway` are licensed under the Business Source License 1.1 (BSL 1.1).
 - Contributions to `corpus/published` are licensed under CC-BY 4.0.

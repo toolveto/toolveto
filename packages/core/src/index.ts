@@ -3,6 +3,9 @@ export * from './transports/interface.js';
 export * from './transports/stdio.js';
 export * from './transports/in-memory.js';
 export * from './transports/http.js';
+export * from './transports/fault-proxy.js';
+export * from './checks/toxic-flow.js';
+export * from './catalog-policy.js';
 export * from './checks/d1-idempotency/sequential-replay.js';
 export * from './checks/d1-idempotency/concurrent-burst.js';
 export * from './checks/d1-idempotency/idempotency-key.js';
@@ -54,6 +57,7 @@ import { runReadBeforeWritePairingCheck } from './checks/d5-auditability/pairing
 import { runDryRunCheck } from './checks/d5-auditability/dry-run.js';
 import { runOAuthScopeCheck } from './checks/tc-auth.js';
 import { runToolPoisoningCheck, runToolShadowingCheck } from './checks/tool-poisoning.js';
+import { runToxicFlowCheck } from './checks/toxic-flow.js';
 import {
   normalizeToolAnnotations,
   runDestructiveOpenWorldAnnotationCheck,
@@ -110,6 +114,7 @@ export function runSuiteOnTools(
   }
 
   results.push(runToolShadowingCheck(tools));
+  results.push(runToxicFlowCheck(tools));
   results.push(runStdioStdoutCheck(staticContext?.sourceFiles, target, staticContext?.transportMode));
   results.push(runToolRugPullBloatCheck(tools, staticContext?.sourceFiles));
   results.push(runHttpTransportAuthCheck(staticContext?.sourceFiles, target));

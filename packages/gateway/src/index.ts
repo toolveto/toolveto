@@ -5,6 +5,7 @@ import dns from 'node:dns';
 import net from 'node:net';
 import { Readable } from 'node:stream';
 import { ShieldMiddleware, ShieldOptions, ShieldPolicyOptions, ShieldSpan } from '@toolveto/shield';
+import { OrgCatalogPolicyClient } from '@toolveto/core';
 import {
   GatewayYamlConfig,
   UpstreamRouteConfig,
@@ -761,6 +762,13 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
   }
   const ALLOWED_ORIGINS = new Set(['https://toolveto.ai', 'http://localhost:3000', 'http://localhost:8080']);
   const cloudSyncer = new CloudTelemetrySyncer(loadedConfig.cloud);
+  const catalogPolicyClient = new OrgCatalogPolicyClient({
+    apiUrl: loadedConfig.cloud?.apiUrl,
+    licenseKey: loadedConfig.cloud?.licenseKey,
+    initialPolicy: loadedConfig.catalogPolicy,
+    policyFile: loadedConfig.catalogPolicyFile,
+  });
+  catalogPolicyClient.startPolling();
 
   function checkGatewayAuth(req: http.IncomingMessage): { authorized: boolean; misconfigured?: boolean } {
     const isProd = process.env.NODE_ENV === 'production';
@@ -1465,8 +1473,35 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
           };
         }
 
-        // Tool invocation: pass through Shield Airbag middleware with Streamable HTTP + SSE support
+        // Tool invocation: enforce Enterprise Approved Catalog Kill Switch (-32004) first
         if (rpcItem.method === 'tools/call') {
+          const catalogDecision = catalogPolicyClient.evaluate(routeKey, [
+            upstream.name,
+            upstream.url,
+            String(rpcItem.params?.name || ''),
+          ]);
+          if (!catalogDecision.allowed) {
+            return {
+              status: 200,
+              headers: {
+                'Content-Type': 'application/json',
+                'X-ToolVeto-Catalog-Status': catalogDecision.status || 'QUARANTINED',
+              },
+              responseObj: {
+                jsonrpc: '2.0',
+                id: rpcItem.id ?? null,
+                error: {
+                  code: catalogDecision.code ?? -32004,
+                  message: catalogDecision.reason || 'ORG_CATALOG_QUARANTINED: Server blocked by enterprise catalog policy',
+                  data: {
+                    code: 'ORG_CATALOG_QUARANTINED',
+                    server: routeKey,
+                    matchedPattern: catalogDecision.matchedPattern,
+                  },
+                },
+              },
+            };
+          }
           const callStart = performance.now();
           let upstreamTimeMs = 0;
           const upstreamProtocolHeaders: Record<string, string> = {};
@@ -1794,7 +1829,11 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
   server.keepAliveTimeout = 5000;
   server.headersTimeout = 6000;
   server.requestTimeout = 30000;
+  server.on('close', () => {
+    catalogPolicyClient.stop();
+  });
   (server as any).flushCloudTelemetry = () => cloudSyncer.flush();
+  (server as any).syncCatalogPolicy = () => catalogPolicyClient.syncNow();
 
   return server;
 }

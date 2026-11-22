@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import * as readline from 'node:readline';
 import { Readable, Writable } from 'node:stream';
 import { ShieldMiddleware } from '@toolveto/shield';
+import { OrgCatalogPolicyClient, type OrgCatalogPolicyDocument } from '@toolveto/core';
 import {
   ALLOWED_CLIENT_NOTIFICATIONS,
   CloudTelemetrySyncer,
@@ -24,6 +25,8 @@ export interface StdioShieldProxyOptions {
   loopLimit?: number;
   strict?: boolean;
   lockfilePath?: string;
+  catalogPolicy?: OrgCatalogPolicyDocument;
+  catalogPolicyFile?: string;
   apiUrl?: string;
   licenseKey?: string;
   customerId?: string;
@@ -214,6 +217,14 @@ export async function startStdioShieldProxy(options: StdioShieldProxyOptions): P
     customerId,
     repo: options.repo || process.env.TOOLVETO_REPO || `stdio/${upstreamLabel}`,
   });
+
+  const catalogPolicyClient = new OrgCatalogPolicyClient({
+    apiUrl,
+    licenseKey,
+    initialPolicy: options.catalogPolicy,
+    policyFile: options.catalogPolicyFile,
+  });
+  catalogPolicyClient.startPolling();
 
   const lockfileHashes = resolveDefaultLockfile(options.lockfilePath);
   const middleware = new ShieldMiddleware({
@@ -515,6 +526,27 @@ export async function startStdioShieldProxy(options: StdioShieldProxyOptions): P
           jsonrpc: '2.0',
           id: msg.id ?? null,
           error: { code: -32602, message: 'Invalid params: tools/call requires string params.name' },
+        };
+      }
+
+      const catalogDecision = catalogPolicyClient.evaluate(options.serverName || upstreamLabel, [
+        upstreamLabel,
+        options.repo || '',
+        toolName,
+      ]);
+      if (!catalogDecision.allowed) {
+        return {
+          jsonrpc: '2.0',
+          id: msg.id ?? null,
+          error: {
+            code: catalogDecision.code ?? -32004,
+            message: catalogDecision.reason || 'ORG_CATALOG_QUARANTINED: Server blocked by enterprise catalog policy',
+            data: {
+              code: 'ORG_CATALOG_QUARANTINED',
+              server: options.serverName || upstreamLabel,
+              matchedPattern: catalogDecision.matchedPattern,
+            },
+          },
         };
       }
 

@@ -1,5 +1,5 @@
-name: 'ToolVeto MCP Reliability & Chaos Gate'
-description: 'Deterministic Chaos Testing, CI Blocking Gates & Auto-Remediation for MCP Servers (<90s, $0, zero LLM)'
+name: 'ToolVeto MCP Security, Chaos & SARIF Gate'
+description: 'Deterministic Chaos Testing, GitHub Code Scanning SARIF 2.1.0, Sticky PR Bot & Rug-Pull Lockfile Gate for MCP Servers'
 author: 'ToolVeto Inc.'
 branding:
   icon: 'shield'
@@ -33,9 +33,21 @@ inputs:
     required: false
     default: 'true'
   lockfile-verify:
-    description: 'Verify toolveto.lock.json against schema drift / rug-pulls if present'
+    description: 'Verify toolveto.lock.json or weaveproof.genome.json against schema drift / rug-pulls if present'
     required: false
     default: 'true'
+  upload-sarif:
+    description: 'Generate and upload SARIF 2.1.0 results to GitHub Security -> Code Scanning alerts'
+    required: false
+    default: 'true'
+  comment-pr:
+    description: 'Upsert a single sticky PR comment (<!-- toolveto-pr-gate -->) with score delta and remediation diffs'
+    required: false
+    default: 'true'
+  github-token:
+    description: 'GitHub token for sticky PR comments (defaults to github.token)'
+    required: false
+    default: ${{ github.token }}
   license-key:
     description: 'ToolVeto Cloud license key (tv_live_...) for continuous drift monitoring and audit history'
     required: false
@@ -64,11 +76,14 @@ outputs:
   report-url:
     description: 'Shareable audit result link'
     value: ${{ steps.run-gate.outputs.report-url }}
+  sarif-file:
+    description: 'Path to generated SARIF 2.1.0 report file'
+    value: ${{ steps.run-gate.outputs.sarif-file }}
 
 runs:
   using: 'composite'
   steps:
-    - name: Run ToolVeto CI Gate
+    - name: Run ToolVeto CI Gate & Generate SARIF 2.1.0
       id: run-gate
       shell: bash
       env:
@@ -82,7 +97,13 @@ runs:
         INPUT_EPHEMERAL_MOCK: ${{ inputs.ephemeral-mock }}
         INPUT_WITH_LLM: ${{ inputs.with-llm }}
         INPUT_LOCKFILE_VERIFY: ${{ inputs.lockfile-verify }}
+        INPUT_UPLOAD_SARIF: ${{ inputs.upload-sarif }}
+        INPUT_COMMENT_PR: ${{ inputs.comment-pr }}
+        GITHUB_TOKEN: ${{ inputs.github-token }}
         GITHUB_REPO: ${{ github.repository }}
+        GITHUB_SHA: ${{ github.sha }}
+        GITHUB_REF: ${{ github.ref }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
         ACTION_PATH: ${{ github.action_path }}
         TOOLVETO_API_URL: ${{ inputs.api-url }}
       run: |
@@ -91,26 +112,23 @@ runs:
         export TOOLVETO_TOKEN="${INPUT_LICENSE:-}"
         echo "🛡️ Running ToolVeto Check on: $TARGET"
 
-        ARGS=(
+        BASE_ARGS=(
           "$TARGET"
-          "--format" "json"
           "--fail-on-severity" "$INPUT_FAIL_ON_SEVERITY"
           "--threshold" "$INPUT_THRESHOLD"
           "--repo" "$GITHUB_REPO"
           "--api-url" "$INPUT_API_URL"
         )
         if [ "$INPUT_FAIL_ON_VETO" = "false" ]; then
-          ARGS+=("--no-fail-on-veto")
+          BASE_ARGS+=("--no-fail-on-veto")
         fi
         if [ -z "$INPUT_SERVER_URL" ] && [ "$INPUT_EPHEMERAL_MOCK" = "true" ]; then
-          ARGS+=("--ephemeral-mock")
+          BASE_ARGS+=("--ephemeral-mock")
         fi
         if [ "$INPUT_WITH_LLM" = "true" ]; then
-          ARGS+=("--with-llm")
+          BASE_ARGS+=("--with-llm")
         fi
 
-        # Run action via local repository CLI bundle if present, pinned published npm package if live,
-        # or build cleanly from checked-out action source so external customers work out-of-the-box.
         if [ -f "$ACTION_PATH/packages/cli/dist/bin/toolveto.js" ]; then
           CLI_CMD=("node" "$ACTION_PATH/packages/cli/dist/bin/toolveto.js")
         elif npm view toolveto@0.2.0 version >/dev/null 2>&1; then
@@ -130,11 +148,20 @@ runs:
         fi
 
         set +e
-        REPORT_JSON=$("${CLI_CMD[@]}" check "${ARGS[@]}" 2>&1)
+        REPORT_JSON=$("${CLI_CMD[@]}" check "${BASE_ARGS[@]}" --format json 2>&1)
         EXIT_CODE=$?
         set -e
 
-        # Emit GitHub Actions file annotations & readable summary from JSON report
+        # Generate SARIF 2.1.0 report for GitHub Advanced Security Code Scanning
+        SARIF_OUT="${RUNNER_TEMP:-/tmp}/toolveto-results.sarif"
+        if [ "$INPUT_UPLOAD_SARIF" = "true" ]; then
+          set +e
+          "${CLI_CMD[@]}" check "${BASE_ARGS[@]}" --format sarif > "$SARIF_OUT" 2>/dev/null
+          set -e
+          echo "sarif-file=$SARIF_OUT" >> "$GITHUB_OUTPUT"
+        fi
+
+        # Emit GitHub Actions annotations & parse summary outputs
         REPORT_RAW="$REPORT_JSON" TARGET_URI="$TARGET" node -e '
           try {
             const raw = process.env.REPORT_RAW || "";
@@ -152,28 +179,101 @@ runs:
           } catch {}
         '
 
-        # Optional rug-pull lockfile verification when toolveto.lock.json is committed
+        # Lockfile & WeaveProof Genome drift verification
         LOCK_EXIT=0
-        if [ "$INPUT_LOCKFILE_VERIFY" = "true" ] && [ -f "${TARGET%/}/toolveto.lock.json" ]; then
-          set +e
-          "${CLI_CMD[@]}" lock "$TARGET" --verify --output "${TARGET%/}/toolveto.lock.json" --repo "$GITHUB_REPO" --api-url "$INPUT_API_URL"
-          LOCK_EXIT=$?
-          set -e
-          if [ "$LOCK_EXIT" -ne 0 ]; then
-            EXIT_CODE="$LOCK_EXIT"
+        if [ "$INPUT_LOCKFILE_VERIFY" = "true" ]; then
+          if [ -f "${TARGET%/}/toolveto.lock.json" ]; then
+            set +e
+            "${CLI_CMD[@]}" lock "$TARGET" --verify --output "${TARGET%/}/toolveto.lock.json" --repo "$GITHUB_REPO" --api-url "$INPUT_API_URL"
+            LOCK_EXIT=$?
+            set -e
+            if [ "$LOCK_EXIT" -ne 0 ]; then
+              EXIT_CODE="$LOCK_EXIT"
+            fi
+          elif [ -f "${TARGET%/}/weaveproof.genome.json" ]; then
+            set +e
+            "${CLI_CMD[@]}" lock "$TARGET" --verify --output "${TARGET%/}/weaveproof.genome.json" --repo "$GITHUB_REPO" --api-url "$INPUT_API_URL"
+            LOCK_EXIT=$?
+            set -e
+            if [ "$LOCK_EXIT" -ne 0 ]; then
+              EXIT_CODE="$LOCK_EXIT"
+            fi
           fi
         fi
 
-        # Parse output fields safely from pretty-printed JSON
         SCORE=$(REPORT_RAW="$REPORT_JSON" node -e 'try { const raw = process.env.REPORT_RAW || ""; const idx = raw.indexOf("{"); const d = JSON.parse(idx >= 0 ? raw.slice(idx) : raw); console.log(d.score ?? 0); } catch { console.log(0); }')
         TIER=$(REPORT_RAW="$REPORT_JSON" node -e 'try { const raw = process.env.REPORT_RAW || ""; const idx = raw.indexOf("{"); const d = JSON.parse(idx >= 0 ? raw.slice(idx) : raw); console.log(d.tier || "REJECTED"); } catch { console.log("REJECTED"); }')
         PASSED=$([ "$EXIT_CODE" -eq 0 ] && echo "true" || echo "false")
-        REPORT_URL="https://toolveto.ai/verify?score=$SCORE&tier=$TIER"
+        ENCODED_REPO=$(echo "$GITHUB_REPO" | sed 's/\//__/g')
+        REPORT_URL="https://toolveto.ai/r/$ENCODED_REPO"
 
         echo "score=$SCORE" >> "$GITHUB_OUTPUT"
         echo "tier=$TIER" >> "$GITHUB_OUTPUT"
         echo "passed=$PASSED" >> "$GITHUB_OUTPUT"
         echo "report-url=$REPORT_URL" >> "$GITHUB_OUTPUT"
+        echo "gate-exit=$EXIT_CODE" >> "$GITHUB_OUTPUT"
+
+        # Idempotent sticky PR comment bot (<!-- toolveto-pr-gate -->)
+        if [ "$INPUT_COMMENT_PR" = "true" ] && [ -n "$PR_NUMBER" ] && [ -n "$GITHUB_TOKEN" ] && [ -n "$GITHUB_REPO" ]; then
+          REPORT_RAW="$REPORT_JSON" REPORT_URL="$REPORT_URL" node -e '
+            (async () => {
+              const marker = "<!-- toolveto-pr-gate -->";
+              const raw = process.env.REPORT_RAW || "";
+              const idx = raw.indexOf("{");
+              const d = idx >= 0 ? JSON.parse(raw.slice(idx)) : { score: 0, tier: "REJECTED", results: [] };
+              const failed = (d.results || []).filter((r) => r.status === "FAIL");
+              const topRows = failed.slice(0, 8).map((r) => `| \`${r.checkId}\` | \`${r.tool}\` | **${r.severity}** | ${String(r.description || "").replace(/\|/g, "\\|").slice(0, 120)} |`).join("\n");
+              const diffBlocks = failed
+                .filter((r) => r.fix && Array.isArray(r.fix.diffs) && r.fix.diffs[0])
+                .slice(0, 3)
+                .map((r) => `<details><summary>Auto-fix preview for ${r.checkId} (${r.tool})</summary>\n\n\`\`\`diff\n${r.fix.diffs[0].code}\n\`\`\`\n</details>`)
+                .join("\n");
+              const body = [
+                marker,
+                `## 🛡️ ToolVeto MCP Security & Reliability Gate`,
+                `**Score:** \`${d.score ?? 0}/100\` (**${d.tier || "REJECTED"}**) • **Fatal Veto:** \`${d.fatalVetoCode || "VETO_NONE"}\` • [View Verified Scorecard](${process.env.REPORT_URL})`,
+                failed.length > 0
+                  ? `\n| Check | Tool | Severity | Finding |\n| :--- | :--- | :--- | :--- |\n${topRows}\n\n${diffBlocks}\n\n> Run \`npx toolveto fix --apply\` locally to apply deterministic AST remediations.`
+                  : `\n✅ All MCP reliability, idempotency, token-hygiene, and Lethal Trifecta checks passed.`,
+              ].join("\n");
+              const api = `https://api.github.com/repos/${process.env.GITHUB_REPO}/issues/${process.env.PR_NUMBER}/comments`;
+              const headers = { Authorization: `Bearer ${process.env.GITHUB_TOKEN}`, Accept: "application/vnd.github+json", "Content-Type": "application/json", "User-Agent": "ToolVeto-Action/2.0" };
+              const existing = await fetch(`${api}?per_page=100`, { headers }).then((r) => r.ok ? r.json() : []);
+              const prior = Array.isArray(existing) ? existing.find((c) => typeof c.body === "string" && c.body.includes(marker)) : null;
+              if (prior) {
+                await fetch(`https://api.github.com/repos/${process.env.GITHUB_REPO}/issues/comments/${prior.id}`, { method: "PATCH", headers, body: JSON.stringify({ body }) });
+              } else {
+                await fetch(api, { method: "POST", headers, body: JSON.stringify({ body }) });
+              }
+            })().catch(() => {});
+          '
+        fi
+
+        # Native SARIF 2.1.0 upload to GitHub Advanced Security -> Code Scanning API
+        if [ "$INPUT_UPLOAD_SARIF" = "true" ] && [ -s "$SARIF_OUT" ] && [ -n "$GITHUB_TOKEN" ] && [ -n "$GITHUB_REPO" ]; then
+          SARIF_OUT="$SARIF_OUT" node -e '
+            const fs = require("node:fs");
+            const zlib = require("node:zlib");
+            (async () => {
+              const gzB64 = zlib.gzipSync(fs.readFileSync(process.env.SARIF_OUT)).toString("base64");
+              await fetch(`https://api.github.com/repos/${process.env.GITHUB_REPO}/code-scanning/sarifs`, {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+                  Accept: "application/vnd.github+json",
+                  "Content-Type": "application/json",
+                  "User-Agent": "ToolVeto-Action/2.0",
+                },
+                body: JSON.stringify({
+                  commit_sha: process.env.GITHUB_SHA,
+                  ref: process.env.GITHUB_REF,
+                  sarif: gzB64,
+                  tool_name: "ToolVeto",
+                }),
+              });
+            })().catch(() => {});
+          '
+        fi
 
         if [ "$EXIT_CODE" -ne 0 ]; then
           echo "❌ ToolVeto reliability gate blocked with exit code $EXIT_CODE."
