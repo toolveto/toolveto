@@ -26,13 +26,24 @@ export interface OrgCatalogAccessDecision {
   matchedPattern?: string;
 }
 
+function matchesGlob(pattern: string, candidate: string): boolean {
+  const parts = pattern.split('*').filter((seg) => seg.length > 0);
+  if (parts.length === 0) return true;
+  let cursor = 0;
+  for (let i = 0; i < parts.length; i += 1) {
+    const idx = candidate.indexOf(parts[i], cursor);
+    if (idx === -1) return false;
+    cursor = idx + parts[i].length;
+  }
+  return true;
+}
+
 function matchesPattern(pattern: string, candidates: string[]): boolean {
   const p = pattern.trim().toLowerCase();
   if (!p) return false;
   if (p === '*') return true;
-  if (p.endsWith('*')) {
-    const prefix = p.slice(0, -1);
-    return candidates.some((c) => c.startsWith(prefix) || c.includes(prefix));
+  if (p.includes('*')) {
+    return candidates.some((c) => matchesGlob(p, c));
   }
   return candidates.some((c) => c === p || c.includes(p));
 }

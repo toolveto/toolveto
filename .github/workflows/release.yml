@@ -170,10 +170,11 @@ jobs:
           PACK_DIR="${{ steps.pack.outputs.pack_dir }}"
           gh release upload "${{ github.ref_name }}" "$PACK_DIR"/*.tgz "$PACK_DIR/SHA256SUMS.txt" --clobber
 
-      - name: Update Floating v1 GitHub Action Tag
+      - name: Update Floating v2 and v1 GitHub Action Tags
         if: github.event_name == 'release'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -fa v2 -m "Update v2 action tag to ${{ github.ref_name }}"
           git tag -fa v1 -m "Update v1 action tag to ${{ github.ref_name }}"
-          git push origin refs/tags/v1 --force
+          git push origin refs/tags/v2 refs/tags/v1 --force

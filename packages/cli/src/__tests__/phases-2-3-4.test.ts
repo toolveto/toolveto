@@ -9,7 +9,7 @@ import {
   generateWeaveProofCedarPolicy,
   generateWeaveProofGenomeManifest,
 } from '../commands/export-policy.js';
-import type { McpToolDefinition } from '@toolveto/core';
+import { evaluateOrgCatalogAccess, type McpToolDefinition } from '@toolveto/core';
 
 describe('Phases 2–4 CLI: Zero-Secret Shadow MCP Discovery, Catalog Enforcement & WeaveProof Taint Export', () => {
   it('Phase 3: discover --upload flags plaintext secrets as boolean ONLY and never transmits raw secret values', async () => {
@@ -138,5 +138,32 @@ describe('Phases 2–4 CLI: Zero-Secret Shadow MCP Discovery, Catalog Enforcemen
     const egressEntry = genome.pinnedTools.find((t: any) => t.toolName === 'slack_post_message');
     assert.equal(ingestEntry.taintSourceLabel, 'UNTRUSTED_EXTERNAL_INGEST');
     assert.equal(egressEntry.blockWhenSessionTainted, true);
+  });
+
+  it('Phase 3: Org Catalog Kill Switch supports leading, interior, and trailing wildcard globs with -32004 fail-closed precedence', () => {
+    const policy = {
+      schemaVersion: 'toolveto-org-catalog/v1' as const,
+      generatedAt: Date.now(),
+      graceWindowHours: 72,
+      entries: [
+        { serverPattern: '*stripe*', status: 'QUARANTINED' as const, reason: 'Unpinned @latest' },
+        { serverPattern: '@modelcontextprotocol/*filesystem*', status: 'BLOCKED' as const, reason: 'Restricted host FS' },
+        { serverPattern: 'github/*', status: 'APPROVED' as const },
+      ],
+    };
+
+    const stripeDecision = evaluateOrgCatalogAccess(policy, '@stripe/mcp');
+    assert.equal(stripeDecision.allowed, false);
+    assert.equal(stripeDecision.code, -32004);
+    assert.equal(stripeDecision.status, 'QUARANTINED');
+
+    const fsDecision = evaluateOrgCatalogAccess(policy, '@modelcontextprotocol/server-filesystem');
+    assert.equal(fsDecision.allowed, false);
+    assert.equal(fsDecision.code, -32004);
+    assert.equal(fsDecision.status, 'BLOCKED');
+
+    const ghDecision = evaluateOrgCatalogAccess(policy, 'github/github-mcp-server');
+    assert.equal(ghDecision.allowed, true);
+    assert.equal(ghDecision.status, 'APPROVED');
   });
 });
