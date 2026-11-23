@@ -15,6 +15,7 @@ permissions:
   contents: write
   id-token: write
   packages: write
+  attestations: write
 
 concurrency:
   group: release-${{ github.ref }}
@@ -106,6 +107,28 @@ jobs:
           rm -rf "$CUSTOMER_DIR"
           echo "✔ All 4 package tarballs verified cleanly."
 
+      - name: Generate CycloneDX SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: ${{ steps.pack.outputs.pack_dir }}/toolveto-sbom.cdx.json
+          upload-artifact: true
+          artifact-name: toolveto-sbom.cdx.json
+
+      - name: Refresh SHA256 Checksums (Including SBOM)
+        run: |
+          PACK_DIR="${{ steps.pack.outputs.pack_dir }}"
+          (cd "$PACK_DIR" && sha256sum *.tgz toolveto-sbom.cdx.json > SHA256SUMS.txt && cat SHA256SUMS.txt)
+
+      - name: Attest SLSA Build Provenance for Release Tarballs & SBOM
+        if: github.event_name == 'release'
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            ${{ steps.pack.outputs.pack_dir }}/*.tgz
+            ${{ steps.pack.outputs.pack_dir }}/toolveto-sbom.cdx.json
+
       - name: Publish NPM Packages (or Dry-Run)
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -153,22 +176,33 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Build and Push ghcr.io/toolveto/gateway Docker Image
+        id: gateway_image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: packages/gateway/Dockerfile
           push: ${{ github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && !inputs.dry_run) }}
+          provenance: mode=max
+          sbom: true
           tags: |
             ghcr.io/toolveto/gateway:latest
             ghcr.io/toolveto/gateway:${{ steps.meta.outputs.version }}
 
-      - name: Upload Signed Tarballs & SHA256SUMS to GitHub Release
+      - name: Attest SLSA Build Provenance for Gateway Image
+        if: github.event_name == 'release'
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ghcr.io/toolveto/gateway
+          subject-digest: ${{ steps.gateway_image.outputs.digest }}
+          push-to-registry: true
+
+      - name: Upload Signed Tarballs, CycloneDX SBOM & SHA256SUMS to GitHub Release
         if: github.event_name == 'release'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           PACK_DIR="${{ steps.pack.outputs.pack_dir }}"
-          gh release upload "${{ github.ref_name }}" "$PACK_DIR"/*.tgz "$PACK_DIR/SHA256SUMS.txt" --clobber
+          gh release upload "${{ github.ref_name }}" "$PACK_DIR"/*.tgz "$PACK_DIR/toolveto-sbom.cdx.json" "$PACK_DIR/SHA256SUMS.txt" --clobber
 
       - name: Update Floating v2 and v1 GitHub Action Tags
         if: github.event_name == 'release'
