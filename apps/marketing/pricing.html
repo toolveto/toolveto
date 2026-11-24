@@ -229,7 +229,7 @@
         <div class="brand-title">Tool<span>Veto</span> <span class="brand-badge">PRICING</span></div>
       </a>
 
-      <nav class="nav-links" aria-label="Primary">
+      <nav id="primary-nav" class="nav-links" aria-label="Primary">
         <a href="./index.html#wrecks" class="nav-link">The 3 Wrecks</a>
         <a href="./index.html#playground" class="nav-link">Crash Lab Demo</a>
         <a href="./state-of-mcp.html" class="nav-link">2026 Benchmark</a>
@@ -245,6 +245,9 @@
         <a href="./index.html#playground" class="btn-primary">
           <span>Run Crash Test</span>
         </a>
+        <button type="button" id="mobile-nav-toggle" class="mobile-nav-toggle" aria-label="Toggle navigation menu" aria-expanded="false" aria-controls="primary-nav">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+        </button>
       </div>
     </div>
   </header>
@@ -289,7 +292,7 @@
                 <label for="val-slider">Average Transaction / Mutation Value</label>
                 <span id="val-display" class="slider-val">$340 USD</span>
               </div>
-              <input type="range" id="val-slider" min="0" max="2000" step="25" value="340" class="custom-range" aria-label="Average Transaction or Mutation Value">
+              <input type="range" id="val-slider" min="0" max="2000" step="10" value="340" class="custom-range" aria-label="Average Transaction or Mutation Value">
             </div>
 
             <div class="slider-group">
