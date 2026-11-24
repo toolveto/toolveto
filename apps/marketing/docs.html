@@ -122,7 +122,13 @@
     .badge-d1 { background: rgba(255, 107, 129, 0.16); color: #ff8095; border: 1px solid rgba(255, 107, 129, 0.35); }
     .badge-d2 { background: rgba(10, 215, 230, 0.15); color: #67e8f9; border: 1px solid rgba(10, 215, 230, 0.35); }
     .badge-d3 { background: rgba(96, 165, 250, 0.16); color: #93c5fd; border: 1px solid rgba(96, 165, 250, 0.35); }
+    .badge-d4 { background: rgba(167, 139, 250, 0.18); color: #c4b5fd; border: 1px solid rgba(167, 139, 250, 0.4); }
     .badge-d5 { background: rgba(0, 245, 160, 0.15); color: #00f5a0; border: 1px solid rgba(0, 245, 160, 0.35); }
+    .docs-content section[id],
+    .docs-content h2[id],
+    .docs-content h3[id] {
+      scroll-margin-top: 96px;
+    }
     .docs-search-bar {
       margin: 24px 0 32px;
       max-width: 520px;
@@ -178,7 +184,7 @@
         <div class="brand-title">Tool<span>Veto</span> <span class="brand-badge">DOCS</span></div>
       </a>
 
-      <nav class="nav-links" aria-label="Primary">
+      <nav id="primary-nav" class="nav-links" aria-label="Primary">
         <a href="./index.html#wrecks" class="nav-link">The 3 Wrecks</a>
         <a href="./index.html#playground" class="nav-link">Crash Lab Demo</a>
         <a href="./state-of-mcp.html" class="nav-link">2026 Benchmark</a>
@@ -194,6 +200,9 @@
         <a href="./index.html#playground" class="btn-primary">
           <span>Run Crash Test</span>
         </a>
+        <button type="button" id="mobile-nav-toggle" class="mobile-nav-toggle" aria-label="Toggle navigation menu" aria-expanded="false" aria-controls="primary-nav">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+        </button>
       </div>
     </div>
   </header>
@@ -214,6 +223,7 @@
         <li><a href="#d1-idempotency" class="docs-nav-link">D1: Idempotency</a></li>
         <li><a href="#d2-fuzz" class="docs-nav-link">D2: Error Ergonomics</a></li>
         <li><a href="#d3-context" class="docs-nav-link">D3: Context Hygiene</a></li>
+        <li><a href="#d4-steerability" class="docs-nav-link">D4: Steerability</a></li>
         <li><a href="#d5-auditability" class="docs-nav-link">D5: State Auditability</a></li>
       </ul>
 

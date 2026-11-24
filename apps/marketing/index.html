@@ -26,9 +26,6 @@
   <meta name="twitter:description" content="Block double-charges, context bombs, and runaway retry loops in CI with 3-line PR fixes.">
   <meta name="twitter:image" content="./assets/hero-crash-lab.jpg">
 
-  <!-- Preload Hero LCP Image -->
-  <link rel="preload" as="image" href="./assets/hero-crash-lab.jpg" fetchpriority="high">
-
   <!-- Structured Data: JSON-LD -->
   <script type="application/ld+json">
   {
@@ -121,7 +118,7 @@
         <div class="brand-title">Tool<span>Veto</span> <span class="brand-badge">CRASH&nbsp;LAB</span></div>
       </a>
 
-      <nav class="nav-links" aria-label="Primary">
+      <nav id="primary-nav" class="nav-links" aria-label="Primary">
         <a href="#wrecks" class="nav-link">The 3 Wrecks</a>
         <a href="#playground" class="nav-link">Crash Lab Demo</a>
         <a href="./state-of-mcp.html" class="nav-link">2026 Benchmark</a>
@@ -140,6 +137,9 @@
           <span>Run Free Audit</span>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>
         </a>
+        <button type="button" id="mobile-nav-toggle" class="mobile-nav-toggle" aria-label="Toggle navigation menu" aria-expanded="false" aria-controls="primary-nav">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+        </button>
       </div>
     </div>
   </header>
