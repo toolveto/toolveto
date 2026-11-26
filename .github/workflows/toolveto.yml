@@ -24,13 +24,13 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
 
       - name: Setup Node.js Environment
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: 'pnpm'
@@ -71,7 +71,7 @@ jobs:
           echo "✔ Real JWS attestation minted, verified offline, and fail-closed tamper check passed."
 
       - name: Upload Compliance Attestation & SARIF Artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: toolveto-attestation-evidence
           path: |
