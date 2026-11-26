@@ -728,6 +728,8 @@ function initBenchmarkGrid() {
 // 5. PR Diff Modal Viewer
 let activeModalServer = null;
 
+let lastDiffModalOpener = null;
+
 function openDiffModal(server) {
   activeModalServer = server;
   const modal = document.getElementById("diff-modal");
@@ -737,6 +739,7 @@ function openDiffModal(server) {
   const modalSummary = document.getElementById("modal-summary-text");
 
   if (!modal) return;
+  lastDiffModalOpener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 
   if (modalTitle) modalTitle.textContent = `${server.name} (${server.repo})`;
   if (modalPrTitle) modalPrTitle.textContent = server.prTitle;
@@ -744,7 +747,7 @@ function openDiffModal(server) {
   if (modalSummary) {
     modalSummary.innerHTML = `
       <p><strong>Evaluated Score:</strong> <span class="score-highlight">${escapeHtml(server.score)}/100</span> [Tier: ${escapeHtml(server.tier)}]</p>
-      <p><strong>CI Merge Gate:</strong> <strong style="color: #ff8095;">🔴 ${escapeHtml(server.ciGate)} (${escapeHtml(server.criticalFailures)} Critical Failures)</strong></p>
+      <p><strong>CI Merge Gate:</strong> <strong style="color: #ff8095;"><span aria-hidden="true">🔴 </span>${escapeHtml(server.ciGate)} (${escapeHtml(server.criticalFailures)} Critical Failures)</strong></p>
       <p><strong>Fatal Veto Code:</strong> <code>${escapeHtml(server.criticalVeto)}</code></p>
       <p><strong>Root Cause:</strong> ${escapeHtml(server.keyIssue)}</p>
       <p><strong>Prepared Patch Manifest:</strong> <code>${escapeHtml(server.prArtifact)}</code></p>
@@ -753,6 +756,10 @@ function openDiffModal(server) {
 
   modal.classList.add("open");
   document.body.style.overflow = "hidden";
+  const mainEl = document.querySelector("main");
+  if (mainEl) mainEl.setAttribute("inert", "");
+  const closeBtn = document.getElementById("modal-close-btn");
+  if (closeBtn) closeBtn.focus();
 }
 
 function initDiffModal() {
@@ -763,6 +770,12 @@ function initDiffModal() {
   function closeModal() {
     if (modal) modal.classList.remove("open");
     document.body.style.overflow = "";
+    const mainEl = document.querySelector("main");
+    if (mainEl) mainEl.removeAttribute("inert");
+    if (lastDiffModalOpener && lastDiffModalOpener.isConnected && typeof lastDiffModalOpener.focus === "function") {
+      lastDiffModalOpener.focus();
+    }
+    lastDiffModalOpener = null;
   }
 
   if (closeBtn) closeBtn.addEventListener("click", closeModal);
@@ -773,8 +786,31 @@ function initDiffModal() {
   }
 
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && modal && modal.classList.contains("open")) {
+    if (!modal || !modal.classList.contains("open")) return;
+    if (e.key === "Escape") {
+      e.preventDefault();
       closeModal();
+      return;
+    }
+    if (e.key === "Tab") {
+      const focusables = Array.from(
+        modal.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')
+      );
+      if (focusables.length === 0) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (!modal.contains(document.activeElement)) {
+        e.preventDefault();
+        first.focus();
+        return;
+      }
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
     }
   });
 
