@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
 import dns from 'node:dns';
+import http from 'node:http';
 import {
   McpToolDefinition,
   InMemoryMcpClient,
@@ -55,43 +56,73 @@ describe('Adversarial Red-Team Remediations — Core', () => {
       await runSuite('rebind-test', [brokenTool], { client, withLlm: true });
       assert.strictEqual(fetchCalls, 0, 'DNS rebinding to 10.0.0.8 must be blocked before fetch');
 
-      // 3. Valid public custom endpoint MUST NOT receive OPENAI_API_KEY (only LLM_JUDGE_API_KEY) and must pass redirect: 'error' + XML boundary nonce
-      (dns.promises as any).lookup = async () => [{ address: '93.184.216.34', family: 4 }];
-      let capturedHeaders: Record<string, string> = {};
-      let capturedInit: any = null;
+      // 3. Valid custom endpoint over real DNS-pinned HTTP socket MUST NOT receive OPENAI_API_KEY
+      //    (only LLM_JUDGE_API_KEY), MUST block 3xx redirects, and MUST wrap untrusted outputs in XML boundary nonces
+      const origAllowLocal = process.env.TOOLVETO_ALLOW_LOCAL_LLM;
+      let capturedHeaders: Record<string, string | string[] | undefined> = {};
       let capturedBody = '';
-      (globalThis as any).fetch = async (_url: string, init: any) => {
-        fetchCalls++;
-        capturedInit = init;
-        capturedHeaders = (init?.headers || {}) as Record<string, string>;
-        capturedBody = String(init?.body || '');
-        return new Response(
-          JSON.stringify({ choices: [{ message: { content: '{"actionable":false,"score":20,"summary":"bad"}' } }] }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } }
+      let serverRequests = 0;
+      let respondWithRedirect = false;
+      const localLlmServer = http.createServer((req, res) => {
+        serverRequests++;
+        capturedHeaders = req.headers;
+        const chunks: Buffer[] = [];
+        req.on('data', (c) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
+        req.on('end', () => {
+          capturedBody = Buffer.concat(chunks).toString('utf8');
+          if (respondWithRedirect) {
+            res.writeHead(302, { Location: 'http://169.254.169.254/latest/meta-data/' });
+            res.end();
+            return;
+          }
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({ choices: [{ message: { content: '{"actionable":false,"score":20,"summary":"bad"}' } }] })
+          );
+        });
+      });
+      await new Promise<void>((resolve) => localLlmServer.listen(0, '127.0.0.1', () => resolve()));
+      const addr = localLlmServer.address();
+      const localPort = typeof addr === 'object' && addr ? addr.port : 0;
+      try {
+        process.env.TOOLVETO_ALLOW_LOCAL_LLM = 'true';
+        process.env.TOOLVETO_LLM_ENDPOINT = `http://127.0.0.1:${localPort}/v1/chat/completions`;
+        process.env.OPENAI_API_KEY = 'sk-secret-openai-prod-key';
+        process.env.LLM_JUDGE_API_KEY = 'judge-scoped-token-123';
+        await runSuite('custom-key-test', [brokenTool], { client, withLlm: true });
+
+        assert.strictEqual(serverRequests, 1);
+        assert.strictEqual(
+          capturedHeaders['authorization'],
+          'Bearer judge-scoped-token-123',
+          'Custom endpoint must receive LLM_JUDGE_API_KEY, never OPENAI_API_KEY'
         );
-      };
-      process.env.OPENAI_API_KEY = 'sk-secret-openai-prod-key';
-      process.env.LLM_JUDGE_API_KEY = 'judge-scoped-token-123';
-      await runSuite('custom-key-test', [brokenTool], { client, withLlm: true });
+        assert.ok(!JSON.stringify(capturedHeaders).includes('sk-secret-openai-prod-key'));
+        assert.match(
+          capturedBody,
+          /untrusted_tool_findings_[0-9a-f]{24}/,
+          'Judge prompt must wrap untrusted tool outputs in randomized XML boundary tags'
+        );
 
-      assert.strictEqual(fetchCalls, 1);
-      assert.strictEqual(capturedInit?.redirect, 'error', 'LLM judge fetch must enforce redirect: "error"');
-      assert.strictEqual(
-        capturedHeaders['Authorization'],
-        'Bearer judge-scoped-token-123',
-        'Custom endpoint must receive LLM_JUDGE_API_KEY, never OPENAI_API_KEY'
-      );
-      assert.ok(!JSON.stringify(capturedHeaders).includes('sk-secret-openai-prod-key'));
-      assert.match(
-        capturedBody,
-        /untrusted_tool_findings_[0-9a-f]{24}/,
-        'Judge prompt must wrap untrusted tool outputs in randomized XML boundary tags'
-      );
+        // 3b. 3xx redirect MUST be explicitly blocked by pinnedJsonRequest
+        respondWithRedirect = true;
+        const redirSummary = await runSuite('custom-redirect-test', [brokenTool], { client, withLlm: true });
+        assert.strictEqual(serverRequests, 2);
+        assert.ok(
+          String(redirSummary.environmentManifest?.llmJudge || '').includes('error'),
+          `Expected redirect to fail closed, got: ${redirSummary.environmentManifest?.llmJudge}`
+        );
+        respondWithRedirect = false;
 
-      // 4. Without LLM_JUDGE_API_KEY, custom endpoint still MUST NOT receive OPENAI_API_KEY
-      delete process.env.LLM_JUDGE_API_KEY;
-      await runSuite('custom-nokey-test', [brokenTool], { client, withLlm: true });
-      assert.strictEqual(capturedHeaders['Authorization'], undefined, 'OPENAI_API_KEY must never be sent to non-openai host');
+        // 4. Without LLM_JUDGE_API_KEY, custom endpoint still MUST NOT receive OPENAI_API_KEY
+        delete process.env.LLM_JUDGE_API_KEY;
+        await runSuite('custom-nokey-test', [brokenTool], { client, withLlm: true });
+        assert.strictEqual(capturedHeaders['authorization'], undefined, 'OPENAI_API_KEY must never be sent to non-openai host');
+      } finally {
+        await new Promise<void>((resolve) => localLlmServer.close(() => resolve()));
+        if (origAllowLocal === undefined) delete process.env.TOOLVETO_ALLOW_LOCAL_LLM;
+        else process.env.TOOLVETO_ALLOW_LOCAL_LLM = origAllowLocal;
+      }
 
       // 5. Gemini judge must send key via x-goog-api-key header, NEVER in ?key= URL query param
       delete process.env.TOOLVETO_LLM_ENDPOINT;

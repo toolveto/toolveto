@@ -1,3 +1,5 @@
+import crypto from 'node:crypto';
+import { LRUCache } from 'lru-cache';
 import { ShieldStorage, McpCallResponse } from '../index.js';
 
 export interface PostgresClientLike {
@@ -49,6 +51,10 @@ export class PostgresShieldStorage implements ShieldStorage {
   private vacuumInFlight = false;
   private vacuumIntervalCalls: number;
   private statementTimeoutMs: number;
+  private lockTokens = new LRUCache<string, string>({
+    max: 10_000,
+    ttl: 60_000,
+  });
 
   constructor(
     private client: PostgresClientLike,
@@ -116,8 +122,10 @@ export class PostgresShieldStorage implements ShieldStorage {
       await this.runQuery(`
         CREATE TABLE IF NOT EXISTS toolveto_shield_locks (
           key VARCHAR(255) PRIMARY KEY,
-          expires_at BIGINT NOT NULL
+          expires_at BIGINT NOT NULL,
+          owner_token VARCHAR(128)
         );
+        ALTER TABLE toolveto_shield_locks ADD COLUMN IF NOT EXISTS owner_token VARCHAR(128);
       `);
       this.tablesInitialized = true;
     } catch (err: any) {
@@ -197,20 +205,28 @@ export class PostgresShieldStorage implements ShieldStorage {
     await this.ensureTables();
     const now = Date.now();
     const expiresAt = now + ttlMs;
+    const ownerToken = crypto.randomUUID();
     const res = await this.runQuery(
-      `INSERT INTO toolveto_shield_locks (key, expires_at)
-       VALUES ($1, $2)
-       ON CONFLICT (key) DO UPDATE SET expires_at = EXCLUDED.expires_at
-       WHERE toolveto_shield_locks.expires_at < $3
+      `INSERT INTO toolveto_shield_locks (key, expires_at, owner_token)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (key) DO UPDATE SET expires_at = EXCLUDED.expires_at, owner_token = EXCLUDED.owner_token
+       WHERE toolveto_shield_locks.expires_at < $4
        RETURNING key`,
-      [key, expiresAt, now]
+      [key, expiresAt, ownerToken, now]
     );
-    return Boolean(res.rows && res.rows.length > 0);
+    const acquired = Boolean(res.rows && res.rows.length > 0);
+    if (acquired) {
+      this.lockTokens.set(key, ownerToken, { ttl: Math.max(1000, ttlMs) });
+    }
+    return acquired;
   }
 
   async releaseLock(key: string): Promise<void> {
+    const ownerToken = this.lockTokens.get(key);
+    if (!ownerToken) return;
+    this.lockTokens.delete(key);
     await this.ensureTables();
-    await this.runQuery(`DELETE FROM toolveto_shield_locks WHERE key = $1`, [key]);
+    await this.runQuery(`DELETE FROM toolveto_shield_locks WHERE key = $1 AND owner_token = $2`, [key, ownerToken]);
   }
 
   async clear(): Promise<void> {

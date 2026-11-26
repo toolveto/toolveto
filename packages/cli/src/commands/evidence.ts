@@ -333,12 +333,14 @@ export async function evidenceCommand(
     ).length;
     const tokensSaved = contextPassCount * 128000;
 
+    const validityDays = parseEvidencePeriodDays(options.period);
+    const nowSec = Math.floor(Date.now() / 1000);
     const attestationPayload: Record<string, unknown> = {
       iss: 'toolveto-evidence-engine',
       sub: targetPath.startsWith('http') ? targetPath : path.basename(resolvedTarget) || 'mcp-server',
       aud: 'ciso-compliance-review',
-      iat: Math.floor(Date.now() / 1000),
-      exp: Math.floor(Date.now() / 1000) + 90 * 86400,
+      iat: nowSec,
+      exp: nowSec + validityDays * 86400,
       ...(commitSha ? { commit: commitSha } : {}),
       manifestHash,
       score: summary.score,
@@ -365,7 +367,6 @@ export async function evidenceCommand(
       .split(',')
       .map((f) => f.trim().toLowerCase())
       .filter(Boolean);
-    const validityDays = parseEvidencePeriodDays(options.period);
 
     if (formats.includes('json') && formats.length === 1) {
       const output = JSON.stringify({ ...attestationPayload, validityDays, jws }, null, 2);

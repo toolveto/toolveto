@@ -137,7 +137,7 @@ jobs:
         run: |
           pnpm install --frozen-lockfile
           pnpm -r build
-          GATEWAY_AUTH_SECRET="$(openssl rand -hex 24)" RUN_STANDALONE=true PORT=18080 node packages/gateway/dist/index.js &
+          TOOLVETO_GATEWAY_SECRET="$(openssl rand -hex 24)" NODE_ENV=production RUN_STANDALONE=true PORT=18080 node packages/gateway/dist/index.js &
           echo $! > /tmp/gw.pid
           for i in $(seq 1 20); do
             if [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18080/health || true)" = "200" ]; then
@@ -149,12 +149,13 @@ jobs:
 
       - name: Run OWASP ZAP Baseline on Gateway
         run: |
+          set -euo pipefail
           mkdir -p zap-wrk
-          chmod 777 zap-wrk
+          chmod 755 zap-wrk
           docker run --rm --network host \
             -v "${GITHUB_WORKSPACE}/zap-wrk:/zap/wrk:rw" \
             ghcr.io/zaproxy/zaproxy:stable \
-            zap-baseline.py -t "http://127.0.0.1:18080/health" -J "zap-gateway-report.json" || true
+            zap-baseline.py -t "http://127.0.0.1:18080/health" -J "zap-gateway-report.json" -I
 
       - name: Stop Gateway
         if: always()

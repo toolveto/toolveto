@@ -1466,7 +1466,8 @@ export class ShieldMiddleware {
         try {
           if (this.storage.acquireLock) {
             try {
-              lockAcquired = await this.storage.acquireLock(cacheKey, this.options.idempotencyTtlMs || 5000);
+              const executionLockTtlMs = Math.max(1000, Math.min(this.options.idempotencyTtlMs || 5000, 30_000));
+              lockAcquired = await this.storage.acquireLock(cacheKey, executionLockTtlMs);
             } catch (err: any) {
               if (err?.lockContention === true) {
                 lockAcquired = false;

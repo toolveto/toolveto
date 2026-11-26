@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { LRUCache } from 'lru-cache';
 import { ShieldStorage, McpCallResponse } from '../index.js';
 
@@ -32,6 +33,10 @@ export class RedisShieldStorage implements ShieldStorage {
   private fallbackSlidingWindows = new LRUCache<string, number[]>({
     max: 10000,
     ttl: 10 * 60 * 1000,
+  });
+  private lockTokens = new LRUCache<string, string>({
+    max: 10_000,
+    ttl: 60_000,
   });
 
   constructor(
@@ -155,42 +160,46 @@ export class RedisShieldStorage implements ShieldStorage {
 
   async acquireLock(key: string, ttlMs = 5000): Promise<boolean> {
     const lockKey = `shield:lock:${key}`;
+    const lockToken = crypto.randomUUID();
     const isStrict = this.options.mode === 'strict';
     try {
+      let acquired = false;
       if (typeof (this.redis as any).eval === 'function') {
         const luaLock = `
-          if redis.call('SET', KEYS[1], 'locked', 'PX', tonumber(ARGV[1]), 'NX') then
+          if redis.call('SET', KEYS[1], ARGV[2], 'PX', tonumber(ARGV[1]), 'NX') then
             return 1
           end
           return 0
         `;
-        const res = await (this.redis as any).eval(luaLock, 1, lockKey, ttlMs);
-        const acquired = res === 1 || res === true || res === 'OK';
-        if (!acquired && isStrict) {
-          const err: any = new Error(`[ToolVeto Shield Strict] Failed to acquire distributed lock for key '${key}'`);
-          err.code = -32001;
-          err.status = 503;
-          err.lockContention = true;
-          throw err;
-        }
-        return acquired;
+        const res = await (this.redis as any).eval(luaLock, 1, lockKey, ttlMs, lockToken);
+        acquired = res === 1 || res === true || res === 'OK';
+      } else if (typeof (this.redis as any).set === 'function') {
+        const res = await (this.redis as any).set(lockKey, lockToken, 'PX', ttlMs, 'NX');
+        acquired = res === 'OK' || res === true || res === 1;
+      } else if (isStrict) {
+        const err: any = new Error(`[ToolVeto Shield Strict] Redis client lacks atomic set NX capability for key '${key}'`);
+        err.code = -32001;
+        err.status = 503;
+        throw err;
+      } else {
+        return true;
       }
-      if (typeof (this.redis as any).set === 'function') {
-        const res = await (this.redis as any).set(lockKey, 'locked', 'PX', ttlMs, 'NX');
-        const acquired = res === 'OK' || res === true || res === 1;
-        if (!acquired && isStrict) {
-          const err: any = new Error(`[ToolVeto Shield Strict] Failed to acquire distributed lock for key '${key}'`);
-          err.code = -32001;
-          err.status = 503;
-          err.lockContention = true;
-          throw err;
-        }
-        return acquired;
+      if (acquired) {
+        this.lockTokens.set(lockKey, lockToken, { ttl: Math.max(1000, ttlMs) });
+      } else if (isStrict) {
+        const err: any = new Error(`[ToolVeto Shield Strict] Failed to acquire distributed lock for key '${key}'`);
+        err.code = -32001;
+        err.status = 503;
+        err.lockContention = true;
+        throw err;
       }
+      return acquired;
     } catch (err) {
       if (isStrict) {
         if ((err as any)?.code === -32001) throw err;
-        const strictErr: any = new Error(`[ToolVeto Shield Strict] Redis error during lock acquisition for key '${key}': ${err instanceof Error ? err.message : String(err)}`);
+        const strictErr: any = new Error(
+          `[ToolVeto Shield Strict] Redis error during lock acquisition for key '${key}': ${err instanceof Error ? err.message : String(err)}`
+        );
         strictErr.code = -32001;
         strictErr.status = 503;
         throw strictErr;
@@ -198,23 +207,29 @@ export class RedisShieldStorage implements ShieldStorage {
       if (this.options.onDegraded) {
         this.options.onDegraded('SHIELD_DEDUP_DEGRADED', err);
       }
-      return true; // Fail-open on standard mode
+      return true;
     }
-
-    if (isStrict) {
-      const err: any = new Error(`[ToolVeto Shield Strict] Redis client lacks atomic set NX capability for key '${key}'`);
-      err.code = -32001;
-      err.status = 503;
-      throw err;
-    }
-    return true; // Fail-open on standard mode
   }
 
   async releaseLock(key: string): Promise<void> {
     const lockKey = `shield:lock:${key}`;
+    const expectedToken = this.lockTokens.get(lockKey);
+    if (!expectedToken) return;
+    this.lockTokens.delete(lockKey);
     try {
-      if (typeof (this.redis as any).del === 'function') {
-        await (this.redis as any).del(lockKey);
+      if (typeof (this.redis as any).eval === 'function') {
+        const luaUnlock = `
+          if redis.call('GET', KEYS[1]) == ARGV[1] then
+            return redis.call('DEL', KEYS[1])
+          end
+          return 0
+        `;
+        await (this.redis as any).eval(luaUnlock, 1, lockKey, expectedToken);
+      } else if (typeof (this.redis as any).get === 'function' && typeof (this.redis as any).del === 'function') {
+        const current = await (this.redis as any).get(lockKey);
+        if (current === expectedToken) {
+          await (this.redis as any).del(lockKey);
+        }
       }
     } catch {
       // Safe fallback

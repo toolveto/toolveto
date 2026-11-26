@@ -563,7 +563,13 @@ export async function doctorCommand(
       secretsBackupPath = saveSecretsToToolVetoVault(extractedSecrets);
     }
     if (fs.existsSync(resolved.path)) {
-      fs.copyFileSync(resolved.path, `${resolved.path}.bak`);
+      const bakPath = `${resolved.path}.bak`;
+      fs.copyFileSync(resolved.path, bakPath);
+      try {
+        fs.chmodSync(bakPath, 0o600);
+      } catch {
+        // Best-effort permission restriction on non-POSIX filesystems
+      }
     }
     fs.writeFileSync(resolved.path, JSON.stringify(parsed, null, 2) + '\n', { encoding: 'utf-8', mode: 0o600 });
     lockfilePath = path.join(path.dirname(resolved.path), 'toolveto-ide.lock.json');
