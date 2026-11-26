@@ -5,6 +5,7 @@ import { proxyCommand } from './commands/proxy.js';
 import { badgeCommand } from './commands/badge.js';
 import { evidenceCommand } from './commands/evidence.js';
 import { loginCommand } from './commands/login.js';
+import { ingestCommand } from './commands/ingest.js';
 import { verifyCommand } from './commands/verify.js';
 import { lockCommand } from './commands/lock.js';
 import { exportPolicyCommand } from './commands/export-policy.js';
@@ -158,8 +159,26 @@ export function createProgram(): Command {
     .option('-s, --secret <secret>', 'Signing secret (>= 32 chars) for JWS attestation')
     .option('--allow-exec', 'Authorize spawning local server entrypoint scripts discovered inside target directory')
     .option('--demo', 'Generate non-production preview attestation with ephemeral key / demo fallback tools')
+    .option('--period <window>', 'Evidence validity window (e.g. 30d, 90d, 1y)', '90d')
     .action(async (target, options) => {
       await evidenceCommand(target, options);
+    });
+
+  program
+    .command('ingest')
+    .description('Ingest OTel/JSONL production MCP failure traces and synthesize deterministic CI regression test cases')
+    .argument('<traceFile>', 'Path to JSON or JSONL trace spans file')
+    .option('-o, --output <path>', 'Write synthesized regression corpus to file')
+    .option('-f, --format <format>', 'Output format: text or json', 'text')
+    .option('--max-latency-ms <ms>', 'Latency spike threshold in ms', '3000')
+    .option('--max-tokens <tokens>', 'Unbounded payload token threshold', '8000')
+    .action(async (traceFile, options) => {
+      await ingestCommand(traceFile, {
+        output: options.output,
+        format: options.format === 'json' ? 'json' : 'text',
+        maxLatencyMs: Number(options.maxLatencyMs) || 3000,
+        maxTokens: Number(options.maxTokens) || 8000,
+      });
     });
 
   program

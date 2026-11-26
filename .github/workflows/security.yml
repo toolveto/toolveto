@@ -54,7 +54,111 @@ jobs:
       - name: Install & Audit Dependencies
         run: |
           pnpm install --frozen-lockfile
-          pnpm audit --audit-level=high
+          pnpm audit --audit-level=moderate
+
+  semgrep-sast:
+    name: Semgrep SAST (TypeScript / Node.js / OWASP Top 10)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    container:
+      image: semgrep/semgrep
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Run Semgrep SAST
+        run: |
+          semgrep scan --timeout 30 --config p/typescript --config p/nodejs --config p/owasp-top-ten --error packages/
+
+  codeql-sast:
+    name: CodeQL SAST (JavaScript / TypeScript)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: javascript-typescript
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          upload: false
+          output: codeql-results
+
+      - name: Enforce Zero Blocking CodeQL Security Alerts
+        run: |
+          node -e '
+            const fs = require("node:fs");
+            const path = require("node:path");
+            const files = fs.readdirSync("codeql-results").filter((f) => f.endsWith(".sarif"));
+            if (files.length === 0) throw new Error("No CodeQL SARIF output produced");
+            const blocking = [];
+            for (const f of files) {
+              const sarif = JSON.parse(fs.readFileSync(path.join("codeql-results", f), "utf8"));
+              for (const run of sarif.runs || []) {
+                const rules = new Map((run.tool?.driver?.rules || []).map((r) => [r.id, r]));
+                for (const res of run.results || []) {
+                  const rule = rules.get(res.ruleId);
+                  const level = res.level || rule?.defaultConfiguration?.level || "warning";
+                  const secSev = Number(rule?.properties?.["security-severity"] || 0);
+                  if (level === "error" || secSev >= 4.0) {
+                    blocking.push({ ruleId: res.ruleId, level, secSev, msg: res.message?.text });
+                  }
+                }
+              }
+            }
+            if (blocking.length > 0) {
+              console.error(JSON.stringify(blocking, null, 2));
+              process.exit(1);
+            }
+          '
+
+  zap-dast-gateway:
+    name: OWASP ZAP Runtime DAST (MCP Gateway)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm & Node 22
+        uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      - name: Build & Boot Gateway
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm -r build
+          GATEWAY_AUTH_SECRET="$(openssl rand -hex 24)" RUN_STANDALONE=true PORT=18080 node packages/gateway/dist/index.js &
+          echo $! > /tmp/gw.pid
+          for i in $(seq 1 20); do
+            if [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18080/health || true)" = "200" ]; then
+              exit 0
+            fi
+            sleep 1
+          done
+          exit 1
+
+      - name: Run OWASP ZAP Baseline on Gateway
+        run: |
+          mkdir -p zap-wrk
+          chmod 777 zap-wrk
+          docker run --rm --network host \
+            -v "${GITHUB_WORKSPACE}/zap-wrk:/zap/wrk:rw" \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap-baseline.py -t "http://127.0.0.1:18080/health" -J "zap-gateway-report.json" || true
+
+      - name: Stop Gateway
+        if: always()
+        run: kill "$(cat /tmp/gw.pid)" >/dev/null 2>&1 || true
 
   uptime-sentinel:
     name: Control Plane Uptime Sentinel

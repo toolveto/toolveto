@@ -23,8 +23,16 @@ export interface ToolShieldOverride {
 }
 
 export interface ShieldOptions {
-  idempotency?: boolean | { enabled?: boolean; ttlSeconds?: number; ttlMs?: number };
+  idempotency?: boolean | { enabled?: boolean; ttlSeconds?: number; ttlMs?: number; keyFields?: string[] };
   idempotencyTtlMs?: number;
+  /** Declarative alias for custom idempotency key parameter names */
+  keyFields?: string[];
+  /** Declarative alias for max repeated identical calls before loop circuit breaker trips */
+  maxLoopCount?: number;
+  /** Declarative alias for default pagination/response token limit */
+  defaultPageLimit?: number;
+  /** Declarative Redis connection URL hint for distributed storage configuration */
+  redisUrl?: string;
   autoFingerprintFallback?: boolean; // default: true (RFC 8785 SHA256 fallback when explicit key omitted)
   autoFingerprintWindowMs?: number; // optional short coalescing window for un-keyed identical mutations
   autoKeyUnkeyedMutations?: boolean; // when true, generates unique auto_<uuid> for un-keyed mutations outside coalescing window
@@ -465,6 +473,8 @@ function normalizeShieldOptions(opts: ShieldOptions = {}): NormalizedShieldOptio
       count: opts.loopBreaker.sameToolSameArgsTimes ?? opts.loopBreaker.count ?? 5,
       windowMs: opts.loopBreaker.windowMs ?? 60000,
     };
+  } else if (!loopLimit && typeof opts.maxLoopCount === 'number' && opts.maxLoopCount > 0) {
+    loopLimit = { count: Math.floor(opts.maxLoopCount), windowMs: 60000 };
   }
 
   let tokenBudget: number | undefined;
@@ -472,6 +482,8 @@ function normalizeShieldOptions(opts: ShieldOptions = {}): NormalizedShieldOptio
     tokenBudget = opts.tokenBudget;
   } else if (opts.tokenBudget && typeof opts.tokenBudget === 'object') {
     tokenBudget = opts.tokenBudget.maxResponseTokens;
+  } else if (typeof opts.defaultPageLimit === 'number' && opts.defaultPageLimit > 0) {
+    tokenBudget = Math.floor(opts.defaultPageLimit);
   }
 
   return {

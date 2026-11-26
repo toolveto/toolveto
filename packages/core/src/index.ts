@@ -33,6 +33,7 @@ export * from './checks/sampling-chaos.js';
 export * from './checks/output-schema.js';
 export * from './checks/mcp-static-best-practices.js';
 export * from './config.js';
+export * from './sandbox/docker-adapter.js';
 export * from './reporters/terminal.js';
 export * from './reporters/github-pr-comment.js';
 export * from './evaluator.js';

@@ -11,12 +11,19 @@ export interface ToolvetoConfig {
     image?: string;
     memory?: string;
     timeoutMs?: number;
+    seed_command?: string;
+    cleanup_command?: string;
   };
   destructiveAuthorization?: boolean;
   stateProbe?: {
     readTool?: string;
     keyPath?: string;
   };
+  read_probe?: {
+    tool?: string;
+    id_jmespath?: string;
+  };
+  fixtures?: Record<string, unknown>;
 }
 
 export function parseSimpleYaml(content: string): Record<string, any> {
