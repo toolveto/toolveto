@@ -49,7 +49,9 @@ export async function loginCommand(tokenArg?: string, options: LoginOptions = {}
     }
     try {
       fs.chmodSync(configDir, 0o700);
-    } catch {}
+    } catch (chmodErr) {
+      process.stderr.write(`[toolveto] warning: unable to restrict config directory permissions (${chmodErr instanceof Error ? chmodErr.message : String(chmodErr)})\n`);
+    }
 
     const configPath = path.join(configDir, 'config.json');
     fs.writeFileSync(
@@ -69,7 +71,9 @@ export async function loginCommand(tokenArg?: string, options: LoginOptions = {}
     );
     try {
       fs.chmodSync(configPath, 0o600);
-    } catch {}
+    } catch (chmodErr) {
+      process.stderr.write(`[toolveto] warning: unable to restrict config file permissions (${chmodErr instanceof Error ? chmodErr.message : String(chmodErr)})\n`);
+    }
 
     console.log(`\n✅ Authenticated Successfully!`);
     console.log(`   Customer:     ${data.customerId}`);

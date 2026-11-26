@@ -862,6 +862,61 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
     return { authorized: timingSafeMatchesAnySecret(candidate, [primarySecret, prevSecret]) };
   }
 
+  const AUTH_WINDOW_MS = 60_000;
+  const AUTH_MAX_FAILURES_PER_IP = Math.max(1, Number(process.env.TOOLVETO_AUTH_MAX_FAILURES_PER_MIN || 30));
+  const REQ_MAX_PER_IP_PER_MIN = Math.max(10, Number(process.env.TOOLVETO_RATE_LIMIT_PER_MIN || 600));
+  const authFailureWindows = new Map<string, { count: number; resetAt: number }>();
+  const requestWindows = new Map<string, { count: number; resetAt: number }>();
+
+  function getGatewayClientIp(req: http.IncomingMessage): string {
+    return req.socket?.remoteAddress || 'unknown';
+  }
+
+  function incrementSlidingWindow(
+    store: Map<string, { count: number; resetAt: number }>,
+    ip: string,
+    limit: number
+  ): { limited: boolean; count: number } {
+    const now = Date.now();
+    if (store.size > 10_000) {
+      const oldest = store.keys().next().value;
+      if (oldest !== undefined) store.delete(oldest);
+    }
+    const entry = store.get(ip);
+    if (!entry || entry.resetAt <= now) {
+      store.set(ip, { count: 1, resetAt: now + AUTH_WINDOW_MS });
+      return { limited: false, count: 1 };
+    }
+    entry.count += 1;
+    return { limited: entry.count > limit, count: entry.count };
+  }
+
+  function checkAuthWithLockout(
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    clientIp: string
+  ): boolean {
+    const authFailureEntry = authFailureWindows.get(clientIp);
+    if (authFailureEntry && authFailureEntry.resetAt > Date.now() && authFailureEntry.count >= AUTH_MAX_FAILURES_PER_IP) {
+      res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '60' });
+      res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32000, message: 'Too Many Requests: Auth failure rate limit exceeded' } }));
+      return false;
+    }
+    const authStatus = checkGatewayAuth(req);
+    if (authStatus.misconfigured) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32603, message: 'Server configuration error: Gateway secret missing or <16 chars' } }));
+      return false;
+    }
+    if (!authStatus.authorized) {
+      incrementSlidingWindow(authFailureWindows, clientIp, AUTH_MAX_FAILURES_PER_IP);
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32000, message: 'Unauthorized: Invalid or missing Bearer token' } }));
+      return false;
+    }
+    return true;
+  }
+
   interface CompiledUpstreamRoute {
     key: string;
     upstream: UpstreamRouteConfig;
@@ -875,7 +930,16 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
   const compiledRoutes: CompiledUpstreamRoute[] = [];
   const pathPrefixRoutes: CompiledUpstreamRoute[] = [];
   const toolPrefixRoutes: CompiledUpstreamRoute[] = [];
+  const MAX_TOOL_ROUTE_CACHE = 4096;
   const toolExactMap: Map<string, CompiledUpstreamRoute> = new Map();
+  function setBoundedToolExactRoute(name: string, route: CompiledUpstreamRoute): void {
+    if (toolExactMap.has(name)) return;
+    if (toolExactMap.size >= MAX_TOOL_ROUTE_CACHE) {
+      const oldestKey = toolExactMap.keys().next().value;
+      if (oldestKey !== undefined) toolExactMap.delete(oldestKey);
+    }
+    toolExactMap.set(name, route);
+  }
 
   const globalLockfileHashes =
     loadedConfig.lockfileHashes || loadLockfileHashesFromDisk(loadedConfig.lockfilePath);
@@ -995,7 +1059,6 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
       for (let i = 0; i < toolPrefixRoutes.length; i++) {
         const r = toolPrefixRoutes[i];
         if (r.toolPrefix && toolName.startsWith(r.toolPrefix)) {
-          toolExactMap.set(toolName, r);
           return r;
         }
       }
@@ -1056,6 +1119,14 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
       return;
     }
 
+    const clientIp = getGatewayClientIp(req);
+    const reqDecision = incrementSlidingWindow(requestWindows, clientIp, REQ_MAX_PER_IP_PER_MIN);
+    if (reqDecision.limited) {
+      res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '60' });
+      res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32000, message: 'Too Many Requests: Rate limit exceeded' } }));
+      return;
+    }
+
     // 1. Healthcheck Endpoint
     if (req.method === 'GET' && (url.pathname === '/health' || url.pathname === '/healthz' || url.pathname === '/')) {
       const authStatus = checkGatewayAuth(req);
@@ -1110,18 +1181,8 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
 
     // 2. Metrics Endpoint (Prometheus + JSON)
     if (req.method === 'GET' && url.pathname === '/metrics') {
-      const authStatus = checkGatewayAuth(req);
       if (process.env.NODE_ENV === 'production' && process.env.TOOLVETO_ALLOW_UNAUTHENTICATED_METRICS !== 'true') {
-        if (authStatus.misconfigured) {
-          res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32603, message: 'Server configuration error: Gateway secret missing or <16 chars' } }));
-          return;
-        }
-        if (!authStatus.authorized) {
-          res.writeHead(401, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32000, message: 'Unauthorized: Invalid or missing Bearer token' } }));
-          return;
-        }
+        if (!checkAuthWithLockout(req, res, clientIp)) return;
       }
 
       const acceptsJson = req.headers.accept?.includes('application/json') || url.searchParams.get('format') === 'json';
@@ -1184,19 +1245,9 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
       return;
     }
 
-    // 3. Auth Check (Fail-closed in production + HMAC constant-time dual-key rotation)
+    // 3. Auth Check (Fail-closed in production + HMAC constant-time dual-key rotation + per-IP failure lockout)
     {
-      const authStatus = checkGatewayAuth(req);
-      if (authStatus.misconfigured) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32603, message: 'Server configuration error: Gateway secret missing or <16 chars' } }));
-        return;
-      }
-      if (!authStatus.authorized) {
-        res.writeHead(401, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32000, message: 'Unauthorized: Invalid or missing Bearer token' } }));
-        return;
-      }
+      if (!checkAuthWithLockout(req, res, clientIp)) return;
     }
 
     // 4. MCP Streamable HTTP GET (Server-to-Client SSE Notification Stream) & DELETE (Session Termination)
@@ -1761,9 +1812,10 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
             const verifyRes = middleware.verifyToolDefinitions(toolsList);
             const driftedSet = new Set(verifyRes.driftedTools);
             for (const t of toolsList) {
-              if (t?.name && !driftedSet.has(t.name) && !toolExactMap.has(t.name)) {
-                toolExactMap.set(t.name, resolvedRoute);
-              }
+              if (!t?.name || driftedSet.has(t.name) || toolExactMap.has(t.name)) continue;
+              const prefixOwner = toolPrefixRoutes.find((r) => r.toolPrefix && t.name.startsWith(r.toolPrefix));
+              if (prefixOwner && prefixOwner.key !== resolvedRoute.key) continue;
+              setBoundedToolExactRoute(t.name, resolvedRoute);
             }
             outHeaders['X-ToolVeto-Lockfile-Verified'] = verifyRes.valid ? 'true' : 'false';
             if (!verifyRes.valid) {

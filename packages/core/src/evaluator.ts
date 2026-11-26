@@ -1,4 +1,5 @@
 import * as http from 'node:http';
+import * as https from 'node:https';
 import * as crypto from 'node:crypto';
 import * as dns from 'node:dns';
 import * as net from 'node:net';
@@ -719,7 +720,7 @@ export async function runSuite(
 function isPrivateOrReservedLlmIpOrHost(rawHostname: string): boolean {
   const raw = rawHostname.toLowerCase().trim();
   const unbracketed = raw.startsWith('[') && raw.endsWith(']') ? raw.slice(1, -1) : raw;
-  const host = unbracketed.split('%')[0];
+  const host = unbracketed.split('%')[0].replace(/\.+$/, '');
 
   if (
     host === 'localhost' ||
@@ -775,26 +776,85 @@ function isPrivateOrReservedLlmIpOrHost(rawHostname: string): boolean {
       if (missing >= 0) {
         const full = [...head, ...Array(missing).fill('0'), ...tail].map((h) => parseInt(h || '0', 16));
         if (full.length === 8 && full.every((n) => !Number.isNaN(n))) {
-          const zero5 = full[0] === 0 && full[1] === 0 && full[2] === 0 && full[3] === 0 && full[4] === 0;
-          if (zero5 && full[5] === 0) return true; // ::, ::1, and ::/96 IPv4-compatible
-          if (zero5 && full[5] === 0xffff) return isPrivV4((full[6] >>> 8) & 0xff, full[6] & 0xff);
-          if ((full[0] & 0xfe00) === 0xfc00) return true; // fc00::/7
-          if ((full[0] & 0xffc0) === 0xfe80 || (full[0] & 0xffc0) === 0xfec0) return true; // fe80::/10, fec0::/10
-          if ((full[0] & 0xff00) === 0xff00) return true; // multicast
-          if (full[0] === 0x0064 && full[1] === 0xff9b) return true; // NAT64
+          if ((full[0] & 0xe000) !== 0x2000) return true; // Block all non-Global-Unicast 2000::/3
           if (full[0] === 0x2002) return true; // 6to4
           if (full[0] === 0x2001 && (full[1] === 0x0db8 || full[1] === 0x0002 || full[1] === 0x0000)) return true;
-          if (full[0] === 0x0100 && full[1] === 0 && full[2] === 0 && full[3] === 0) return true;
+          if (full[0] === 0x3ffe || (full[0] === 0x3fff && (full[1] & 0xf000) === 0x0000)) return true;
+          return false;
         }
       }
     }
-    return false;
+    return true; // Fail closed if IPv6 parsing fails
   }
 
   return false;
 }
 
-async function validateAndResolveLlmEndpoint(urlStr: string): Promise<URL> {
+async function pinnedJsonRequest(
+  parsedUrl: URL,
+  method: 'GET' | 'POST',
+  pinned: { address: string; family: number } | null,
+  headers: Record<string, string>,
+  payload: unknown | undefined,
+  timeoutMs: number
+): Promise<{ ok: boolean; status: number; text: () => Promise<string>; json: () => Promise<any> }> {
+  const mod = parsedUrl.protocol === 'http:' ? http : https;
+  const bodyStr = payload !== undefined ? JSON.stringify(payload) : undefined;
+  return new Promise((resolve, reject) => {
+    const req = mod.request(
+      parsedUrl,
+      {
+        method,
+        headers: bodyStr !== undefined ? { ...headers, 'Content-Length': String(Buffer.byteLength(bodyStr, 'utf8')) } : headers,
+        timeout: timeoutMs,
+        ...(pinned
+          ? {
+              lookup: (_host: string, optsOrCb: any, maybeCb?: any) => {
+                const cb = typeof optsOrCb === 'function' ? optsOrCb : maybeCb;
+                const opts = typeof optsOrCb === 'object' && optsOrCb !== null ? optsOrCb : {};
+                if (typeof cb !== 'function') return;
+                if (opts.all) {
+                  process.nextTick(() => cb(null, [{ address: pinned.address, family: pinned.family }]));
+                } else {
+                  process.nextTick(() => cb(null, pinned.address, pinned.family));
+                }
+              },
+              ...(parsedUrl.protocol === 'https:'
+                ? { servername: parsedUrl.hostname.replace(/^\[|\]$/g, '').replace(/\.+$/, '') }
+                : {}),
+            }
+          : {}),
+      },
+      (res) => {
+        const status = res.statusCode || 0;
+        if (status >= 300 && status < 400) {
+          res.resume();
+          reject(new Error(`[ToolVeto Security] HTTP redirect (${status}) blocked.`));
+          return;
+        }
+        const chunks: Buffer[] = [];
+        res.on('data', (c) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
+        res.on('end', () => {
+          const textVal = Buffer.concat(chunks).toString('utf8');
+          resolve({
+            ok: status >= 200 && status < 300,
+            status,
+            text: async () => textVal,
+            json: async () => JSON.parse(textVal),
+          });
+        });
+      }
+    );
+    req.on('error', reject);
+    req.on('timeout', () => req.destroy(new Error('Request timeout')));
+    if (bodyStr !== undefined) req.end(bodyStr);
+    else req.end();
+  });
+}
+
+async function validateAndResolveLlmEndpoint(
+  urlStr: string
+): Promise<{ url: URL; pinned: { address: string; family: number } | null }> {
   const rawHostMatch = urlStr.match(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/(?:[^/@]*@)?([^/:?#]+)/);
   if (rawHostMatch) {
     const rawHost = rawHostMatch[1].toLowerCase();
@@ -811,7 +871,7 @@ async function validateAndResolveLlmEndpoint(urlStr: string): Promise<URL> {
     throw new Error('[ToolVeto Security] SSRF blocked: embedded credentials in LLM endpoint are forbidden.');
   }
 
-  const cleanHost = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  const cleanHost = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '').split('%')[0].replace(/\.+$/, '');
   const isLoopback = cleanHost === 'localhost' || cleanHost === '127.0.0.1' || cleanHost === '::1';
   const allowLocalLlm = process.env.TOOLVETO_ALLOW_LOCAL_LLM === 'true';
 
@@ -825,6 +885,7 @@ async function validateAndResolveLlmEndpoint(urlStr: string): Promise<URL> {
     throw new Error(`[ToolVeto Security] SSRF blocked for custom LLM endpoint host '${parsed.hostname}'.`);
   }
 
+  let pinned: { address: string; family: number } | null = null;
   if (!(allowLocalLlm && isLoopback) && net.isIP(cleanHost) === 0) {
     const records = await dns.promises.lookup(cleanHost, { all: true });
     if (!records || records.length === 0) {
@@ -837,9 +898,10 @@ async function validateAndResolveLlmEndpoint(urlStr: string): Promise<URL> {
         );
       }
     }
+    pinned = { address: records[0].address, family: records[0].family };
   }
 
-  return parsed;
+  return { url: parsed, pinned };
 }
 
 async function runOptionalLlmErrorJudge(
@@ -889,10 +951,12 @@ async function runOptionalLlmErrorJudge(
       providerName = customEndpoint ? 'custom-openai-compatible' : 'openai';
       let url = 'https://api.openai.com/v1/chat/completions';
       let isOfficialOpenAiHost = true;
+      let pinned: { address: string; family: number } | null = null;
       if (customEndpoint) {
-        const validated = await validateAndResolveLlmEndpoint(customEndpoint);
-        url = validated.toString();
-        isOfficialOpenAiHost = validated.hostname.toLowerCase() === 'api.openai.com';
+        const resolved = await validateAndResolveLlmEndpoint(customEndpoint);
+        url = resolved.url.toString();
+        pinned = resolved.pinned;
+        isOfficialOpenAiHost = resolved.url.hostname.toLowerCase() === 'api.openai.com';
       }
 
       const model = process.env.TOOLVETO_LLM_MODEL || 'gpt-4.1-mini';
@@ -902,11 +966,12 @@ async function runOptionalLlmErrorJudge(
         headers['Authorization'] = `Bearer ${effectiveBearerKey}`;
       }
 
-      const resp = await fetch(url, {
-        method: 'POST',
+      const resp = await pinnedJsonRequest(
+        new URL(url),
+        'POST',
+        pinned,
         headers,
-        redirect: 'error',
-        body: JSON.stringify({
+        {
           model,
           temperature: 0,
           max_tokens: 256,
@@ -914,9 +979,9 @@ async function runOptionalLlmErrorJudge(
             { role: 'system', content: systemDirective },
             { role: 'user', content: promptBody },
           ],
-        }),
-        signal: AbortSignal.timeout(10000),
-      });
+        },
+        10_000
+      );
       if (resp.status >= 300 && resp.status < 400) {
         return { tokensUsed: 0, status: 'error:redirect_blocked', results: [] };
       }

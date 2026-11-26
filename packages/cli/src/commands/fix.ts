@@ -2,6 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'node:crypto';
 import dns from 'node:dns';
+import http from 'node:http';
+import https from 'node:https';
 import net from 'node:net';
 
 export interface FixOptions {
@@ -332,7 +334,7 @@ function isBlockedIpv4Octets(a: number, b: number): boolean {
 }
 
 function isBlockedLlmHost(rawHost: string): boolean {
-  const host = rawHost.toLowerCase().trim().replace(/^\[|\]$/g, '').split('%')[0];
+  const host = rawHost.toLowerCase().trim().replace(/^\[|\]$/g, '').split('%')[0].replace(/\.+$/, '');
   if (
     !host ||
     host === 'localhost' ||
@@ -357,24 +359,10 @@ function isBlockedLlmHost(rawHost: string): boolean {
   if (ipVersion === 6) {
     const h = expandIpv6Hextets(host);
     if (!h) return true;
-    // Unspecified (::) or Loopback (::1)
-    if (h.slice(0, 7).every((x) => x === 0) && (h[7] === 0 || h[7] === 1)) return true;
-    // IPv4-mapped (::ffff:w.x.y.z) or IPv4-compatible (::w.x.y.z) or SIIT (::ffff:0:w.x.y.z)
-    if (
-      (h[0] === 0 && h[1] === 0 && h[2] === 0 && h[3] === 0 && h[4] === 0 && (h[5] === 0xffff || h[5] === 0)) ||
-      (h[0] === 0 && h[1] === 0 && h[2] === 0 && h[3] === 0 && h[4] === 0xffff && h[5] === 0)
-    ) {
-      return true;
-    }
-    // NAT64 (64:ff9b::/96 or 64:ff9b:1::/48), 6to4 (2002::/16), Teredo (2001:0000::/32), Benchmarking/Doc
-    if (h[0] === 0x0064 && h[1] === 0xff9b) return true;
+    if ((h[0] & 0xe000) !== 0x2000) return true;
     if (h[0] === 0x2002) return true;
-    if (h[0] === 0x2001 && (h[1] === 0x0000 || h[1] === 0x0db8)) return true;
-    if (h[0] === 0x0100) return true;
-    // Unique local fc00::/7, link-local fe80::/10, site-local fec0::/10, multicast ff00::/8
-    if ((h[0] & 0xfe00) === 0xfc00) return true;
-    if ((h[0] & 0xffc0) === 0xfe80 || (h[0] & 0xffc0) === 0xfec0) return true;
-    if ((h[0] & 0xff00) === 0xff00) return true;
+    if (h[0] === 0x2001 && (h[1] === 0x0000 || h[1] === 0x0002 || h[1] === 0x0db8)) return true;
+    if (h[0] === 0x3ffe || (h[0] === 0x3fff && (h[1] & 0xf000) === 0x0000)) return true;
     return false;
   }
   // Dotted octal/hex/integer IPv4 representations
@@ -400,7 +388,7 @@ export function validateCustomLlmEndpoint(endpointUrl: string): URL {
   if (parsed.username || parsed.password) {
     throw new Error('[ToolVeto CLI Security] Custom LLM endpoint cannot include embedded credentials.');
   }
-  const cleanHost = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  const cleanHost = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '').split('%')[0].replace(/\.+$/, '');
   const isLoopback = cleanHost === 'localhost' || cleanHost === '127.0.0.1' || cleanHost === '::1';
   const allowLocalLlm = process.env.TOOLVETO_ALLOW_LOCAL_LLM === 'true';
 
@@ -415,12 +403,76 @@ export function validateCustomLlmEndpoint(endpointUrl: string): URL {
   return parsed;
 }
 
-async function validateCustomLlmEndpointDns(parsedUrl: URL): Promise<void> {
-  const cleanHost = parsedUrl.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+async function pinnedJsonRequest(
+  parsedUrl: URL,
+  method: 'GET' | 'POST',
+  pinned: { address: string; family: number } | null,
+  headers: Record<string, string>,
+  payload: unknown | undefined,
+  timeoutMs: number
+): Promise<{ ok: boolean; status: number; text: () => Promise<string>; json: () => Promise<any> }> {
+  const mod = parsedUrl.protocol === 'http:' ? http : https;
+  const bodyStr = payload !== undefined ? JSON.stringify(payload) : undefined;
+  return new Promise((resolve, reject) => {
+    const req = mod.request(
+      parsedUrl,
+      {
+        method,
+        headers: bodyStr !== undefined ? { ...headers, 'Content-Length': String(Buffer.byteLength(bodyStr, 'utf8')) } : headers,
+        timeout: timeoutMs,
+        ...(pinned
+          ? {
+              lookup: (_host: string, optsOrCb: any, maybeCb?: any) => {
+                const cb = typeof optsOrCb === 'function' ? optsOrCb : maybeCb;
+                const opts = typeof optsOrCb === 'object' && optsOrCb !== null ? optsOrCb : {};
+                if (typeof cb !== 'function') return;
+                if (opts.all) {
+                  process.nextTick(() => cb(null, [{ address: pinned.address, family: pinned.family }]));
+                } else {
+                  process.nextTick(() => cb(null, pinned.address, pinned.family));
+                }
+              },
+              ...(parsedUrl.protocol === 'https:'
+                ? { servername: parsedUrl.hostname.replace(/^\[|\]$/g, '').replace(/\.+$/, '') }
+                : {}),
+            }
+          : {}),
+      },
+      (res) => {
+        const status = res.statusCode || 0;
+        if (status >= 300 && status < 400) {
+          res.resume();
+          reject(new Error(`[ToolVeto CLI Security] HTTP redirect (${status}) blocked.`));
+          return;
+        }
+        const chunks: Buffer[] = [];
+        res.on('data', (c) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
+        res.on('end', () => {
+          const textVal = Buffer.concat(chunks).toString('utf8');
+          resolve({
+            ok: status >= 200 && status < 300,
+            status,
+            text: async () => textVal,
+            json: async () => JSON.parse(textVal),
+          });
+        });
+      }
+    );
+    req.on('error', reject);
+    req.on('timeout', () => req.destroy(new Error('Request timeout')));
+    if (bodyStr !== undefined) req.end(bodyStr);
+    else req.end();
+  });
+}
+
+async function validateCustomLlmEndpointDns(
+  parsedUrl: URL
+): Promise<{ address: string; family: number } | null> {
+  const cleanHost = parsedUrl.hostname.toLowerCase().replace(/^\[|\]$/g, '').split('%')[0].replace(/\.+$/, '');
   const allowLocalLlm = process.env.TOOLVETO_ALLOW_LOCAL_LLM === 'true';
   const isLoopback = cleanHost === 'localhost' || cleanHost === '127.0.0.1' || cleanHost === '::1';
-  if (allowLocalLlm && isLoopback) return;
-  if (net.isIP(cleanHost) !== 0) return;
+  if (allowLocalLlm && isLoopback) return null;
+  if (net.isIP(cleanHost) !== 0) return null;
 
   const records = await dns.promises.lookup(cleanHost, { all: true });
   if (!records || records.length === 0) {
@@ -433,6 +485,7 @@ async function validateCustomLlmEndpointDns(parsedUrl: URL): Promise<void> {
       );
     }
   }
+  return { address: records[0].address, family: records[0].family };
 }
 
 const SUSPICIOUS_PATCH_PATTERNS: Array<{ name: string; regex: RegExp }> = [
@@ -577,27 +630,28 @@ export async function synthesizeHandlerPatchWithLlm(
   try {
     if (customEndpoint) {
       const validatedEndpoint = validateCustomLlmEndpoint(customEndpoint);
-      await validateCustomLlmEndpointDns(validatedEndpoint);
+      const pinned = await validateCustomLlmEndpointDns(validatedEndpoint);
       const isOfficialOpenAi = validatedEndpoint.hostname.toLowerCase() === 'api.openai.com';
       const customAuthKey = process.env.LLM_JUDGE_API_KEY || (isOfficialOpenAi ? openaiKey : undefined);
       const customHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
       if (customAuthKey) {
         customHeaders['Authorization'] = `Bearer ${customAuthKey}`;
       }
-      const res = await fetch(validatedEndpoint.toString(), {
-        method: 'POST',
-        headers: customHeaders,
-        redirect: 'error',
-        body: JSON.stringify({
+      const res = await pinnedJsonRequest(
+        validatedEndpoint,
+        'POST',
+        pinned,
+        customHeaders,
+        {
           model: modelName || 'toolveto-remediation-v1',
           system: systemPrompt,
           filePath: safeFilename,
           checkFilter: checkFilter || 'ALL',
           sourceDelimiter: sourceTag,
           prompt: wrappedUserContent,
-        }),
-        signal: AbortSignal.timeout(30_000),
-      });
+        },
+        30_000
+      );
       if (res.ok) {
         const data = (await res.json()) as { patchedCode?: string; diffHunks?: string[]; model?: string };
         if (data.patchedCode && validateLlmSynthesizedPatch(source, data.patchedCode).valid) {

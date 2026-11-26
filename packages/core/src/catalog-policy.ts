@@ -1,4 +1,65 @@
+import * as dns from 'node:dns';
 import * as fs from 'node:fs';
+import * as https from 'node:https';
+import * as net from 'node:net';
+
+function expandCatalogIpv6Hextets(ip: string): number[] | null {
+  let working = ip.toLowerCase().trim().replace(/^\[|\]$/g, '').split('%')[0];
+  if (working.includes('.')) {
+    const lastColon = working.lastIndexOf(':');
+    const v4 = working.slice(lastColon + 1).split('.').map(Number);
+    if (v4.length !== 4 || v4.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return null;
+    working = `${working.slice(0, lastColon)}:${((v4[0] << 8) | v4[1]).toString(16)}:${((v4[2] << 8) | v4[3]).toString(16)}`;
+  }
+  const parts = working.split('::');
+  if (parts.length > 2) return null;
+  const head = parts[0] ? parts[0].split(':') : [];
+  const tail = parts.length === 2 && parts[1] ? parts[1].split(':') : [];
+  const missing = 8 - (head.length + tail.length);
+  if (missing < 0) return null;
+  const hextets = [...head, ...Array(missing).fill('0'), ...tail].map((seg) => parseInt(seg || '0', 16));
+  if (hextets.length !== 8 || hextets.some((n) => !Number.isInteger(n) || n < 0 || n > 0xffff)) return null;
+  return hextets;
+}
+
+function isBlockedCatalogIpOrHost(rawHost: string): boolean {
+  const host = rawHost.toLowerCase().trim().replace(/^\[|\]$/g, '').split('%')[0].replace(/\.+$/, '');
+  if (
+    !host ||
+    host === '0.0.0.0' ||
+    host === 'localhost' ||
+    host === '127.0.0.1' ||
+    host === '::1' ||
+    host === '::' ||
+    host === '169.254.169.254' ||
+    host === 'metadata.google.internal' ||
+    host.endsWith('.localhost') ||
+    host.endsWith('.internal') ||
+    host.endsWith('.local')
+  ) {
+    return true;
+  }
+  const v = net.isIP(host);
+  if (v === 4) {
+    const [a, b] = host.split('.').map(Number);
+    return (
+      a === 0 || a === 10 || a === 127 ||
+      (a === 169 && b === 254) || (a === 192 && b === 168) ||
+      (a === 172 && b >= 16 && b <= 31) || (a === 100 && b >= 64 && b <= 127) ||
+      (a === 198 && (b === 18 || b === 19)) || a >= 224
+    );
+  }
+  if (v === 6) {
+    const h = expandCatalogIpv6Hextets(host);
+    if (!h) return true;
+    if ((h[0] & 0xe000) !== 0x2000) return true;
+    if (h[0] === 0x2002) return true;
+    if (h[0] === 0x2001 && (h[1] === 0x0000 || h[1] === 0x0002 || h[1] === 0x0db8)) return true;
+    if (h[0] === 0x3ffe || (h[0] === 0x3fff && (h[1] & 0xf000) === 0x0000)) return true;
+    return false;
+  }
+  return false;
+}
 
 export type OrgCatalogStatus = 'APPROVED' | 'UNDER_REVIEW' | 'QUARANTINED' | 'BLOCKED';
 
@@ -131,25 +192,75 @@ export class OrgCatalogPolicyClient {
   public async syncNow(): Promise<OrgCatalogPolicyDocument | null> {
     if (!this.apiUrl || !this.licenseKey) return this.policy;
     try {
+      const parsedApi = new URL(`${this.apiUrl}/api/v1/catalog/policy`);
+      if (parsedApi.username || parsedApi.password || parsedApi.protocol !== 'https:') return this.policy;
+      const cleanHost = parsedApi.hostname.toLowerCase().replace(/^\[|\]$/g, '').split('%')[0].replace(/\.+$/, '');
+      if (isBlockedCatalogIpOrHost(cleanHost)) return this.policy;
+      let pinnedAddr: { address: string; family: number } | null = null;
+      if (net.isIP(cleanHost) === 0) {
+        const addrs = await dns.promises.lookup(cleanHost, { all: true });
+        if (!addrs.length || addrs.some((a) => isBlockedCatalogIpOrHost(a.address))) return this.policy;
+        pinnedAddr = { address: addrs[0].address, family: addrs[0].family };
+      }
       const headers: Record<string, string> = {
         Authorization: `Bearer ${this.licenseKey}`,
         Accept: 'application/json',
       };
       if (this.etag) headers['If-None-Match'] = this.etag;
-      const res = await fetch(`${this.apiUrl}/api/v1/catalog/policy`, {
-        method: 'GET',
-        headers,
-        signal: AbortSignal.timeout(5_000),
+      const resData = await new Promise<{ status: number; etag?: string; body: string }>((resolve, reject) => {
+        const req = https.request(
+          parsedApi,
+          {
+            method: 'GET',
+            headers,
+            timeout: 5_000,
+            ...(pinnedAddr
+              ? {
+                  lookup: (_host: string, optsOrCb: any, maybeCb?: any) => {
+                    const cb = typeof optsOrCb === 'function' ? optsOrCb : maybeCb;
+                    const opts = typeof optsOrCb === 'object' && optsOrCb !== null ? optsOrCb : {};
+                    if (typeof cb !== 'function') return;
+                    if (opts.all) {
+                      process.nextTick(() => cb(null, [{ address: pinnedAddr!.address, family: pinnedAddr!.family }]));
+                    } else {
+                      process.nextTick(() => cb(null, pinnedAddr!.address, pinnedAddr!.family));
+                    }
+                  },
+                  servername: cleanHost,
+                }
+              : {}),
+          },
+          (res) => {
+            const status = res.statusCode || 0;
+            if (status >= 300 && status < 400) {
+              res.resume();
+              reject(new Error(`HTTP redirect (${status}) blocked`));
+              return;
+            }
+            const chunks: Buffer[] = [];
+            res.on('data', (c) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
+            res.on('end', () =>
+              resolve({
+                status,
+                etag: typeof res.headers.etag === 'string' ? res.headers.etag : undefined,
+                body: Buffer.concat(chunks).toString('utf8'),
+              })
+            );
+          }
+        );
+        req.on('error', reject);
+        req.on('timeout', () => req.destroy(new Error('timeout')));
+        req.end();
       });
-      if (res.status === 304) {
+      if (resData.status === 304) {
         this.lastSyncedAt = Date.now();
         return this.policy;
       }
-      if (res.ok) {
-        const data = (await res.json()) as { policy?: OrgCatalogPolicyDocument; etag?: string };
+      if (resData.status >= 200 && resData.status < 300) {
+        const data = JSON.parse(resData.body) as { policy?: OrgCatalogPolicyDocument; etag?: string };
         if (data?.policy) {
           this.policy = data.policy;
-          this.etag = res.headers.get('etag') || data.etag || this.etag;
+          this.etag = resData.etag || data.etag || this.etag;
           this.lastSyncedAt = Date.now();
         }
       }

@@ -65,6 +65,7 @@ jobs:
           # 2. Start ToolVeto Gateway in standalone mode on port 8080
           TOOLVETO_GATEWAY_SECRET="$GATEWAY_SECRET" \
           TOOLVETO_ALLOW_LOCAL_UPSTREAMS=true \
+          TOOLVETO_RATE_LIMIT_PER_MIN=100000 \
           RUN_STANDALONE=true \
           UPSTREAM_URL="http://127.0.0.1:3000" \
           PORT=8080 \

@@ -1,5 +1,8 @@
 import crypto from 'node:crypto';
+import dns from 'node:dns';
 import fs from 'node:fs';
+import http from 'node:http';
+import https from 'node:https';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -65,11 +68,56 @@ function resolveEs256PublicKey(rawOrPath?: string, expectedKid?: string): crypto
   return crypto.createPublicKey(trimmed);
 }
 
+function expandIpv6Hextets(ip: string): number[] | null {
+  let working = ip.toLowerCase().trim().replace(/^\[|\]$/g, '').split('%')[0];
+  if (working.includes('.')) {
+    const lastColon = working.lastIndexOf(':');
+    const v4 = working.slice(lastColon + 1).split('.').map(Number);
+    if (v4.length !== 4 || v4.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return null;
+    working = `${working.slice(0, lastColon)}:${((v4[0] << 8) | v4[1]).toString(16)}:${((v4[2] << 8) | v4[3]).toString(16)}`;
+  }
+  const parts = working.split('::');
+  if (parts.length > 2) return null;
+  const head = parts[0] ? parts[0].split(':') : [];
+  const tail = parts.length === 2 && parts[1] ? parts[1].split(':') : [];
+  const missing = 8 - (head.length + tail.length);
+  if (missing < 0) return null;
+  const hextets = [...head, ...Array(missing).fill('0'), ...tail].map((seg) => parseInt(seg || '0', 16));
+  if (hextets.length !== 8 || hextets.some((n) => !Number.isInteger(n) || n < 0 || n > 0xffff)) return null;
+  return hextets;
+}
+
+function isAllowedJwksIp(rawIp: string): boolean {
+  const host = rawIp.toLowerCase().trim().replace(/^\[|\]$/g, '').split('%')[0].replace(/\.+$/, '');
+  const ipVer = net.isIP(host);
+  if (ipVer === 4) {
+    const [a, b] = host.split('.').map(Number);
+    if (a === 0 || a === 10 || a === 127) return false;
+    if (a === 169 && b === 254) return false;
+    if (a === 192 && b === 168) return false;
+    if (a === 172 && b >= 16 && b <= 31) return false;
+    if (a === 100 && b >= 64 && b <= 127) return false;
+    if (a === 198 && (b === 18 || b === 19)) return false;
+    if (a >= 224) return false;
+    return true;
+  }
+  if (ipVer === 6) {
+    const h = expandIpv6Hextets(host);
+    if (!h) return false;
+    if ((h[0] & 0xe000) !== 0x2000) return false;
+    if (h[0] === 0x2002) return false;
+    if (h[0] === 0x2001 && (h[1] === 0x0000 || h[1] === 0x0002 || h[1] === 0x0db8)) return false;
+    if (h[0] === 0x3ffe || (h[0] === 0x3fff && (h[1] & 0xf000) === 0x0000)) return false;
+    return true;
+  }
+  return false;
+}
+
 function isAllowedJwksBaseUrl(baseUrl: string): boolean {
   try {
     const parsed = new URL(baseUrl);
     if (parsed.username || parsed.password) return false;
-    const host = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    const host = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '').split('%')[0].replace(/\.+$/, '');
     const isLoopback = host === 'localhost' || host === '127.0.0.1' || host === '::1';
     if (parsed.protocol === 'http:') {
       return isLoopback;
@@ -79,30 +127,85 @@ function isAllowedJwksBaseUrl(baseUrl: string): boolean {
     }
     if (isLoopback) return true;
     if (
+      !host ||
       host === '0.0.0.0' ||
       host === '169.254.169.254' ||
       host === 'metadata.google.internal' ||
+      host.endsWith('.localhost') ||
       host.endsWith('.internal') ||
       host.endsWith('.local')
     ) {
       return false;
     }
-    const ipVer = net.isIP(host);
-    if (ipVer === 4) {
-      const [a, b] = host.split('.').map(Number);
-      if (a === 0 || a === 10 || a === 127) return false;
-      if (a === 169 && b === 254) return false;
-      if (a === 192 && b === 168) return false;
-      if (a === 172 && b >= 16 && b <= 31) return false;
-    } else if (ipVer === 6) {
-      if (host.startsWith('fc') || host.startsWith('fd') || host.startsWith('fe80') || host.startsWith('::ffff:')) {
-        return false;
-      }
+    if (net.isIP(host) !== 0) {
+      return isAllowedJwksIp(host);
     }
     return true;
   } catch {
     return false;
   }
+}
+
+async function pinnedJsonRequest(
+  parsedUrl: URL,
+  method: 'GET' | 'POST',
+  pinned: { address: string; family: number } | null,
+  headers: Record<string, string>,
+  payload: unknown | undefined,
+  timeoutMs: number
+): Promise<{ ok: boolean; status: number; text: () => Promise<string>; json: () => Promise<any> }> {
+  const mod = parsedUrl.protocol === 'http:' ? http : https;
+  const bodyStr = payload !== undefined ? JSON.stringify(payload) : undefined;
+  return new Promise((resolve, reject) => {
+    const req = mod.request(
+      parsedUrl,
+      {
+        method,
+        headers: bodyStr !== undefined ? { ...headers, 'Content-Length': String(Buffer.byteLength(bodyStr, 'utf8')) } : headers,
+        timeout: timeoutMs,
+        ...(pinned
+          ? {
+              lookup: (_host: string, optsOrCb: any, maybeCb?: any) => {
+                const cb = typeof optsOrCb === 'function' ? optsOrCb : maybeCb;
+                const opts = typeof optsOrCb === 'object' && optsOrCb !== null ? optsOrCb : {};
+                if (typeof cb !== 'function') return;
+                if (opts.all) {
+                  process.nextTick(() => cb(null, [{ address: pinned.address, family: pinned.family }]));
+                } else {
+                  process.nextTick(() => cb(null, pinned.address, pinned.family));
+                }
+              },
+              ...(parsedUrl.protocol === 'https:'
+                ? { servername: parsedUrl.hostname.replace(/^\[|\]$/g, '').replace(/\.+$/, '') }
+                : {}),
+            }
+          : {}),
+      },
+      (res) => {
+        const status = res.statusCode || 0;
+        if (status >= 300 && status < 400) {
+          res.resume();
+          reject(new Error(`[ToolVeto Security] HTTP redirect (${status}) blocked.`));
+          return;
+        }
+        const chunks: Buffer[] = [];
+        res.on('data', (c) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
+        res.on('end', () => {
+          const textVal = Buffer.concat(chunks).toString('utf8');
+          resolve({
+            ok: status >= 200 && status < 300,
+            status,
+            text: async () => textVal,
+            json: async () => JSON.parse(textVal),
+          });
+        });
+      }
+    );
+    req.on('error', reject);
+    req.on('timeout', () => req.destroy(new Error('Request timeout')));
+    if (bodyStr !== undefined) req.end(bodyStr);
+    else req.end();
+  });
 }
 
 export async function fetchEs256PublicKeyFromJwks(
@@ -121,11 +224,23 @@ export async function fetchEs256PublicKeyFromJwks(
     return null;
   }
 
+  const parsedBase = new URL(baseUrl);
+  const cleanHost = parsedBase.hostname.toLowerCase().replace(/^\[|\]$/g, '').split('%')[0].replace(/\.+$/, '');
+  const isLoopback = cleanHost === 'localhost' || cleanHost === '127.0.0.1' || cleanHost === '::1';
+  let pinned: { address: string; family: number } | null = null;
+  if (!isLoopback && net.isIP(cleanHost) === 0) {
+    const records = await dns.promises.lookup(cleanHost, { all: true }).catch(() => []);
+    if (!records.length || records.some((r) => !isAllowedJwksIp(r.address))) {
+      return null;
+    }
+    pinned = { address: records[0].address, family: records[0].family };
+  }
+
   const candidateUrls = [`${baseUrl}/.well-known/jwks.json`, `${baseUrl}/api/v1/jwks`];
 
   for (const jwksUrl of candidateUrls) {
     try {
-      const res = await fetch(jwksUrl, { redirect: 'error', signal: AbortSignal.timeout(4000) });
+      const res = await pinnedJsonRequest(new URL(jwksUrl), 'GET', pinned, {}, undefined, 4000);
       if (!res.ok) continue;
       const jwks = (await res.json()) as { keys?: Array<Record<string, any>> };
       if (!Array.isArray(jwks.keys) || jwks.keys.length === 0) continue;

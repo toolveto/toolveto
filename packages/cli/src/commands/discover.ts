@@ -55,7 +55,11 @@ const SECRET_VALUE_PATTERN =
   /(\b(?:sk_live|sk_test|ghp|gho|xoxb|xoxp|AKIA|tv_live|tv_enroll)_[A-Za-z0-9_-]{8,}\b|Bearer\s+[A-Za-z0-9._-]{16,})/gi;
 
 export function computeHostHmac(salt?: string): string {
-  const effectiveSalt = salt || process.env.TOOLVETO_HOST_SALT || 'toolveto-mdm-pseudonym-v1';
+  const configuredSalt = salt || process.env.TOOLVETO_HOST_SALT;
+  if (!configuredSalt) {
+    console.warn('[ToolVeto Discover] TOOLVETO_HOST_SALT is unset; falling back to default pseudonymization salt.');
+  }
+  const effectiveSalt = configuredSalt || 'toolveto-mdm-pseudonym-v1';
   const rawIdentity = `${os.hostname()}:${os.userInfo().username}:${os.platform()}`;
   const digest = crypto.createHmac('sha256', effectiveSalt).update(rawIdentity, 'utf8').digest('hex').slice(0, 24);
   return `HOST_${digest}`;

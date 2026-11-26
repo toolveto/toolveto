@@ -2018,11 +2018,34 @@ code, pre {
 .modal-close-btn {
   color: var(--text-muted);
   font-size: 1.4rem;
-  transition: color 0.15s ease;
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  transition: color 0.15s ease, background-color 0.15s ease;
 }
 
 .modal-close-btn:hover {
   color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.comparison-scroll,
+.report-table-wrapper {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.comparison-table th:first-child,
+.comparison-table td:first-child,
+.report-table th:first-child,
+.report-table td:first-child {
+  position: sticky;
+  left: 0;
+  background: #061733;
+  z-index: 2;
 }
 
 .modal-body {

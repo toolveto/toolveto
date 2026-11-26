@@ -174,7 +174,9 @@ function saveSecretsToToolVetoVault(extractedByServer: Map<string, Map<string, s
   }
   try {
     fs.chmodSync(vaultDir, 0o700);
-  } catch {}
+  } catch (chmodErr) {
+    process.stderr.write(`[toolveto] warning: unable to restrict vault permissions (${chmodErr instanceof Error ? chmodErr.message : String(chmodErr)})\n`);
+  }
 
   const envFilePath = path.join(vaultDir, 'secrets.env');
   const existingUnscoped = new Map<string, string>();
@@ -563,7 +565,13 @@ export async function doctorCommand(
       secretsBackupPath = saveSecretsToToolVetoVault(extractedSecrets);
     }
     if (fs.existsSync(resolved.path)) {
-      fs.copyFileSync(resolved.path, `${resolved.path}.bak`);
+      const bakPath = `${resolved.path}.bak`;
+      fs.copyFileSync(resolved.path, bakPath);
+      try {
+        fs.chmodSync(bakPath, 0o600);
+      } catch {
+        // Best-effort permission restriction on non-POSIX filesystems
+      }
     }
     fs.writeFileSync(resolved.path, JSON.stringify(parsed, null, 2) + '\n', { encoding: 'utf-8', mode: 0o600 });
     lockfilePath = path.join(path.dirname(resolved.path), 'toolveto-ide.lock.json');
