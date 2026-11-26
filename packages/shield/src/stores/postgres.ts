@@ -2,6 +2,10 @@ import { ShieldStorage, McpCallResponse } from '../index.js';
 
 export interface PostgresClientLike {
   query(sql: string, params?: any[]): Promise<{ rows: any[] }>;
+  connect?: () => Promise<{
+    query(sql: string, params?: any[]): Promise<{ rows: any[] }>;
+    release: () => void;
+  }>;
 }
 
 export interface PostgresShieldStorageOptions {
@@ -58,6 +62,23 @@ export class PostgresShieldStorage implements ShieldStorage {
     if (this.statementTimeoutMs <= 0) {
       return this.client.query(sql, params);
     }
+    // When backed by a pg.Pool (connect() available), enforce server-side SET LOCAL statement_timeout
+    // inside a short transaction so timed-out queries abort on Postgres instead of leaking connections.
+    if (typeof this.client.connect === 'function') {
+      const conn = await this.client.connect();
+      try {
+        await conn.query('BEGIN');
+        await conn.query(`SELECT set_config('statement_timeout', $1, true)`, [`${this.statementTimeoutMs}ms`]);
+        const res = await conn.query(sql, params);
+        await conn.query('COMMIT');
+        return res;
+      } catch (err) {
+        await conn.query('ROLLBACK').catch(() => undefined);
+        throw err;
+      } finally {
+        conn.release();
+      }
+    }
     let timer: NodeJS.Timeout | undefined;
     try {
       return await Promise.race([
@@ -83,6 +104,7 @@ export class PostgresShieldStorage implements ShieldStorage {
           value TEXT NOT NULL,
           expires_at BIGINT
         );
+        CREATE INDEX IF NOT EXISTS idx_toolveto_shield_cache_expires ON toolveto_shield_cache(expires_at);
       `);
       await this.runQuery(`
         CREATE TABLE IF NOT EXISTS toolveto_shield_calls (

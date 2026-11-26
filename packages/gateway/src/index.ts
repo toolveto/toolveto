@@ -1,9 +1,71 @@
 import http from 'http';
 import https from 'node:https';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import crypto from 'node:crypto';
 import dns from 'node:dns';
 import net from 'node:net';
 import { Readable } from 'node:stream';
+
+export interface GatewayTraceContext {
+  requestId: string;
+  traceId: string;
+  spanId: string;
+  traceparent: string;
+}
+
+const gatewayTraceStorage = new AsyncLocalStorage<GatewayTraceContext>();
+const GATEWAY_LOG_WEIGHTS: Record<string, number> = { debug: 10, info: 20, warn: 30, error: 40 };
+
+export function logGatewayJson(
+  level: 'debug' | 'info' | 'warn' | 'error',
+  msg: string,
+  meta: Record<string, unknown> = {}
+): void {
+  const configured = (process.env.LOG_LEVEL || (process.env.NODE_ENV === 'test' ? 'error' : 'info'))
+    .trim()
+    .toLowerCase();
+  const minWeight = GATEWAY_LOG_WEIGHTS[configured] ?? GATEWAY_LOG_WEIGHTS.info;
+  if ((GATEWAY_LOG_WEIGHTS[level] ?? 20) < minWeight) return;
+  const ctx = gatewayTraceStorage.getStore();
+  const line = JSON.stringify({
+    ts: new Date().toISOString(),
+    level,
+    service: 'toolveto-gateway',
+    env: process.env.NODE_ENV || 'development',
+    pid: process.pid,
+    memoryMb: Math.round(process.memoryUsage().rss / 1_048_576),
+    ...(ctx ? { requestId: ctx.requestId, traceId: ctx.traceId } : {}),
+    msg,
+    ...meta,
+  });
+  (level === 'error' ? process.stderr : process.stdout).write(`${line}\n`);
+}
+
+export function parseOrCreateGatewayTrace(headers: http.IncomingHttpHeaders): GatewayTraceContext {
+  const rawReqId = typeof headers['x-request-id'] === 'string' ? headers['x-request-id'].trim() : '';
+  const requestId = /^[A-Za-z0-9._:-]{4,128}$/.test(rawReqId) ? rawReqId : `gw_${crypto.randomUUID()}`;
+  const rawTp = typeof headers['traceparent'] === 'string' ? headers['traceparent'].trim() : '';
+  const tpMatch = rawTp.match(/^00-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$/i);
+  const traceId = tpMatch && !/^0+$/.test(tpMatch[1]) ? tpMatch[1].toLowerCase() : crypto.randomBytes(16).toString('hex');
+  const flags = tpMatch ? tpMatch[3].toLowerCase() : '01';
+  const spanId = crypto.randomBytes(8).toString('hex');
+  return {
+    requestId,
+    traceId,
+    spanId,
+    traceparent: `00-${traceId}-${spanId}-${flags}`,
+  };
+}
+
+export function getGatewayOutboundTraceHeaders(): Record<string, string> {
+  const ctx = gatewayTraceStorage.getStore();
+  if (!ctx) return {};
+  const childSpan = crypto.randomBytes(8).toString('hex');
+  return {
+    'X-Request-Id': ctx.requestId,
+    traceparent: `00-${ctx.traceId}-${childSpan}-01`,
+  };
+}
 import { ShieldMiddleware, ShieldOptions, ShieldPolicyOptions, ShieldSpan } from '@toolveto/shield';
 import { OrgCatalogPolicyClient } from '@toolveto/core';
 import {
@@ -587,6 +649,7 @@ export class CloudTelemetrySyncer {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${this.licenseKey}`,
         'X-ToolVeto-Token': this.licenseKey,
+        ...getGatewayOutboundTraceHeaders(),
       },
       body: JSON.stringify({
         repo: repoName,
@@ -623,6 +686,7 @@ export class CloudTelemetrySyncer {
           Authorization: `Bearer ${this.licenseKey}`,
           'X-ToolVeto-Token': this.licenseKey,
           'X-ToolVeto-License': this.licenseKey,
+          ...getGatewayOutboundTraceHeaders(),
         },
         body: JSON.stringify({
           ...(this.customerId ? { customerId: this.customerId } : {}),
@@ -727,6 +791,9 @@ function copyMcpProtocolRequestHeaders(
     const clean = sanitizeHeaderValue(lastEventId);
     if (clean) targetHeaders['Last-Event-ID'] = clean;
   }
+  const traceHeaders = getGatewayOutboundTraceHeaders();
+  if (traceHeaders['X-Request-Id']) targetHeaders['X-Request-Id'] = traceHeaders['X-Request-Id'];
+  if (traceHeaders.traceparent) targetHeaders['traceparent'] = traceHeaders.traceparent;
 }
 
 function copyMcpProtocolResponseHeaders(
@@ -937,7 +1004,24 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
     return defaultRoute;
   }
 
-  const server = http.createServer(async (req, res) => {
+  const server = http.createServer((req, res) => {
+    const traceCtx = parseOrCreateGatewayTrace(req.headers);
+    const reqStartedAt = Date.now();
+    res.setHeader('X-Request-Id', traceCtx.requestId);
+    res.setHeader('Traceparent', traceCtx.traceparent);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none';");
+    res.on('finish', () => {
+      logGatewayJson(res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info', 'gateway_http_request', {
+        method: req.method,
+        path: (req.url || '/').split('?')[0],
+        status: res.statusCode,
+        durationMs: Date.now() - reqStartedAt,
+      });
+    });
+    void gatewayTraceStorage.run(traceCtx, async () => {
     let url: URL;
     try {
       url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
@@ -1824,6 +1908,7 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
 
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Endpoint not found' }));
+    });
   });
 
   server.keepAliveTimeout = 5000;
@@ -1843,18 +1928,30 @@ export function startGatewayStandalone(customConfig?: Partial<GatewayYamlConfig>
   const srv = createGatewayServer(cfg);
 
   process.on('uncaughtException', (err) => {
-    console.error(`[ToolVeto Gateway Fatal] Uncaught exception: ${err instanceof Error ? err.message : String(err)}`);
+    logGatewayJson('error', 'gateway_uncaught_exception', {
+      error: err instanceof Error ? err.message : String(err),
+    });
     process.exit(1);
   });
   process.on('unhandledRejection', (reason) => {
-    console.error(`[ToolVeto Gateway Fatal] Unhandled rejection: ${reason instanceof Error ? reason.message : String(reason)}`);
+    logGatewayJson('error', 'gateway_unhandled_rejection', {
+      error: reason instanceof Error ? reason.message : String(reason),
+    });
     process.exit(1);
   });
 
   const gracefulShutdown = () => {
+    logGatewayJson('info', 'gateway_shutdown_started');
     void (srv as any).flushCloudTelemetry?.().finally(() => {
-      srv.closeAllConnections?.();
-      srv.close(() => process.exit(0));
+      const forceTimer = setTimeout(() => {
+        srv.closeAllConnections?.();
+        process.exit(0);
+      }, 10_000);
+      forceTimer.unref?.();
+      srv.close(() => {
+        clearTimeout(forceTimer);
+        process.exit(0);
+      });
     });
   };
   process.once('SIGTERM', gracefulShutdown);
@@ -1862,9 +1959,12 @@ export function startGatewayStandalone(customConfig?: Partial<GatewayYamlConfig>
 
   const port = cfg.port || 8080;
   srv.listen(port, () => {
-    console.log(`🛡️ ToolVeto Gateway listening on port ${port} with ${Object.keys(cfg.upstreams).length} upstreams configured`);
-    console.log(`   Health: http://localhost:${port}/health`);
-    console.log(`   Metrics: http://localhost:${port}/metrics`);
+    logGatewayJson('info', 'gateway_listening', {
+      port,
+      upstreamCount: Object.keys(cfg.upstreams).length,
+      healthUrl: `http://localhost:${port}/health`,
+      metricsUrl: `http://localhost:${port}/metrics`,
+    });
   });
   return srv;
 }

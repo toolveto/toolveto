@@ -12,13 +12,24 @@ import { computeToolDefinitionHash, canonicalizeJson } from '@toolveto/shield';
 import { discoverToolsFromTarget } from '../discovery.js';
 
 export interface EvidenceOptions {
-  format?: 'aiuc1' | 'owasp' | 'json';
+  format?: 'aiuc1' | 'owasp' | 'json' | string;
+  period?: string;
   output?: string;
   target?: string;
   keyId?: string;
   demo?: boolean;
   allowExec?: boolean;
   secret?: string;
+}
+
+export function parseEvidencePeriodDays(period?: string): number {
+  const raw = String(period || '90d').trim().toLowerCase();
+  const match = raw.match(/^(\d+)\s*([dy]?)$/);
+  if (!match) return 90;
+  const val = Number(match[1]);
+  const unit = match[2] || 'd';
+  if (!Number.isFinite(val) || val <= 0) return 90;
+  return Math.min(365, unit === 'y' ? val * 365 : val);
 }
 
 export type ControlStatus = 'COMPLIANT' | 'NON_COMPLIANT' | 'AT_RISK' | 'NOT_APPLICABLE';
@@ -350,8 +361,14 @@ export async function evidenceCommand(
       effectiveSecret
     );
 
-    if (format === 'json') {
-      const output = JSON.stringify({ ...attestationPayload, jws }, null, 2);
+    const formats = String(format || 'aiuc1')
+      .split(',')
+      .map((f) => f.trim().toLowerCase())
+      .filter(Boolean);
+    const validityDays = parseEvidencePeriodDays(options.period);
+
+    if (formats.includes('json') && formats.length === 1) {
+      const output = JSON.stringify({ ...attestationPayload, validityDays, jws }, null, 2);
       if (options.output) {
         fs.mkdirSync(path.dirname(path.resolve(process.cwd(), options.output)), { recursive: true });
         fs.writeFileSync(options.output, output);
@@ -365,13 +382,13 @@ export async function evidenceCommand(
     const cert = `
 ================================================================================
            TOOLVETO CISO COMPLIANCE EVIDENCE PACKET
-           Standard: ${format === 'owasp' ? 'OWASP Agentic Top 10 & AIUC-1' : 'AIUC-1 (Agentic AI Interoperability & Safety)'}${isEphemeralDemoSignature ? '\n           Mode: NON-PRODUCTION DEMO PREVIEW (Ephemeral Key)' : ''}
+           Standard: ${formats.includes('owasp') ? 'OWASP Agentic Top 10 & AIUC-1' : 'AIUC-1 (Agentic AI Interoperability & Safety)'}${isEphemeralDemoSignature ? '\n           Mode: NON-PRODUCTION DEMO PREVIEW (Ephemeral Key)' : ''}
 ================================================================================
 
 Target Component:       ${rawTarget}
 Certification Tier:     ${String(summary.tier).toUpperCase()} (${summary.score}/100)
 Evaluation Timestamp:   ${new Date().toISOString()}
-Validity Window:        90 Days (Valid until ${new Date(Date.now() + 90 * 86400000).toISOString().split('T')[0]})
+Validity Window:        ${validityDays} Days (Valid until ${new Date(Date.now() + validityDays * 86400000).toISOString().split('T')[0]})
 Cryptographic Attest:   RFC 7515 Detached JWS (HS256)
 
 --- AIUC-1 & OWASP AGENTIC CONTROL ATTESTATIONS ---
