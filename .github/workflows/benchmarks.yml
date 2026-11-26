@@ -24,13 +24,13 @@ jobs:
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
 
       - name: Setup Node.js 22
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: 'pnpm'
@@ -103,7 +103,7 @@ jobs:
           k6 run --summary-export=/tmp/k6-evidence/k6-500rps-summary.json benchmarks/overhead/k6-shield-overhead.js
 
       - name: Upload k6 500 RPS Benchmark Evidence
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: toolveto-k6-500rps-benchmark-evidence
           path: /tmp/k6-evidence/
