@@ -174,7 +174,9 @@ function saveSecretsToToolVetoVault(extractedByServer: Map<string, Map<string, s
   }
   try {
     fs.chmodSync(vaultDir, 0o700);
-  } catch {}
+  } catch (chmodErr) {
+    process.stderr.write(`[toolveto] warning: unable to restrict vault permissions (${chmodErr instanceof Error ? chmodErr.message : String(chmodErr)})\n`);
+  }
 
   const envFilePath = path.join(vaultDir, 'secrets.env');
   const existingUnscoped = new Map<string, string>();
