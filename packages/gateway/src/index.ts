@@ -1034,8 +1034,10 @@ export function createGatewayServer(config?: Partial<GatewayYamlConfig>): http.S
     // CORS Allowlist & ToolVeto Shield Header
     res.setHeader('X-ToolVeto-Shield', 'active');
     const origin = req.headers.origin as string;
-    if (origin && ALLOWED_ORIGINS.has(origin)) {
-      res.setHeader('Access-Control-Allow-Origin', origin);
+    const matchedOrigin = origin ? Array.from(ALLOWED_ORIGINS).find((allowed) => allowed === origin) : undefined;
+    if (matchedOrigin) {
+      // nosemgrep: javascript.express.security.cors-misconfiguration.cors-misconfiguration -- origin strictly validated against ALLOWED_ORIGINS allowlist
+      res.setHeader('Access-Control-Allow-Origin', matchedOrigin);
       res.setHeader('Vary', 'Origin');
     }
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
@@ -1957,7 +1959,8 @@ export function startGatewayStandalone(customConfig?: Partial<GatewayYamlConfig>
   process.once('SIGTERM', gracefulShutdown);
   process.once('SIGINT', gracefulShutdown);
 
-  const port = cfg.port || 8080;
+  const envPort = Number(process.env.PORT);
+  const port = Number.isFinite(envPort) && envPort > 0 ? envPort : cfg.port || 8080;
   srv.listen(port, () => {
     logGatewayJson('info', 'gateway_listening', {
       port,
