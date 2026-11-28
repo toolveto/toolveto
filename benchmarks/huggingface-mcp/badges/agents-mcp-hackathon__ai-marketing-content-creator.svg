@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="20" role="img" aria-label="ToolVeto: GOLD 92/100">
+  <linearGradient id="s" x2="0" y2="100%">
+    <stop offset="0" stop-color="#bbb" stop-opacity=".1"/>
+    <stop offset="1" stop-opacity=".1"/>
+  </linearGradient>
+  <clipPath id="r">
+    <rect width="160" height="20" rx="3" fill="#fff"/>
+  </clipPath>
+  <g clip-path="url(#r)">
+    <rect width="65" height="20" fill="#1e1e24"/>
+    <rect x="65" width="95" height="20" fill="#ffa502"/>
+    <rect width="160" height="20" fill="url(#s)"/>
+  </g>
+  <g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" text-rendering="geometricPrecision" font-size="110">
+    <text aria-hidden="true" x="325" y="150" fill="#010101" fill-opacity=".3" transform="scale(.1)" textLength="550">ToolVeto</text>
+    <text x="325" y="140" transform="scale(.1)" fill="#fff" textLength="550">ToolVeto</text>
+    <text aria-hidden="true" x="1125" y="150" fill="#010101" fill-opacity=".3" transform="scale(.1)" textLength="850">GOLD 92/100</text>
+    <text x="1125" y="140" transform="scale(.1)" fill="#fff" textLength="850">GOLD 92/100</text>
+  </g>
+</svg>

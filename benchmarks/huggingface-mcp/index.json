@@ -1,0 +1,2355 @@
+{
+  "schema": "toolveto-hf-mcp-safety-index/v1",
+  "generatedAt": "2026-11-28T05:05:21.576Z",
+  "methodology": "Zero-execution static AST & schema extraction (STATIC-ONLY) at pinned Hugging Face Space commit SHAs using ToolVeto CLI v0.2.0 + --profile nvidia-nim.",
+  "summary": {
+    "spacesCandidateCount": 80,
+    "spacesAuditedWithTools": 30,
+    "totalLikes": 39686,
+    "totalToolsExtracted": 109,
+    "averageScore": 90.4,
+    "nimBlockedCount": 23,
+    "nimBlockedRatePct": 77,
+    "kvCacheRiskSpaces": 30,
+    "kvCacheRiskRatePct": 100,
+    "spacesWithFailures": 22,
+    "securityAlertSpaces": 2,
+    "topCheckFailures": [
+      {
+        "checkId": "TC-SCHEMA-002",
+        "severity": "MEDIUM",
+        "affectedSpaces": 22,
+        "sampleDescription": "Description entropy failure: Tool 'generate_video' description is too terse (0 chars, minimum 30 required for reliable LLM tool steering)"
+      },
+      {
+        "checkId": "TC-SEC-004",
+        "severity": "HIGH",
+        "affectedSpaces": 2,
+        "sampleDescription": "Tool 'generate_animation' exposes unconstrained command/code/SQL string sink(s) [code] without enum/pattern allowlist."
+      },
+      {
+        "checkId": "TC-SCHEMA-001",
+        "severity": "HIGH",
+        "affectedSpaces": 1,
+        "sampleDescription": "Unbounded list response risk: Query tool 'list_available_docs' has no limit/cursor parameter and risks context bomb under production load"
+      },
+      {
+        "checkId": "TC-STDIO-001",
+        "severity": "HIGH",
+        "affectedSpaces": 1,
+        "sampleDescription": "Stdio MCP stdout pollution detected in 1 file(s): writing console.log/print/fmt.Print corrupts JSON-RPC framing."
+      }
+    ]
+  },
+  "spaces": [
+    {
+      "spaceId": "mrfakename/Z-Image-Turbo",
+      "slug": "mrfakename/z-image-turbo",
+      "encodedSlug": "mrfakename__z-image-turbo",
+      "spaceUrl": "https://huggingface.co/spaces/mrfakename/Z-Image-Turbo",
+      "commitSha": "705280dbd4f71d4162050a29b7b9275030ee5865",
+      "shortSha": "705280db",
+      "likes": 3972,
+      "sdk": "gradio",
+      "framework": "Gradio MCP (mcp_server=True)",
+      "category": "multimodal-ai",
+      "tags": [
+        "gradio",
+        "mcp-server",
+        "region:us"
+      ],
+      "evidenceQuality": "STATIC-ONLY",
+      "filesAudited": [
+        "app.py"
+      ],
+      "toolCount": 2,
+      "tools": [
+        "generate_image",
+        "generate_image_1"
+      ],
+      "score": 91,
+      "tier": "Gold",
+      "fatalVetoTriggered": false,
+      "fatalVetoCode": "VETO_NONE",
+      "dimensions": {
+        "d1": 100,
+        "d2": 92,
+        "d3": 92,
+        "d4": 60,
+        "d5": 100
+      },
+      "passed": 40,
+      "failed": 0,
+      "warned": 12,
+      "criticalFailures": 0,
+      "highFailures": 0,
+      "manifestSha256": "16aa6031f9ceff1112c5f2b536cabe0e8d075719c4c108fd9479df729b9e3a8c",
+      "nvidiaNimProfile": {
+        "certified": true,
+        "kvCacheEvictionRisk": "ELEVATED",
+        "runawayLoopRisk": "ELEVATED",
+        "unboundedListTools": [],
+        "estimatedKvCacheWasteTokensPerCall": 0,
+        "estimatedRunawayLoopWasteTokens": 24000,
+        "estimatedGpuTokenMultiplier": "2x–6x GPU token burn risk",
+        "vetoReasons": []
+      },
+      "findings": [],
+      "badgeFile": "benchmarks/huggingface-mcp/badges/mrfakename__z-image-turbo.svg",
+      "liveBadgeUrl": "https://toolveto.ai/api/v1/badge/mrfakename__z-image-turbo.svg?label=ToolVeto+NIM",
+      "scorecardUrl": "https://toolveto.ai/r/mrfakename__z-image-turbo",
+      "markdownBadge": "[![ToolVeto NVIDIA NIM Certified (91/100)](https://toolveto.ai/api/v1/badge/mrfakename__z-image-turbo.svg?label=ToolVeto+NIM)](https://toolveto.ai/r/mrfakename__z-image-turbo)",
+      "scannedAt": "2026-11-28T05:05:12.026Z"
+    },
+    {
+      "spaceId": "zerogpu-aoti/wan2-2-fp8da-aoti-faster",
+      "slug": "zerogpu-aoti/wan2-2-fp8da-aoti-faster",
+      "encodedSlug": "zerogpu-aoti__wan2-2-fp8da-aoti-faster",
+      "spaceUrl": "https://huggingface.co/spaces/zerogpu-aoti/wan2-2-fp8da-aoti-faster",
+      "commitSha": "1ff7432a88d7827eb787ef10c15cbc5c85c841a2",
+      "shortSha": "1ff7432a",
+      "likes": 3936,
+      "sdk": "gradio",
+      "framework": "Gradio MCP (mcp_server=True)",
+      "category": "multimodal-ai",
+      "tags": [
+        "gradio",
+        "mcp-server",
+        "region:us"
+      ],
+      "evidenceQuality": "STATIC-ONLY",
+      "filesAudited": [
+        "aoti.py",
+        "app.py"
+      ],
+      "toolCount": 1,
+      "tools": [
+        "generate_video"
+      ],
+      "score": 88,
+      "tier": "Gold",
+      "fatalVetoTriggered": false,
+      "fatalVetoCode": "VETO_NONE",
+      "dimensions": {
+        "d1": 100,
+        "d2": 93,
+        "d3": 79,
+        "d4": 60,
+        "d5": 100
+      },
+      "passed": 22,
+      "failed": 1,
+      "warned": 6,
+      "criticalFailures": 0,
+      "highFailures": 0,
+      "manifestSha256": "b0f2cd67f02d179740d118715bcf01aa08ba90095964497d469f1d9265f60d88",
+      "nvidiaNimProfile": {
+        "certified": false,
+        "kvCacheEvictionRisk": "CRITICAL",
+        "runawayLoopRisk": "ELEVATED",
+        "unboundedListTools": [],
+        "estimatedKvCacheWasteTokensPerCall": 32000,
+        "estimatedRunawayLoopWasteTokens": 12000,
+        "estimatedGpuTokenMultiplier": "10x–40x GPU token burn risk",
+        "vetoReasons": [
+          "D3 Context Hygiene score 79/100 < 85 (KV-cache eviction risk)",
+          "1 context-bomb / schema-bloat FAIL check(s) detected"
+        ]
+      },
+      "findings": [
+        {
+          "checkId": "TC-SCHEMA-002",
+          "tool": "generate_video",
+          "severity": "MEDIUM",
+          "dimension": "D3",
+          "description": "Description entropy failure: Tool 'generate_video' description is too terse (0 chars, minimum 30 required for reliable LLM tool steering)"
+        }
+      ],
+      "badgeFile": "benchmarks/huggingface-mcp/badges/zerogpu-aoti__wan2-2-fp8da-aoti-faster.svg",
+      "liveBadgeUrl": "https://toolveto.ai/api/v1/badge/zerogpu-aoti__wan2-2-fp8da-aoti-faster.svg?label=ToolVeto+NIM",
+      "scorecardUrl": "https://toolveto.ai/r/zerogpu-aoti__wan2-2-fp8da-aoti-faster",
+      "markdownBadge": "[![ToolVeto NVIDIA NIM Checked (88/100)](https://toolveto.ai/api/v1/badge/zerogpu-aoti__wan2-2-fp8da-aoti-faster.svg?label=ToolVeto+NIM)](https://toolveto.ai/r/zerogpu-aoti__wan2-2-fp8da-aoti-faster)",
+      "scannedAt": "2026-11-28T05:05:12.341Z"
+    },
+    {
+      "spaceId": "r3gm/wan2-2-fp8da-aoti-preview",
+      "slug": "r3gm/wan2-2-fp8da-aoti-preview",
+      "encodedSlug": "r3gm__wan2-2-fp8da-aoti-preview",
+      "spaceUrl": "https://huggingface.co/spaces/r3gm/wan2-2-fp8da-aoti-preview",
+      "commitSha": "4e6a3327adad960338f4a341ad0584bedfd7e8aa",
+      "shortSha": "4e6a3327",
+      "likes": 3357,
+      "sdk": "gradio",
+      "framework": "Gradio MCP (mcp_server=True)",
+      "category": "multimodal-ai",
+      "tags": [
+        "gradio",
+        "mcp-server",
+        "region:us"
+      ],
+      "evidenceQuality": "STATIC-ONLY",
+      "filesAudited": [
+        "aoti.py",
+        "app.py",
+        "model/loss.py",
+        "model/warplayer.py"
+      ],
+      "toolCount": 1,
+      "tools": [
+        "generate_video"
+      ],
+      "score": 88,
+      "tier": "Gold",
+      "fatalVetoTriggered": false,
+      "fatalVetoCode": "VETO_NONE",
+      "dimensions": {
+        "d1": 100,
+        "d2": 93,
+        "d3": 79,
+        "d4": 60,
+        "d5": 100
+      },
+      "passed": 22,
+      "failed": 1,
+      "warned": 6,
+      "criticalFailures": 0,
+      "highFailures": 0,
+      "manifestSha256": "0166ac4f7162816d922e672dd0919d888d5bbdaa32dc816ee18c3aa8d57bad99",
+      "nvidiaNimProfile": {
+        "certified": false,
+        "kvCacheEvictionRisk": "CRITICAL",
+        "runawayLoopRisk": "ELEVATED",
+        "unboundedListTools": [],
+        "estimatedKvCacheWasteTokensPerCall": 32000,
+        "estimatedRunawayLoopWasteTokens": 12000,
+        "estimatedGpuTokenMultiplier": "10x–40x GPU token burn risk",
+        "vetoReasons": [
+          "D3 Context Hygiene score 79/100 < 85 (KV-cache eviction risk)",
+          "1 context-bomb / schema-bloat FAIL check(s) detected"
+        ]
+      },
+      "findings": [
+        {
+          "checkId": "TC-SCHEMA-002",
+          "tool": "generate_video",
+          "severity": "MEDIUM",
+          "dimension": "D3",
+          "description": "Description entropy failure: Tool 'generate_video' description is too terse (0 chars, minimum 30 required for reliable LLM tool steering)"
+        }
+      ],
+      "badgeFile": "benchmarks/huggingface-mcp/badges/r3gm__wan2-2-fp8da-aoti-preview.svg",
+      "liveBadgeUrl": "https://toolveto.ai/api/v1/badge/r3gm__wan2-2-fp8da-aoti-preview.svg?label=ToolVeto+NIM",
+      "scorecardUrl": "https://toolveto.ai/r/r3gm__wan2-2-fp8da-aoti-preview",
+      "markdownBadge": "[![ToolVeto NVIDIA NIM Checked (88/100)](https://toolveto.ai/api/v1/badge/r3gm__wan2-2-fp8da-aoti-preview.svg?label=ToolVeto+NIM)](https://toolveto.ai/r/r3gm__wan2-2-fp8da-aoti-preview)",
+      "scannedAt": "2026-11-28T05:05:12.911Z"
+    },
+    {
+      "spaceId": "not-lain/background-removal",
+      "slug": "not-lain/background-removal",
+      "encodedSlug": "not-lain__background-removal",
+      "spaceUrl": "https://huggingface.co/spaces/not-lain/background-removal",
+      "commitSha": "448a02eff7df7ee3f7ab6026d7882561f895911a",
+      "shortSha": "448a02ef",
+      "likes": 3001,
+      "sdk": "gradio",
+      "framework": "Gradio MCP (mcp_server=True)",
+      "category": "multimodal-ai",
+      "tags": [
+        "gradio",
+        "mcp-server",
+        "region:us"
+      ],
+      "evidenceQuality": "STATIC-ONLY",
+      "filesAudited": [
+        "app.py"
+      ],
+      "toolCount": 3,
+      "tools": [
+        "image",
+        "text",
+        "png"
+      ],
+      "score": 91,
+      "tier": "Gold",
+      "fatalVetoTriggered": false,
+      "fatalVetoCode": "VETO_NONE",
+      "dimensions": {
+        "d1": 100,
+        "d2": 91,
+        "d3": 82,
+        "d4": 73,
+        "d5": 100
+      },
+      "passed": 59,
+      "failed": 2,
+      "warned": 14,
+      "criticalFailures": 0,
+      "highFailures": 0,
+      "manifestSha256": "1e9fe05db44d44c211181cad7569b96b304c1c55396cb2d1a6917233356b61b2",
+      "nvidiaNimProfile": {
+        "certified": false,
+        "kvCacheEvictionRisk": "CRITICAL",
+        "runawayLoopRisk": "ELEVATED",
+        "unboundedListTools": [],
+        "estimatedKvCacheWasteTokensPerCall": 64000,
+        "estimatedRunawayLoopWasteTokens": 36000,
+        "estimatedGpuTokenMultiplier": "10x–40x GPU token burn risk",
+        "vetoReasons": [
+          "D3 Context Hygiene score 82/100 < 85 (KV-cache eviction risk)",
+          "2 context-bomb / schema-bloat FAIL check(s) detected"
+        ]
+      },
+      "findings": [
+        {
+          "checkId": "TC-SCHEMA-002",
+          "tool": "image",
+          "severity": "MEDIUM",
+          "dimension": "D3",
+          "description": "Description entropy failure: Tool 'image' description is too terse (0 chars, minimum 30 required for reliable LLM tool steering)"
+        },
+        {
+          "checkId": "TC-SCHEMA-002",
+          "tool": "text",
+          "severity": "MEDIUM",
+          "dimension": "D3",
+          "description": "Description entropy failure: Tool 'text' description is too terse (0 chars, minimum 30 required for reliable LLM tool steering)"
+        }
+      ],
+      "badgeFile": "benchmarks/huggingface-mcp/badges/not-lain__background-removal.svg",
+      "liveBadgeUrl": "https://toolveto.ai/api/v1/badge/not-lain__background-removal.svg?label=ToolVeto+NIM",
+      "scorecardUrl": "https://toolveto.ai/r/not-lain__background-removal",
+      "markdownBadge": "[![ToolVeto NVIDIA NIM Checked (91/100)](https://toolveto.ai/api/v1/badge/not-lain__background-removal.svg?label=ToolVeto+NIM)](https://toolveto.ai/r/not-lain__background-removal)",
+      "scannedAt": "2026-11-28T05:05:12.635Z"
+    },
+    {
+      "spaceId": "prithivMLmods/Qwen-Image-Edit-2511-LoRAs-Fast",
+      "slug": "prithivmlmods/qwen-image-edit-2511-loras-fast",
+      "encodedSlug": "prithivmlmods__qwen-image-edit-2511-loras-fast",
+      "spaceUrl": "https://huggingface.co/spaces/prithivMLmods/Qwen-Image-Edit-2511-LoRAs-Fast",
+      "commitSha": "e4a4b5ba1f2cb76eae7420faf29377cda422cea2",
+      "shortSha": "e4a4b5ba",
+      "likes": 2789,
+      "sdk": "gradio",
+      "framework": "FastMCP + Gradio MCP",
+      "category": "multimodal-ai",
+      "tags": [
+        "gradio",
+        "mcp-server",
+        "region:us"
+      ],
+      "evidenceQuality": "STATIC-ONLY",
+      "filesAudited": [
+        "app.py",
+        "ncii_guard.py",
+        "qwenimage/pipeline_qwenimage_edit_plus.py",
+        "qwenimage/qwen_fa3_processor.py",
+        "qwenimage/transformer_qwenimage.py"
+      ],
+      "toolCount": 1,
+      "tools": [
+        "edit_image"
+      ],
+      "score": 93,
+      "tier": "Platinum",
+      "fatalVetoTriggered": false,
+      "fatalVetoCode": "VETO_NONE",
+      "dimensions": {
+        "d1": 100,
+        "d2": 93,
+        "d3": 93,
+        "d4": 70,
+        "d5": 100
+      },
+      "passed": 24,
+      "failed": 0,
+      "warned": 5,
+      "criticalFailures": 0,
+      "highFailures": 0,
+      "manifestSha256": "b6a0a95785b22c9bb9d3e27aad1c033c9f4e79bb791cc40155b7ab01de1dcdbf",
+      "nvidiaNimProfile": {
+        "certified": true,
+        "kvCacheEvictionRisk": "ELEVATED",
+        "runawayLoopRisk": "ELEVATED",
+        "unboundedListTools": [],
+        "estimatedKvCacheWasteTokensPerCall": 0,
+        "estimatedRunawayLoopWasteTokens": 12000,
+        "estimatedGpuTokenMultiplier": "2x–6x GPU token burn risk",
+        "vetoReasons": []
+      },
+      "findings": [],
+      "badgeFile": "benchmarks/huggingface-mcp/badges/prithivmlmods__qwen-image-edit-2511-loras-fast.svg",
+      "liveBadgeUrl": "https://toolveto.ai/api/v1/badge/prithivmlmods__qwen-image-edit-2511-loras-fast.svg?label=ToolVeto+NIM",
+      "scorecardUrl": "https://toolveto.ai/r/prithivmlmods__qwen-image-edit-2511-loras-fast",
+      "markdownBadge": "[![ToolVeto NVIDIA NIM Certified (93/100)](https://toolveto.ai/api/v1/badge/prithivmlmods__qwen-image-edit-2511-loras-fast.svg?label=ToolVeto+NIM)](https://toolveto.ai/r/prithivmlmods__qwen-image-edit-2511-loras-fast)",
+      "scannedAt": "2026-11-28T05:05:14.413Z"
+    },
+    {
+      "spaceId": "linoyts/Qwen-Image-Edit-Angles",
+      "slug": "linoyts/qwen-image-edit-angles",
+      "encodedSlug": "linoyts__qwen-image-edit-angles",
+      "spaceUrl": "https://huggingface.co/spaces/linoyts/Qwen-Image-Edit-Angles",
+      "commitSha": "0f34ae42189e973bd07ab4fa08d7009185589e6c",
+      "shortSha": "0f34ae42",
+      "likes": 2280,
+      "sdk": "gradio",
+      "framework": "Gradio MCP (mcp_server=True)",
+      "category": "multimodal-ai",
+      "tags": [
+        "gradio",
+        "mcp-server",
+        "region:us"
+      ],
+      "evidenceQuality": "STATIC-ONLY",
+      "filesAudited": [
+        "app.py",
+        "optimization.py",
+        "qwenimage/pipeline_qwenimage_edit_plus.py",
+        "qwenimage/qwen_fa3_processor.py",
+        "qwenimage/transformer_qwenimage.py"
+      ],
+      "toolCount": 8,
+      "tools": [
+        "infer_edit_camera_angles",
+        "create_video_between_images",
+        "maybe_infer",
+        "reset_all",
+        "end_reset",
+        "sync_sliders_to_3d",
+        "infer_and_show_video_button",
+        "update_3d_image"
+      ],
+      "score": 91,
+      "tier": "Gold",
+      "fatalVetoTriggered": false,
+      "fatalVetoCode": "VETO_NONE",
+      "dimensions": {
+        "d1": 100,
+        "d2": 90,
+        "d3": 84,
+        "d4": 73,
+        "d5": 100
+      },
+      "passed": 148,
+      "failed": 4,
+      "warned": 38,
+      "criticalFailures": 0,
+      "highFailures": 0,
+      "manifestSha256": "90df6ea8718915be456664cf8f7f83b557e6f201c4d89e8abad3635b8f51e5f9",
+      "nvidiaNimProfile": {
+        "certified": false,
+        "kvCacheEvictionRisk": "CRITICAL",
+        "runawayLoopRisk": "ELEVATED",
+        "unboundedListTools": [],
+        "estimatedKvCacheWasteTokensPerCall": 128000,
+        "estimatedRunawayLoopWasteTokens": 96000,
+        "estimatedGpuTokenMultiplier": "10x–40x GPU token burn risk",
+        "vetoReasons": [
+          "D3 Context Hygiene score 84/100 < 85 (KV-cache eviction risk)",
+          "4 context-bomb / schema-bloat FAIL check(s) detected"
+        ]
+      },
+      "findings": [
+        {
+          "checkId": "TC-SCHEMA-002",
+          "tool": "maybe_infer",
+          "severity": "MEDIUM",
+          "dimension": "D3",
+          "description": "Description entropy failure: Tool 'maybe_infer' description is too terse (0 chars, minimum 30 required for reliable LLM tool steering)"
+        },
+        {
+          "checkId": "TC-SCHEMA-002",
+          "tool": "sync_sliders_to_3d",
+          "severity": "MEDIUM",
+          "dimension": "D3",
+          "description": "Description entropy failure: Tool 'sync_sliders_to_3d' description is too terse (0 chars, minimum 30 required for reliable LLM tool steering)"
+        },
+        {
+          "checkId": "TC-SCHEMA-002",
+          "tool": "infer_and_show_video_button",
+          "severity": "MEDIUM",
+          "dimension": "D3",
+          "description": "Description entropy failure: Tool 'infer_and_show_video_button' description is too terse (0 chars, minimum 30 required for reliable LLM tool steering)"
+        },
+        {
+          "checkId": "TC-SCHEMA-002",
+          "tool": "update_3d_image",
+          "severity": "MEDIUM",
+          "dimension": "D3",
+          "description": "Description entropy failure: Tool 'update_3d_image' description is too terse (0 chars, minimum 30 required for reliable LLM tool steering)"
+        }
+      ],
+      "badgeFile": "benchmarks/huggingface-mcp/badges/linoyts__qwen-image-edit-angles.svg",
+      "liveBadgeUrl": "https://toolveto.ai/api/v1/badge/linoyts__qwen-image-edit-angles.svg?label=ToolVeto+NIM",
+      "scorecardUrl": "https://toolveto.ai/r/linoyts__qwen-image-edit-angles",
+      "markdownBadge": "[![ToolVeto NVIDIA NIM Checked (91/100)](https://toolveto.ai/api/v1/badge/linoyts__qwen-image-edit-angles.svg?label=ToolVeto+NIM)](https://toolveto.ai/r/linoyts__qwen-image-edit-angles)",
+      "scannedAt": "2026-11-28T05:05:15.702Z"
+    },
+    {
+      "spaceId": "r3gm/wan2-2-fp8da-aoti-preview2",
+      "slug": "r3gm/wan2-2-fp8da-aoti-preview2",
+      "encodedSlug": "r3gm__wan2-2-fp8da-aoti-preview2",
+      "spaceUrl": "https://huggingface.co/spaces/r3gm/wan2-2-fp8da-aoti-preview2",
+      "commitSha": "72e4012e12136d7f44e70b481d88fb857ddcd57d",
+      "shortSha": "72e4012e",
+      "likes": 2188,
+      "sdk": "gradio",
+      "framework": "Gradio MCP (mcp_server=True)",
+      "category": "multimodal-ai",
+      "tags": [
+        "gradio",
+        "mcp-server",
+        "region:us"
+      ],
+      "evidenceQuality": "STATIC-ONLY",
+      "filesAudited": [
+        "aoti.py",
+        "app.py",
+        "constants.py",
+        "model/loss.py",
+        "model/warplayer.py",
+        "prompt_enhancer.py"
+      ],
+      "toolCount": 1,
+      "tools": [
+        "generate_video"
+      ],
+      "score": 88,
+      "tier": "Gold",
+      "fatalVetoTriggered": false,
+      "fatalVetoCode": "VETO_NONE",
+      "dimensions": {
+        "d1": 100,
+        "d2": 93,
+        "d3": 79,
+        "d4": 60,
+        "d5": 100
+      },
+      "passed": 22,
+      "failed": 1,
+      "warned": 6,
+      "criticalFailures": 0,
+      "highFailures": 0,
+      "manifestSha256": "524131ba48cfa6d7daf99eb5311a9f374e0543d2f2f3dac15249ac6b82fc7495",
+      "nvidiaNimProfile": {
+        "certified": false,
+        "kvCacheEvictionRisk": "CRITICAL",
+        "runawayLoopRisk": "ELEVATED",
+        "unboundedListTools": [],
+        "estimatedKvCacheWasteTokensPerCall": 32000,
+        "estimatedRunawayLoopWasteTokens": 12000,
+        "estimatedGpuTokenMultiplier": "10x–40x GPU token burn risk",
+        "vetoReasons": [
+          "D3 Context Hygiene score 79/100 < 85 (KV-cache eviction risk)",
+          "1 context-bomb / schema-bloat FAIL check(s) detected"
+        ]
+      },
+      "findings": [
+        {
+          "checkId": "TC-SCHEMA-002",
+          "tool": "generate_video",
+          "severity": "MEDIUM",
+          "dimension": "D3",
+          "description": "Description entropy failure: Tool 'generate_video' description is too terse (0 chars, minimum 30 required for reliable LLM tool steering)"
+        }
+      ],
+      "badgeFile": "benchmarks/huggingface-mcp/badges/r3gm__wan2-2-fp8da-aoti-preview2.svg",
+      "liveBadgeUrl": "https://toolveto.ai/api/v1/badge/r3gm__wan2-2-fp8da-aoti-preview2.svg?label=ToolVeto+NIM",
+      "scorecardUrl": "https://toolveto.ai/r/r3gm__wan2-2-fp8da-aoti-preview2",
+      "markdownBadge": "[![ToolVeto NVIDIA NIM Checked (88/100)](https://toolveto.ai/api/v1/badge/r3gm__wan2-2-fp8da-aoti-preview2.svg?label=ToolVeto+NIM)](https://toolveto.ai/r/r3gm__wan2-2-fp8da-aoti-preview2)",
+      "scannedAt": "2026-11-28T05:05:16.045Z"
+    },
+    {
+      "spaceId": "mediasynthesismuseum/stable-video-diffusion",
+      "slug": "mediasynthesismuseum/stable-video-diffusion",
+      "encodedSlug": "mediasynthesismuseum__stable-video-diffusion",
+      "spaceUrl": "https://huggingface.co/spaces/mediasynthesismuseum/stable-video-diffusion",
+      "commitSha": "168a5cb381d1b2f7913209e07f34b4139c3019d2",
+      "shortSha": "168a5cb3",
+      "likes": 2061,
+      "sdk": "gradio",
+      "framework": "Gradio MCP (mcp_server=True)",
+      "category": "multimodal-ai",
+      "tags": [
+        "gradio",
+        "mcp-server",
+        "region:us"
+      ],
+      "evidenceQuality": "STATIC-ONLY",
+      "filesAudited": [
+        "app.py"
+      ],
+      "toolCount": 1,
+      "tools": [
+        "video"
+      ],
+      "score": 88,
+      "tier": "Gold",
+      "fatalVetoTriggered": false,
+      "fatalVetoCode": "VETO_NONE",
+      "dimensions": {
+        "d1": 100,
+        "d2": 93,
+        "d3": 79,
+        "d4": 60,
+        "d5": 100
+      },
+      "passed": 22,
+      "failed": 1,
+      "warned": 6,
+      "criticalFailures": 0,
+      "highFailures": 0,
+      "manifestSha256": "ddd24a0cfb6900441338cea6f17abcaed3aca8d4d773ca01c382ec519a0fb9b5",
+      "nvidiaNimProfile": {
+        "certified": false,
+        "kvCacheEvictionRisk": "CRITICAL",
+        "runawayLoopRisk": "ELEVATED",
+        "unboundedListTools": [],
+        "estimatedKvCacheWasteTokensPerCall": 32000,
+        "estimatedRunawayLoopWasteTokens": 12000,
+        "estimatedGpuTokenMultiplier": "10x–40x GPU token burn risk",
+        "vetoReasons": [
+          "D3 Context Hygiene score 79/100 < 85 (KV-cache eviction risk)",
+          "1 context-bomb / schema-bloat FAIL check(s) detected"
+        ]
+      },
+      "findings": [
+        {
+          "checkId": "TC-SCHEMA-002",
+          "tool": "video",
+          "severity": "MEDIUM",
+          "dimension": "D3",
+          "description": "Description entropy failure: Tool 'video' description is too terse (0 chars, minimum 30 required for reliable LLM tool steering)"
+        }
+      ],
+      "badgeFile": "benchmarks/huggingface-mcp/badges/mediasynthesismuseum__stable-video-diffusion.svg",
+      "liveBadgeUrl": "https://toolveto.ai/api/v1/badge/mediasynthesismuseum__stable-video-diffusion.svg?label=ToolVeto+NIM",
+      "scorecardUrl": "https://toolveto.ai/r/mediasynthesismuseum__stable-video-diffusion",
+      "markdownBadge": "[![ToolVeto NVIDIA NIM Checked (88/100)](https://toolveto.ai/api/v1/badge/mediasynthesismuseum__stable-video-diffusion.svg?label=ToolVeto+NIM)](https://toolveto.ai/r/mediasynthesismuseum__stable-video-diffusion)",
+      "scannedAt": "2026-11-28T05:05:14.710Z"
+    },
+    {
+      "spaceId": "Tongyi-MAI/Z-Image-Turbo",
+      "slug": "tongyi-mai/z-image-turbo",
+      "encodedSlug": "tongyi-mai__z-image-turbo",
+      "spaceUrl": "https://huggingface.co/spaces/Tongyi-MAI/Z-Image-Turbo",
+      "commitSha": "768cb50d847cdbba97c89533ae976be69cf5a5b8",
+      "shortSha": "768cb50d",
+      "likes": 1948,
+      "sdk": "gradio",
+      "framework": "Gradio MCP (mcp_server=True)",
+      "category": "multimodal-ai",
+      "tags": [
+        "gradio",
+        "mcp-server",
+        "region:us"
+      ],
+      "evidenceQuality": "STATIC-ONLY",
+      "filesAudited": [
+        "app.py",
+        "pe.py",
+        "prompt_check.py"
+      ],
+      "toolCount": 1,
+      "tools": [
+        "generate"
+      ],
+      "score": 90,
+      "tier": "Gold",
+      "fatalVetoTriggered": false,
+      "fatalVetoCode": "VETO_NONE",
+      "dimensions": {
+        "d1": 100,
+        "d2": 93,
+        "d3": 79,
+        "d4": 70,
+        "d5": 100
+      },
+      "passed": 23,
+      "failed": 1,
+      "warned": 5,
+      "criticalFailures": 0,
+      "highFailures": 0,
+      "manifestSha256": "b80fc01bb4986c553982da7528078a4e3c51ca26e607a5ca53d8f1d3ae0084b6",
+      "nvidiaNimProfile": {
+        "certified": false,
+        "kvCacheEvictionRisk": "CRITICAL",
+        "runawayLoopRisk": "ELEVATED",
+        "unboundedListTools": [],
+        "estimatedKvCacheWasteTokensPerCall": 32000,
+        "estimatedRunawayLoopWasteTokens": 12000,
+        "estimatedGpuTokenMultiplier": "10x–40x GPU token burn risk",
+        "vetoReasons": [
+          "D3 Context Hygiene score 79/100 < 85 (KV-cache eviction risk)",
+          "1 context-bomb / schema-bloat FAIL check(s) detected"
+        ]
+      },
+      "findings": [
+        {
+          "checkId": "TC-SCHEMA-002",
+          "tool": "generate",
+          "severity": "MEDIUM",
+          "dimension": "D3",
+          "description": "Description entropy failure: Tool 'generate' description is too terse (0 chars, minimum 30 required for reliable LLM tool steering)"
+        }
+      ],
+      "badgeFile": "benchmarks/huggingface-mcp/badges/tongyi-mai__z-image-turbo.svg",
+      "liveBadgeUrl": "https://toolveto.ai/api/v1/badge/tongyi-mai__z-image-turbo.svg?label=ToolVeto+NIM",
+      "scorecardUrl": "https://toolveto.ai/r/tongyi-mai__z-image-turbo",
+      "markdownBadge": "[![ToolVeto NVIDIA NIM Checked (90/100)](https://toolveto.ai/api/v1/badge/tongyi-mai__z-image-turbo.svg?label=ToolVeto+NIM)](https://toolveto.ai/r/tongyi-mai__z-image-turbo)",
+      "scannedAt": "2026-11-28T05:05:15.763Z"
+    },
+    {
+      "spaceId": "ResembleAI/Chatterbox",
+      "slug": "resembleai/chatterbox",
+      "encodedSlug": "resembleai__chatterbox",
+      "spaceUrl": "https://huggingface.co/spaces/ResembleAI/Chatterbox",
+      "commitSha": "9d5bf071e0880429f8020011d1433b4dd9e5f3b0",
+      "shortSha": "9d5bf071",
+      "likes": 1770,
+      "sdk": "gradio",
+      "framework": "Gradio MCP (mcp_server=True)",
+      "category": "multimodal-ai",
+      "tags": [
+        "gradio",
+        "mcp-server",
+        "region:us"
+      ],
+      "evidenceQuality": "STATIC-ONLY",
+      "filesAudited": [
+        "app.py"
+      ],
+      "toolCount": 1,
+      "tools": [
+        "generate_tts_audio"
+      ],
+      "score": 90,
+      "tier": "Gold",
+      "fatalVetoTriggered": false,
+      "fatalVetoCode": "VETO_NONE",
+      "dimensions": {
+        "d1": 100,
+        "d2": 93,
+        "d3": 79,
+        "d4": 70,
+        "d5": 100
+      },
+      "passed": 23,
+      "failed": 1,
+      "warned": 5,
+      "criticalFailures": 0,
+      "highFailures": 0,
+      "manifestSha256": "3ec40b13eb4cf8a6e0935cba6aa60b37f483fe72236aa59bd88a3299719fd538",
+      "nvidiaNimProfile": {
+        "certified": false,
+        "kvCacheEvictionRisk": "CRITICAL",
+        "runawayLoopRisk": "ELEVATED",
+        "unboundedListTools": [],
+        "estimatedKvCacheWasteTokensPerCall": 32000,
+        "estimatedRunawayLoopWasteTokens": 12000,
+        "estimatedGpuTokenMultiplier": "10x–40x GPU token burn risk",
+        "vetoReasons": [
+          "D3 Context Hygiene score 79/100 < 85 (KV-cache eviction risk)",
+          "1 context-bomb / schema-bloat FAIL check(s) detected"
+        ]
+      },
+      "findings": [
+        {
+          "checkId": "TC-SCHEMA-002",
+          "tool": "generate_tts_audio",
+          "severity": "MEDIUM",
+          "dimension": "D3",
+          "description": "Description entropy failure: Tool 'generate_tts_audio' description is too terse (0 chars, minimum 30 required for reliable LLM tool steering)"
+        }
+      ],
+      "badgeFile": "benchmarks/huggingface-mcp/badges/resembleai__chatterbox.svg",
+      "liveBadgeUrl": "https://toolveto.ai/api/v1/badge/resembleai__chatterbox.svg?label=ToolVeto+NIM",
+      "scorecardUrl": "https://toolveto.ai/r/resembleai__chatterbox",
+      "markdownBadge": "[![ToolVeto NVIDIA NIM Checked (90/100)](https://toolveto.ai/api/v1/badge/resembleai__chatterbox.svg?label=ToolVeto+NIM)](https://toolveto.ai/r/resembleai__chatterbox)",
+      "scannedAt": "2026-11-28T05:05:15.974Z"
+    },
+    {
+      "spaceId": "kulkas2pintu/wan777",
+      "slug": "kulkas2pintu/wan777",
+      "encodedSlug": "kulkas2pintu__wan777",
+      "spaceUrl": "https://huggingface.co/spaces/kulkas2pintu/wan777",
+      "commitSha": "720f97e56fa50e7bc0bcbb516fb00e670ac8933c",
+      "shortSha": "720f97e5",
+      "likes": 1725,
+      "sdk": "gradio",
+      "framework": "Gradio MCP (mcp_server=True)",
+      "category": "multimodal-ai",
+      "tags": [
+        "gradio",
+        "mcp-server",
+        "region:us"
+      ],
+      "evidenceQuality": "STATIC-ONLY",
+      "filesAudited": [
+        "aoti.py",
+        "app.py",
+        "model/loss.py",
+        "model/warplayer.py"
+      ],
+      "toolCount": 1,
+      "tools": [
+        "generate_video"
+      ],
+      "score": 88,
+      "tier": "Gold",
+      "fatalVetoTriggered": false,
+      "fatalVetoCode": "VETO_NONE",
+      "dimensions": {
+        "d1": 100,
+        "d2": 93,
+        "d3": 79,
+        "d4": 60,
+        "d5": 100
+      },
+      "passed": 22,
+      "failed": 1,
+      "warned": 6,
+      "criticalFailures": 0,
+      "highFailures": 0,
+      "manifestSha256": "daa8750637c8579caa67680539766b56c7a3c4e35d1a310bcc8087a69172f8b8",
+      "nvidiaNimProfile": {
+        "certified": false,
+        "kvCacheEvictionRisk": "CRITICAL",
+        "runawayLoopRisk": "ELEVATED",
+        "unboundedListTools": [],
+        "estimatedKvCacheWasteTokensPerCall": 32000,
+        "estimatedRunawayLoopWasteTokens": 12000,
+        "estimatedGpuTokenMultiplier": "10x–40x GPU token burn risk",
+        "vetoReasons": [
+          "D3 Context Hygiene score 79/100 < 85 (KV-cache eviction risk)",
+          "1 context-bomb / schema-bloat FAIL check(s) detected"
+        ]
+      },
+      "findings": [
+        {
+          "checkId": "TC-SCHEMA-002",
+          "tool": "generate_video",
+          "severity": "MEDIUM",
+          "dimension": "D3",
+          "description": "Description entropy failure: Tool 'generate_video' description is too terse (0 chars, minimum 30 required for reliable LLM tool steering)"
+        }
+      ],
+      "badgeFile": "benchmarks/huggingface-mcp/badges/kulkas2pintu__wan777.svg",
+      "liveBadgeUrl": "https://toolveto.ai/api/v1/badge/kulkas2pintu__wan777.svg?label=ToolVeto+NIM",
+      "scorecardUrl": "https://toolveto.ai/r/kulkas2pintu__wan777",
+      "markdownBadge": "[![ToolVeto NVIDIA NIM Checked (88/100)](https://toolveto.ai/api/v1/badge/kulkas2pintu__wan777.svg?label=ToolVeto+NIM)](https://toolveto.ai/r/kulkas2pintu__wan777)",
+      "scannedAt": "2026-11-28T05:05:16.946Z"
+    },
+    {
+      "spaceId": "prithivMLmods/FireRed-Image-Edit-1.0-Fast",
+      "slug": "prithivmlmods/firered-image-edit-1.0-fast",
+      "encodedSlug": "prithivmlmods__firered-image-edit-1.0-fast",
+      "spaceUrl": "https://huggingface.co/spaces/prithivMLmods/FireRed-Image-Edit-1.0-Fast",
+      "commitSha": "62551d839e3a1f8fbefa5f903cb7eeffae769398",
+      "shortSha": "62551d83",
+      "likes": 1652,
+      "sdk": "gradio",
+      "framework": "FastMCP + Gradio MCP",
+      "category": "multimodal-ai",
+      "tags": [
+        "gradio",
+        "mcp-server",
+        "region:us"
+      ],
+      "evidenceQuality": "STATIC-ONLY",
+      "filesAudited": [
+        "app.py",
+        "ncii_guard.py",
+        "qwenimage/pipeline_qwenimage_edit_plus.py",
+        "qwenimage/qwen_fa3_processor.py",
+        "qwenimage/transformer_qwenimage.py"
+      ],
+      "toolCount": 1,
+      "tools": [
+        "edit_image"
+      ],
+      "score": 93,
+      "tier": "Platinum",
+      "fatalVetoTriggered": false,
+      "fatalVetoCode": "VETO_NONE",
+      "dimensions": {
+        "d1": 100,
+        "d2": 93,
+        "d3": 93,
+        "d4": 70,
+        "d5": 100
+      },
+      "passed": 24,
+      "failed": 0,
+      "warned": 5,
+      "criticalFailures": 0,
+      "highFailures": 0,
+      "manifestSha256": "4dd57ab82a5a37d31c9c29567da97cd98fcd00af4898dc2637ec7349d2078671",
+      "nvidiaNimProfile": {
+        "certified": true,
+        "kvCacheEvictionRisk": "ELEVATED",
+        "runawayLoopRisk": "ELEVATED",
+        "unboundedListTools": [],
+        "estimatedKvCacheWasteTokensPerCall": 0,
+        "estimatedRunawayLoopWasteTokens": 12000,
+        "estimatedGpuTokenMultiplier": "2x–6x GPU token burn risk",
+        "vetoReasons": []
+      },
+      "findings": [],
+      "badgeFile": "benchmarks/huggingface-mcp/badges/prithivmlmods__firered-image-edit-1.0-fast.svg",
+      "liveBadgeUrl": "https://toolveto.ai/api/v1/badge/prithivmlmods__firered-image-edit-1.0-fast.svg?label=ToolVeto+NIM",
+      "scorecardUrl": "https://toolveto.ai/r/prithivmlmods__firered-image-edit-1.0-fast",
+      "markdownBadge": "[![ToolVeto NVIDIA NIM Certified (93/100)](https://toolveto.ai/api/v1/badge/prithivmlmods__firered-image-edit-1.0-fast.svg?label=ToolVeto+NIM)](https://toolveto.ai/r/prithivmlmods__firered-image-edit-1.0-fast)",
+      "scannedAt": "2026-11-28T05:05:18.694Z"
+    },
+    {
+      "spaceId": "Lightricks/ltx-video-distilled",
+      "slug": "lightricks/ltx-video-distilled",
+      "encodedSlug": "lightricks__ltx-video-distilled",
+      "spaceUrl": "https://huggingface.co/spaces/Lightricks/ltx-video-distilled",
+      "commitSha": "8a42e93469c66b62d794b83a4233f5fc8439e2b5",
+      "shortSha": "8a42e934",
+      "likes": 1638,
+      "sdk": "gradio",
+      "framework": "Gradio MCP (mcp_server=True)",
+      "category": "multimodal-ai",
+      "tags": [
+        "gradio",
+        "mcp-server",
+        "region:us"
+      ],
+      "evidenceQuality": "STATIC-ONLY",
+      "filesAudited": [
+        "app.py",
+        "inference.py"
+      ],
+      "toolCount": 3,
+      "tools": [
+        "text_to_video",
+        "image_to_video",
+        "video_to_video"
+      ],
+      "score": 84,
+      "tier": "Gold",
+      "fatalVetoTriggered": false,
+      "fatalVetoCode": "VETO_NONE",
+      "dimensions": {
+        "d1": 100,
+        "d2": 82,
+        "d3": 68,
+        "d4": 60,
+        "d5": 100
+      },
+      "passed": 48,
+      "failed": 3,
+      "warned": 24,
+      "criticalFailures": 0,
+      "highFailures": 0,
+      "manifestSha256": "c60683a66cfdb9da9a7106d916fed104d8d34ad0cdec366c3efbdddc254dc7b7",
+      "nvidiaNimProfile": {
+        "certified": false,
+        "kvCacheEvictionRisk": "CRITICAL",
+        "runawayLoopRisk": "ELEVATED",
+        "unboundedListTools": [],
+        "estimatedKvCacheWasteTokensPerCall": 96000,
+        "estimatedRunawayLoopWasteTokens": 36000,
+        "estimatedGpuTokenMultiplier": "10x–40x GPU token burn risk",
+        "vetoReasons": [
+          "D3 Context Hygiene score 68/100 < 85 (KV-cache eviction risk)",
+          "3 context-bomb / schema-bloat FAIL check(s) detected"
+        ]
+      },
+      "findings": [
+        {
+          "checkId": "TC-SCHEMA-002",
+          "tool": "text_to_video",
+          "severity": "MEDIUM",
+          "dimension": "D3",
+          "description": "Description entropy failure: Tool 'text_to_video' description is too terse (0 chars, minimum 30 required for reliable LLM tool steering)"
+        },
+        {
+          "checkId": "TC-SCHEMA-002",
+          "tool": "image_to_video",
+          "severity": "MEDIUM",
+          "dimension": "D3",
+          "description": "Description entropy failure: Tool 'image_to_video' description is too terse (0 chars, minimum 30 required for reliable LLM tool steering)"
+        },
+        {
+          "checkId": "TC-SCHEMA-002",
+          "tool": "video_to_video",
+          "severity": "MEDIUM",
+          "dimension": "D3",
+          "description": "Description entropy failure: Tool 'video_to_video' description is too terse (0 chars, minimum 30 required for reliable LLM tool steering)"
+        }
+      ],
+      "badgeFile": "benchmarks/huggingface-mcp/badges/lightricks__ltx-video-distilled.svg",
+      "liveBadgeUrl": "https://toolveto.ai/api/v1/badge/lightricks__ltx-video-distilled.svg?label=ToolVeto+NIM",
+      "scorecardUrl": "https://toolveto.ai/r/lightricks__ltx-video-distilled",
+      "markdownBadge": "[![ToolVeto NVIDIA NIM Checked (84/100)](https://toolveto.ai/api/v1/badge/lightricks__ltx-video-distilled.svg?label=ToolVeto+NIM)](https://toolveto.ai/r/lightricks__ltx-video-distilled)",
+      "scannedAt": "2026-11-28T05:05:17.855Z"
+    },
+    {
+      "spaceId": "multimodalart/wan2-1-fast",
+      "slug": "multimodalart/wan2-1-fast",
+      "encodedSlug": "multimodalart__wan2-1-fast",
+      "spaceUrl": "https://huggingface.co/spaces/multimodalart/wan2-1-fast",
+      "commitSha": "d8ad2caa4a290086c86e4df59e13789a88ce0e5d",
+      "shortSha": "d8ad2caa",
+      "likes": 1634,
+      "sdk": "gradio",
+      "framework": "Gradio MCP (mcp_server=True)",
+      "category": "multimodal-ai",
+      "tags": [
+        "gradio",
+        "mcp-server",
+        "region:us"
+      ],
+      "evidenceQuality": "STATIC-ONLY",
+      "filesAudited": [
+        "app.py"
+      ],
+      "toolCount": 1,
+      "tools": [
+        "generate_video"
+      ],
+      "score": 88,
+      "tier": "Gold",
+      "fatalVetoTriggered": false,
+      "fatalVetoCode": "VETO_NONE",
+      "dimensions": {
+        "d1": 100,
+        "d2": 93,
+        "d3": 79,
+        "d4": 60,
+        "d5": 100
+      },
+      "passed": 22,
+      "failed": 1,
+      "warned": 6,
+      "criticalFailures": 0,
+      "highFailures": 0,
+      "manifestSha256": "568ddea074c949d6d46e11a1f818e578e99a23f29cfc3bb7d03d317ff0203b76",
+      "nvidiaNimProfile": {
+        "certified": false,
+        "kvCacheEvictionRisk": "CRITICAL",
+        "runawayLoopRisk": "ELEVATED",
+        "unboundedListTools": [],
+        "estimatedKvCacheWasteTokensPerCall": 32000,
+        "estimatedRunawayLoopWasteTokens": 12000,
+        "estimatedGpuTokenMultiplier": "10x–40x GPU token burn risk",
+        "vetoReasons": [
+          "D3 Context Hygiene score 79/100 < 85 (KV-cache eviction risk)",
+          "1 context-bomb / schema-bloat FAIL check(s) detected"
+        ]
+      },
+      "findings": [
+        {
+          "checkId": "TC-SCHEMA-002",
+          "tool": "generate_video",
+          "severity": "MEDIUM",
+          "dimension": "D3",
+          "description": "Description entropy failure: Tool 'generate_video' description is too terse (0 chars, minimum 30 required for reliable LLM tool steering)"
+        }
+      ],
+      "badgeFile": "benchmarks/huggingface-mcp/badges/multimodalart__wan2-1-fast.svg",
+      "liveBadgeUrl": "https://toolveto.ai/api/v1/badge/multimodalart__wan2-1-fast.svg?label=ToolVeto+NIM",
+      "scorecardUrl": "https://toolveto.ai/r/multimodalart__wan2-1-fast",
+      "markdownBadge": "[![ToolVeto NVIDIA NIM Checked (88/100)](https://toolveto.ai/api/v1/badge/multimodalart__wan2-1-fast.svg?label=ToolVeto+NIM)](https://toolveto.ai/r/multimodalart__wan2-1-fast)",
+      "scannedAt": "2026-11-28T05:05:18.140Z"
+    },
+    {
+      "spaceId": "fffiloni/CLIP-Interrogator-2",
+      "slug": "fffiloni/clip-interrogator-2",
+      "encodedSlug": "fffiloni__clip-interrogator-2",
+      "spaceUrl": "https://huggingface.co/spaces/fffiloni/CLIP-Interrogator-2",
+      "commitSha": "2e641f4f85ed817c3cc7fddfb08c21eb2b7b54e7",
+      "shortSha": "2e641f4f",
+      "likes": 1370,
+      "sdk": "gradio",
+      "framework": "Gradio MCP (mcp_server=True)",
+      "category": "multimodal-ai",
+      "tags": [
+        "gradio",
+        "mcp-server",
+        "region:us"
+      ],
+      "evidenceQuality": "STATIC-ONLY",
+      "filesAudited": [
+        "app.py",
+        "share_btn.py"
+      ],
+      "toolCount": 1,
+      "tools": [
+        "clipi2"
+      ],
+      "score": 94,
+      "tier": "Platinum",
+      "fatalVetoTriggered": false,
+      "fatalVetoCode": "VETO_NONE",
+      "dimensions": {
+        "d1": 100,
+        "d2": 93,
+        "d3": 93,
+        "d4": 80,
+        "d5": 100
+      },
+      "passed": 25,
+      "failed": 0,
+      "warned": 4,
+      "criticalFailures": 0,
+      "highFailures": 0,
+      "manifestSha256": "054dfeeb1acd4ac54673dd76b5c7bf52d8df3620c40959f453fbf8e81b792517",
+      "nvidiaNimProfile": {
+        "certified": true,
+        "kvCacheEvictionRisk": "ELEVATED",
+        "runawayLoopRisk": "ELEVATED",
+        "unboundedListTools": [],
+        "estimatedKvCacheWasteTokensPerCall": 0,
+        "estimatedRunawayLoopWasteTokens": 12000,
+        "estimatedGpuTokenMultiplier": "2x–6x GPU token burn risk",
+        "vetoReasons": []
+      },
+      "findings": [],
+      "badgeFile": "benchmarks/huggingface-mcp/badges/fffiloni__clip-interrogator-2.svg",
+      "liveBadgeUrl": "https://toolveto.ai/api/v1/badge/fffiloni__clip-interrogator-2.svg?label=ToolVeto+NIM",
+      "scorecardUrl": "https://toolveto.ai/r/fffiloni__clip-interrogator-2",
+      "markdownBadge": "[![ToolVeto NVIDIA NIM Certified (94/100)](https://toolveto.ai/api/v1/badge/fffiloni__clip-interrogator-2.svg?label=ToolVeto+NIM)](https://toolveto.ai/r/fffiloni__clip-interrogator-2)",
+      "scannedAt": "2026-11-28T05:05:18.675Z"
+    },
+    {
+      "spaceId": "prithivMLmods/FLUX-LoRA-DLC",
+      "slug": "prithivmlmods/flux-lora-dlc",
+      "encodedSlug": "prithivmlmods__flux-lora-dlc",
+      "spaceUrl": "https://huggingface.co/spaces/prithivMLmods/FLUX-LoRA-DLC",
+      "commitSha": "6f810653fc79a013bcf491dd4a9f5a9abb0e4071",
+      "shortSha": "6f810653",
+      "likes": 1280,
+      "sdk": "gradio",
+      "framework": "Gradio MCP (mcp_server=True)",
+      "category": "multimodal-ai",
+      "tags": [
+        "gradio",
+        "mcp-server",
+        "region:us"
+      ],
+      "evidenceQuality": "STATIC-ONLY",
+      "filesAudited": [
+        "app.py"
+      ],
+      "toolCount": 1,
+      "tools": [
+        "remove_custom_lora"
+      ],
+      "score": 90,
+      "tier": "Gold",
+      "fatalVetoTriggered": false,
+      "fatalVetoCode": "VETO_NONE",
+      "dimensions": {
+        "d1": 100,
+        "d2": 93,
+        "d3": 79,
+        "d4": 70,
+        "d5": 100
+      },
+      "passed": 23,
+      "failed": 1,
+      "warned": 5,
+      "criticalFailures": 0,
+      "highFailures": 0,
+      "manifestSha256": "4c27b56c8ce3ed66a8edbdba1c744ceb4e467a9a10331f460a8795b219f3d60a",
+      "nvidiaNimProfile": {
+        "certified": false,
+        "kvCacheEvictionRisk": "CRITICAL",
+        "runawayLoopRisk": "ELEVATED",
+        "unboundedListTools": [],
+        "estimatedKvCacheWasteTokensPerCall": 32000,
+        "estimatedRunawayLoopWasteTokens": 12000,
+        "estimatedGpuTokenMultiplier": "10x–40x GPU token burn risk",
+        "vetoReasons": [
+          "D3 Context Hygiene score 79/100 < 85 (KV-cache eviction risk)",
+          "1 context-bomb / schema-bloat FAIL check(s) detected"
+        ]
+      },
+      "findings": [
+        {
+          "checkId": "TC-SCHEMA-002",
+          "tool": "remove_custom_lora",
+          "severity": "MEDIUM",
+          "dimension": "D3",
+          "description": "Description entropy failure: Tool 'remove_custom_lora' description is too terse (0 chars, minimum 30 required for reliable LLM tool steering)"
+        }
+      ],
+      "badgeFile": "benchmarks/huggingface-mcp/badges/prithivmlmods__flux-lora-dlc.svg",
+      "liveBadgeUrl": "https://toolveto.ai/api/v1/badge/prithivmlmods__flux-lora-dlc.svg?label=ToolVeto+NIM",
+      "scorecardUrl": "https://toolveto.ai/r/prithivmlmods__flux-lora-dlc",
+      "markdownBadge": "[![ToolVeto NVIDIA NIM Checked (90/100)](https://toolveto.ai/api/v1/badge/prithivmlmods__flux-lora-dlc.svg?label=ToolVeto+NIM)](https://toolveto.ai/r/prithivmlmods__flux-lora-dlc)",
+      "scannedAt": "2026-11-28T05:05:18.611Z"
+    },
+    {
+      "spaceId": "hugging-apps/bfs-best-face-swap",
+      "slug": "hugging-apps/bfs-best-face-swap",
+      "encodedSlug": "hugging-apps__bfs-best-face-swap",
+      "spaceUrl": "https://huggingface.co/spaces/hugging-apps/bfs-best-face-swap",
+      "commitSha": "eae055aaafa6f4f0c0bea9b1e02975c3f2882092",
+      "shortSha": "eae055aa",
+      "likes": 1131,
+      "sdk": "gradio",
+      "framework": "Gradio MCP (mcp_server=True)",
+      "category": "multimodal-ai",
+      "tags": [
+        "gradio",
+        "mcp-server",
+        "region:us"
+      ],
+      "evidenceQuality": "STATIC-ONLY",
+      "filesAudited": [
+        "app.py"
+      ],
+      "toolCount": 1,
+      "tools": [
+        "face_swap"
+      ],
+      "score": 90,
+      "tier": "Gold",
+      "fatalVetoTriggered": false,
+      "fatalVetoCode": "VETO_NONE",
+      "dimensions": {
+        "d1": 100,
+        "d2": 93,
+        "d3": 79,
+        "d4": 70,
+        "d5": 100
+      },
+      "passed": 23,
+      "failed": 1,
+      "warned": 5,
+      "criticalFailures": 0,
+      "highFailures": 0,
+      "manifestSha256": "04fc2d2f840f55c0e5f2735d07d511eeb7b719700414987a35816830793b6f55",
+      "nvidiaNimProfile": {
+        "certified": false,
+        "kvCacheEvictionRisk": "CRITICAL",
+        "runawayLoopRisk": "ELEVATED",
+        "unboundedListTools": [],
+        "estimatedKvCacheWasteTokensPerCall": 32000,
+        "estimatedRunawayLoopWasteTokens": 12000,
+        "estimatedGpuTokenMultiplier": "10x–40x GPU token burn risk",
+        "vetoReasons": [
+          "D3 Context Hygiene score 79/100 < 85 (KV-cache eviction risk)",
+          "1 context-bomb / schema-bloat FAIL check(s) detected"
+        ]
+      },
+      "findings": [
+        {
+          "checkId": "TC-SCHEMA-002",
+          "tool": "face_swap",
+          "severity": "MEDIUM",
+          "dimension": "D3",
+          "description": "Description entropy failure: Tool 'face_swap' description is too terse (0 chars, minimum 30 required for reliable LLM tool steering)"
+        }
+      ],
+      "badgeFile": "benchmarks/huggingface-mcp/badges/hugging-apps__bfs-best-face-swap.svg",
+      "liveBadgeUrl": "https://toolveto.ai/api/v1/badge/hugging-apps__bfs-best-face-swap.svg?label=ToolVeto+NIM",
+      "scorecardUrl": "https://toolveto.ai/r/hugging-apps__bfs-best-face-swap",
+      "markdownBadge": "[![ToolVeto NVIDIA NIM Checked (90/100)](https://toolveto.ai/api/v1/badge/hugging-apps__bfs-best-face-swap.svg?label=ToolVeto+NIM)](https://toolveto.ai/r/hugging-apps__bfs-best-face-swap)",
+      "scannedAt": "2026-11-28T05:05:19.089Z"
+    },
+    {
+      "spaceId": "prithivMLmods/Qwen-Image-Edit-2509-LoRAs-Fast",
+      "slug": "prithivmlmods/qwen-image-edit-2509-loras-fast",
+      "encodedSlug": "prithivmlmods__qwen-image-edit-2509-loras-fast",
+      "spaceUrl": "https://huggingface.co/spaces/prithivMLmods/Qwen-Image-Edit-2509-LoRAs-Fast",
+      "commitSha": "a0a8e1aa6cf79077533b54c8482149b60efd9c61",
+      "shortSha": "a0a8e1aa",
+      "likes": 964,
+      "sdk": "gradio",
+      "framework": "FastMCP + Gradio MCP",
+      "category": "multimodal-ai",
+      "tags": [
+        "gradio",
+        "mcp-server",
+        "region:us"
+      ],
+      "evidenceQuality": "STATIC-ONLY",
+      "filesAudited": [
+        "app.py",
+        "qwenimage/pipeline_qwenimage_edit_plus.py",
+        "qwenimage/qwen_fa3_processor.py",
+        "qwenimage/transformer_qwenimage.py"
+      ],
+      "toolCount": 1,
+      "tools": [
+        "edit_image"
+      ],
+      "score": 93,
+      "tier": "Platinum",
+      "fatalVetoTriggered": false,
+      "fatalVetoCode": "VETO_NONE",
+      "dimensions": {
+        "d1": 100,
+        "d2": 93,
+        "d3": 93,
+        "d4": 70,
+        "d5": 100
+      },
+      "passed": 24,
+      "failed": 0,
+      "warned": 5,
+      "criticalFailures": 0,
+      "highFailures": 0,
+      "manifestSha256": "eaeda0e3fe93061b1fe2f5b85852d35edc76576c0c2705f7f8f84aeb21f04581",
+      "nvidiaNimProfile": {
+        "certified": true,
+        "kvCacheEvictionRisk": "ELEVATED",
+        "runawayLoopRisk": "ELEVATED",
+        "unboundedListTools": [],
+        "estimatedKvCacheWasteTokensPerCall": 0,
+        "estimatedRunawayLoopWasteTokens": 12000,
+        "estimatedGpuTokenMultiplier": "2x–6x GPU token burn risk",
+        "vetoReasons": []
+      },
+      "findings": [],
+      "badgeFile": "benchmarks/huggingface-mcp/badges/prithivmlmods__qwen-image-edit-2509-loras-fast.svg",
+      "liveBadgeUrl": "https://toolveto.ai/api/v1/badge/prithivmlmods__qwen-image-edit-2509-loras-fast.svg?label=ToolVeto+NIM",
+      "scorecardUrl": "https://toolveto.ai/r/prithivmlmods__qwen-image-edit-2509-loras-fast",
+      "markdownBadge": "[![ToolVeto NVIDIA NIM Certified (93/100)](https://toolveto.ai/api/v1/badge/prithivmlmods__qwen-image-edit-2509-loras-fast.svg?label=ToolVeto+NIM)](https://toolveto.ai/r/prithivmlmods__qwen-image-edit-2509-loras-fast)",
+      "scannedAt": "2026-11-28T05:05:20.464Z"
+    },
+    {
+      "spaceId": "Agents-MCP-Hackathon/AI-Marketing-Content-Creator",
+      "slug": "agents-mcp-hackathon/ai-marketing-content-creator",
+      "encodedSlug": "agents-mcp-hackathon__ai-marketing-content-creator",
+      "spaceUrl": "https://huggingface.co/spaces/Agents-MCP-Hackathon/AI-Marketing-Content-Creator",
+      "commitSha": "e740d72582c95f9f11d9b2c589f24acdfa1b7b66",
+      "shortSha": "e740d725",
+      "likes": 203,
+      "sdk": "gradio",
+      "framework": "FastMCP + Gradio MCP",
+      "category": "multimodal-ai",
+      "tags": [
+        "gradio",
+        "mcp-server-track",
+        "ai-agents",
+        "content-creation",
+        "Agents-MCP-Hackathon",
+        "social-media",
+        "modal",
+        "mistral"
+      ],
+      "evidenceQuality": "STATIC-ONLY",
+      "filesAudited": [
+        "app.py",
+        "mcp_server.py",
+        "src/model_server.py"
+      ],
+      "toolCount": 17,
+      "tools": [
+        "single_image_generation",
+        "enhanced_batch_generation",
+        "social_media_generation",
+        "update_api_keys",
+        "generate_ai_prompt",
+        "improve_ai_prompt",
+        "generate_prompt_with_ai",
+        "enhance_prompt_with_details",
+        "generate_and_save_image",
+        "batch_generate_smart_variations",
+        "generate_ab_test_report_template",
+        "batch_generate_images",
+        "generate_social_media_set",
+        "add_style_modifier",
+        "get_generation_history",
+        "create_image_package",
+        "health_check"
+      ],
+      "score": 92,
+      "tier": "Gold",
+      "fatalVetoTriggered": false,
+      "fatalVetoCode": "VETO_NONE",
+      "dimensions": {
+        "d1": 100,
+        "d2": 89,
+        "d3": 87,
+        "d4": 76,
+        "d5": 100
+      },
+      "passed": 314,
+      "failed": 3,
+      "warned": 80,
+      "criticalFailures": 0,
+      "highFailures": 1,
+      "manifestSha256": "d9a205980c9001e55ebcd507d0d2cf3d1b5a68b976afd47fcfc2125981820b19",
+      "nvidiaNimProfile": {
+        "certified": false,
+        "kvCacheEvictionRisk": "CRITICAL",
+        "runawayLoopRisk": "ELEVATED",
+        "unboundedListTools": [],
+        "estimatedKvCacheWasteTokensPerCall": 64000,
+        "estimatedRunawayLoopWasteTokens": 204000,
+        "estimatedGpuTokenMultiplier": "10x–40x GPU token burn risk",
+        "vetoReasons": [
+          "2 context-bomb / schema-bloat FAIL check(s) detected"
+        ]
+      },
+      "findings": [
+        {
+          "checkId": "TC-SCHEMA-002",
+          "tool": "improve_ai_prompt",
+          "severity": "MEDIUM",
+          "dimension": "D3",
+          "description": "Description entropy failure: Tool 'improve_ai_prompt' description is too terse (0 chars, minimum 30 required for reliable LLM tool steering)"
+        },
+        {
+          "checkId": "TC-SCHEMA-002",
+          "tool": "batch_generate_smart_variations",
+          "severity": "MEDIUM",
+          "dimension": "D3",
+          "description": "Description entropy failure: Tool 'batch_generate_smart_variations' description is too terse (0 chars, minimum 30 required for reliable LLM tool steering)"
+        },
+        {
+          "checkId": "TC-STDIO-001",
+          "tool": "_transport",
+          "severity": "HIGH",
+          "dimension": "D2",
+          "description": "Stdio MCP stdout pollution detected in 1 file(s): writing console.log/print/fmt.Print corrupts JSON-RPC framing."
+        }
+      ],
+      "badgeFile": "benchmarks/huggingface-mcp/badges/agents-mcp-hackathon__ai-marketing-content-creator.svg",
+      "liveBadgeUrl": "https://toolveto.ai/api/v1/badge/agents-mcp-hackathon__ai-marketing-content-creator.svg?label=ToolVeto+NIM",
+      "scorecardUrl": "https://toolveto.ai/r/agents-mcp-hackathon__ai-marketing-content-creator",
+      "markdownBadge": "[![ToolVeto NVIDIA NIM Checked (92/100)](https://toolveto.ai/api/v1/badge/agents-mcp-hackathon__ai-marketing-content-creator.svg?label=ToolVeto+NIM)](https://toolveto.ai/r/agents-mcp-hackathon__ai-marketing-content-creator)",
+      "scannedAt": "2026-11-28T05:05:12.787Z"
+    },
+    {
+      "spaceId": "Agents-MCP-Hackathon/consilium_mcp",
+      "slug": "agents-mcp-hackathon/consilium_mcp",
+      "encodedSlug": "agents-mcp-hackathon__consilium_mcp",
+      "spaceUrl": "https://huggingface.co/spaces/Agents-MCP-Hackathon/consilium_mcp",
+      "commitSha": "9080454688257cd1d6db7b7ab83de0c8feb19406",
+      "shortSha": "90804546",
+      "likes": 137,
+      "sdk": "gradio",
+      "framework": "Gradio MCP (mcp_server=True)",
+      "category": "devtools",
+      "tags": [
+        "gradio",
+        "mcp-server-track",
+        "agent-demo-track",
+        "consilium",
+        "Mistral",
+        "SambaNova",
+        "mcp-server",
+        "region:us"
+      ],
+      "evidenceQuality": "STATIC-ONLY",
+      "filesAudited": [
+        "app.py",
+        "enhanced_search_functions.py",
+        "research_tools/__init__.py",
+        "research_tools/arxiv_search.py",
+        "research_tools/base_tool.py",
+        "research_tools/github_search.py"
+      ],
+      "toolCount": 6,
+      "tools": [
+        "set_business_question",
+        "set_tech_question",
+        "set_policy_question",
+        "on_start_discussion",
+        "update_session_api_keys",
+        "check_model_status_session"
+      ],
+      "score": 90,
+      "tier": "Gold",
+      "fatalVetoTriggered": false,
+      "fatalVetoCode": "VETO_NONE",
+      "dimensions": {
+        "d1": 100,
+        "d2": 91,
+        "d3": 81,
+        "d4": 68,
+        "d5": 100
+      },
+      "passed": 109,
+      "failed": 4,
+      "warned": 31,
+      "criticalFailures": 0,
+      "highFailures": 0,
+      "manifestSha256": "9c99d2adee98e67cc24208df88bf1be83db0d1a0c23cabce397842c802198b24",
+      "nvidiaNimProfile": {
+        "certified": false,
+        "kvCacheEvictionRisk": "CRITICAL",
+        "runawayLoopRisk": "ELEVATED",
+        "unboundedListTools": [],
+        "estimatedKvCacheWasteTokensPerCall": 128000,
+        "estimatedRunawayLoopWasteTokens": 72000,
+        "estimatedGpuTokenMultiplier": "10x–40x GPU token burn risk",
+        "vetoReasons": [
+          "D3 Context Hygiene score 81/100 < 85 (KV-cache eviction risk)",
+          "4 context-bomb / schema-bloat FAIL check(s) detected"
+        ]
+      },
+      "findings": [
+        {
+          "checkId": "TC-SCHEMA-002",
+          "tool": "set_business_question",
+          "severity": "MEDIUM",
+          "dimension": "D3",
+          "description": "Description entropy failure: Tool 'set_business_question' description is too terse (0 chars, minimum 30 required for reliable LLM tool steering)"
+        },
+        {
+          "checkId": "TC-SCHEMA-002",
+          "tool": "set_tech_question",
+          "severity": "MEDIUM",
+          "dimension": "D3",
+          "description": "Description entropy failure: Tool 'set_tech_question' description is too terse (0 chars, minimum 30 required for reliable LLM tool steering)"
+        },
+        {
+          "checkId": "TC-SCHEMA-002",
+          "tool": "set_policy_question",
+          "severity": "MEDIUM",
+          "dimension": "D3",
+          "description": "Description entropy failure: Tool 'set_policy_question' description is too terse (0 chars, minimum 30 required for reliable LLM tool steering)"
+        },
+        {
+          "checkId": "TC-SCHEMA-002",
+          "tool": "on_start_discussion",
+          "severity": "MEDIUM",
+          "dimension": "D3",
+          "description": "Description entropy failure: Tool 'on_start_discussion' description is too terse (0 chars, minimum 30 required for reliable LLM tool steering)"
+        }
+      ],
+      "badgeFile": "benchmarks/huggingface-mcp/badges/agents-mcp-hackathon__consilium_mcp.svg",
+      "liveBadgeUrl": "https://toolveto.ai/api/v1/badge/agents-mcp-hackathon__consilium_mcp.svg?label=ToolVeto+NIM",
+      "scorecardUrl": "https://toolveto.ai/r/agents-mcp-hackathon__consilium_mcp",
+      "markdownBadge": "[![ToolVeto NVIDIA NIM Checked (90/100)](https://toolveto.ai/api/v1/badge/agents-mcp-hackathon__consilium_mcp.svg?label=ToolVeto+NIM)](https://toolveto.ai/r/agents-mcp-hackathon__consilium_mcp)",
+      "scannedAt": "2026-11-28T05:05:14.323Z"
+    },
+    {
+      "spaceId": "MCP-1st-Birthday/anim-lab-ai",
+      "slug": "mcp-1st-birthday/anim-lab-ai",
+      "encodedSlug": "mcp-1st-birthday__anim-lab-ai",
+      "spaceUrl": "https://huggingface.co/spaces/MCP-1st-Birthday/anim-lab-ai",
+      "commitSha": "b76fe28730e7b2ec9dae3788f57fc41fea507fa7",
+      "shortSha": "b76fe287",
+      "likes": 130,
+      "sdk": "gradio",
+      "framework": "Gradio MCP (mcp_server=True)",
+      "category": "multimodal-ai",
+      "tags": [
+        "gradio",
+        "building-mcp-track-creative",
+        "building-mcp-track-consumer",
+        "mcp",
+        "claude",
+        "education",
+        "mathematics",
+        "algorithm"
+      ],
+      "evidenceQuality": "STATIC-ONLY",
+      "filesAudited": [
+        "app.py"
+      ],
+      "toolCount": 3,
+      "tools": [
+        "generate_full_process",
+        "generate_animation",
+        "edit_and_render"
+      ],
+      "score": 90,
+      "tier": "Gold",
+      "fatalVetoTriggered": false,
+      "fatalVetoCode": "VETO_NONE",
+      "dimensions": {
+        "d1": 100,
+        "d2": 79,
+        "d3": 87,
+        "d4": 77,
+        "d5": 100
+      },
+      "passed": 59,
+      "failed": 3,
+      "warned": 13,
+      "criticalFailures": 0,
+      "highFailures": 2,
+      "manifestSha256": "6b6f8bd34f1aedc6fe3255d5e79ad225eb7e66ce2a0c49e12a62c03beae848ba",
+      "nvidiaNimProfile": {
+        "certified": false,
+        "kvCacheEvictionRisk": "CRITICAL",
+        "runawayLoopRisk": "ELEVATED",
+        "unboundedListTools": [],
+        "estimatedKvCacheWasteTokensPerCall": 32000,
+        "estimatedRunawayLoopWasteTokens": 36000,
+        "estimatedGpuTokenMultiplier": "10x–40x GPU token burn risk",
+        "vetoReasons": [
+          "1 context-bomb / schema-bloat FAIL check(s) detected",
+          "D2 Error Feedback score 79/100 < 80 (agent retry-loop burn risk)"
+        ]
+      },
+      "findings": [
+        {
+          "checkId": "TC-SEC-004",
+          "tool": "generate_animation",
+          "severity": "HIGH",
+          "dimension": "D2",
+          "description": "Tool 'generate_animation' exposes unconstrained command/code/SQL string sink(s) [code] without enum/pattern allowlist."
+        },
+        {
+          "checkId": "TC-SEC-004",
+          "tool": "edit_and_render",
+          "severity": "HIGH",
+          "dimension": "D2",
+          "description": "Tool 'edit_and_render' exposes unconstrained command/code/SQL string sink(s) [existing_code] without enum/pattern allowlist."
+        },
+        {
+          "checkId": "TC-SCHEMA-002",
+          "tool": "edit_and_render",
+          "severity": "MEDIUM",
+          "dimension": "D3",
+          "description": "Description entropy failure: Tool 'edit_and_render' description is too terse (0 chars, minimum 30 required for reliable LLM tool steering)"
+        }
+      ],
+      "badgeFile": "benchmarks/huggingface-mcp/badges/mcp-1st-birthday__anim-lab-ai.svg",
+      "liveBadgeUrl": "https://toolveto.ai/api/v1/badge/mcp-1st-birthday__anim-lab-ai.svg?label=ToolVeto+NIM",
+      "scorecardUrl": "https://toolveto.ai/r/mcp-1st-birthday__anim-lab-ai",
+      "markdownBadge": "[![ToolVeto NVIDIA NIM Checked (90/100)](https://toolveto.ai/api/v1/badge/mcp-1st-birthday__anim-lab-ai.svg?label=ToolVeto+NIM)](https://toolveto.ai/r/mcp-1st-birthday__anim-lab-ai)",
+      "scannedAt": "2026-11-28T05:05:13.084Z"
+    },
+    {
+      "spaceId": "Agents-MCP-Hackathon/web-scraper",
+      "slug": "agents-mcp-hackathon/web-scraper",
+      "encodedSlug": "agents-mcp-hackathon__web-scraper",
+      "spaceUrl": "https://huggingface.co/spaces/Agents-MCP-Hackathon/web-scraper",
+      "commitSha": "11116c60f34044280378af9774fb120cd4df4682",
+      "shortSha": "11116c60",
+      "likes": 119,
+      "sdk": "gradio",
+      "framework": "Gradio MCP (mcp_server=True)",
+      "category": "search",
+      "tags": [
+        "gradio",
+        "mcp-server",
+        "region:us"
+      ],
+      "evidenceQuality": "STATIC-ONLY",
+      "filesAudited": [
+        "app.py"
+      ],
+      "toolCount": 5,
+      "tools": [
+        "scrape_content",
+        "generate_sitemap",
+        "extract_all_content",
+        "generate_sitemap_limited",
+        "extract_limited_content"
+      ],
+      "score": 91,
+      "tier": "Gold",
+      "fatalVetoTriggered": false,
+      "fatalVetoCode": "VETO_NONE",
+      "dimensions": {
+        "d1": 100,
+        "d2": 91,
+        "d3": 84,
+        "d4": 70,
+        "d5": 100
+      },
+      "passed": 91,
+      "failed": 0,
+      "warned": 30,
+      "criticalFailures": 0,
+      "highFailures": 0,
+      "manifestSha256": "34b0fe16cd558d183248f7b9b4f5b449e723a00eb72c62fec829fd090beb290f",
+      "nvidiaNimProfile": {
+        "certified": false,
+        "kvCacheEvictionRisk": "ELEVATED",
+        "runawayLoopRisk": "ELEVATED",
+        "unboundedListTools": [],
+        "estimatedKvCacheWasteTokensPerCall": 0,
+        "estimatedRunawayLoopWasteTokens": 60000,
+        "estimatedGpuTokenMultiplier": "2x–6x GPU token burn risk",
+        "vetoReasons": [
+          "D3 Context Hygiene score 84/100 < 85 (KV-cache eviction risk)"
+        ]
+      },
+      "findings": [],
+      "badgeFile": "benchmarks/huggingface-mcp/badges/agents-mcp-hackathon__web-scraper.svg",
+      "liveBadgeUrl": "https://toolveto.ai/api/v1/badge/agents-mcp-hackathon__web-scraper.svg?label=ToolVeto+NIM",
+      "scorecardUrl": "https://toolveto.ai/r/agents-mcp-hackathon__web-scraper",
+      "markdownBadge": "[![ToolVeto NVIDIA NIM Checked (91/100)](https://toolveto.ai/api/v1/badge/agents-mcp-hackathon__web-scraper.svg?label=ToolVeto+NIM)](https://toolveto.ai/r/agents-mcp-hackathon__web-scraper)",
+      "scannedAt": "2026-11-28T05:05:14.141Z"
+    },
+    {
+      "spaceId": "mcp-tools/Z-Image-Turbo",
+      "slug": "mcp-tools/z-image-turbo",
+      "encodedSlug": "mcp-tools__z-image-turbo",
+      "spaceUrl": "https://huggingface.co/spaces/mcp-tools/Z-Image-Turbo",
+      "commitSha": "523314ae75f69a4df28f6322d6b4560188502911",
+      "shortSha": "523314ae",
+      "likes": 76,
+      "sdk": "gradio",
+      "framework": "Gradio MCP (mcp_server=True)",
+      "category": "multimodal-ai",
+      "tags": [
+        "gradio",
+        "mcp-server",
+        "region:us"
+      ],
+      "evidenceQuality": "STATIC-ONLY",
+      "filesAudited": [
+        "app.py",
+        "pe.py",
+        "prompt_check.py"
+      ],
+      "toolCount": 1,
+      "tools": [
+        "generate"
+      ],
+      "score": 90,
+      "tier": "Gold",
+      "fatalVetoTriggered": false,
+      "fatalVetoCode": "VETO_NONE",
+      "dimensions": {
+        "d1": 100,
+        "d2": 93,
+        "d3": 79,
+        "d4": 70,
+        "d5": 100
+      },
+      "passed": 23,
+      "failed": 1,
+      "warned": 5,
+      "criticalFailures": 0,
+      "highFailures": 0,
+      "manifestSha256": "e0fd44bc47834de5f5d3956b2b79ad566ae96898a251e628715adb82eb2f5840",
+      "nvidiaNimProfile": {
+        "certified": false,
+        "kvCacheEvictionRisk": "CRITICAL",
+        "runawayLoopRisk": "ELEVATED",
+        "unboundedListTools": [],
+        "estimatedKvCacheWasteTokensPerCall": 32000,
+        "estimatedRunawayLoopWasteTokens": 12000,
+        "estimatedGpuTokenMultiplier": "10x–40x GPU token burn risk",
+        "vetoReasons": [
+          "D3 Context Hygiene score 79/100 < 85 (KV-cache eviction risk)",
+          "1 context-bomb / schema-bloat FAIL check(s) detected"
+        ]
+      },
+      "findings": [
+        {
+          "checkId": "TC-SCHEMA-002",
+          "tool": "generate",
+          "severity": "MEDIUM",
+          "dimension": "D3",
+          "description": "Description entropy failure: Tool 'generate' description is too terse (0 chars, minimum 30 required for reliable LLM tool steering)"
+        }
+      ],
+      "badgeFile": "benchmarks/huggingface-mcp/badges/mcp-tools__z-image-turbo.svg",
+      "liveBadgeUrl": "https://toolveto.ai/api/v1/badge/mcp-tools__z-image-turbo.svg?label=ToolVeto+NIM",
+      "scorecardUrl": "https://toolveto.ai/r/mcp-tools__z-image-turbo",
+      "markdownBadge": "[![ToolVeto NVIDIA NIM Checked (90/100)](https://toolveto.ai/api/v1/badge/mcp-tools__z-image-turbo.svg?label=ToolVeto+NIM)](https://toolveto.ai/r/mcp-tools__z-image-turbo)",
+      "scannedAt": "2026-11-28T05:05:15.245Z"
+    },
+    {
+      "spaceId": "MCP-1st-Birthday/voicekit",
+      "slug": "mcp-1st-birthday/voicekit",
+      "encodedSlug": "mcp-1st-birthday__voicekit",
+      "spaceUrl": "https://huggingface.co/spaces/MCP-1st-Birthday/voicekit",
+      "commitSha": "7ae2c28fd776d802c119c6d706cd0bf45c066b68",
+      "shortSha": "7ae2c28f",
+      "likes": 54,
+      "sdk": "gradio",
+      "framework": "Gradio MCP (mcp_server=True)",
+      "category": "multimodal-ai",
+      "tags": [
+        "gradio",
+        "building-mcp-track-creative",
+        "mcp-server",
+        "region:us"
+      ],
+      "evidenceQuality": "STATIC-ONLY",
+      "filesAudited": [
+        "app.py"
+      ],
+      "toolCount": 6,
+      "tools": [
+        "extract_embedding",
+        "match_voice",
+        "analyze_acoustics",
+        "transcribe_audio",
+        "isolate_voice",
+        "grade_voice"
+      ],
+      "score": 93,
+      "tier": "Platinum",
+      "fatalVetoTriggered": false,
+      "fatalVetoCode": "VETO_NONE",
+      "dimensions": {
+        "d1": 100,
+        "d2": 91,
+        "d3": 89,
+        "d4": 78,
+        "d5": 100
+      },
+      "passed": 118,
+      "failed": 1,
+      "warned": 25,
+      "criticalFailures": 0,
+      "highFailures": 0,
+      "manifestSha256": "f51003d3a232086a38a75b82138287fd8340733fb6b3544f25c0ba25b3dedc2a",
+      "nvidiaNimProfile": {
+        "certified": false,
+        "kvCacheEvictionRisk": "CRITICAL",
+        "runawayLoopRisk": "ELEVATED",
+        "unboundedListTools": [],
+        "estimatedKvCacheWasteTokensPerCall": 32000,
+        "estimatedRunawayLoopWasteTokens": 72000,
+        "estimatedGpuTokenMultiplier": "10x–40x GPU token burn risk",
+        "vetoReasons": [
+          "1 context-bomb / schema-bloat FAIL check(s) detected"
+        ]
+      },
+      "findings": [
+        {
+          "checkId": "TC-SCHEMA-002",
+          "tool": "grade_voice",
+          "severity": "MEDIUM",
+          "dimension": "D3",
+          "description": "Description entropy failure: Tool 'grade_voice' description is too terse (0 chars, minimum 30 required for reliable LLM tool steering)"
+        }
+      ],
+      "badgeFile": "benchmarks/huggingface-mcp/badges/mcp-1st-birthday__voicekit.svg",
+      "liveBadgeUrl": "https://toolveto.ai/api/v1/badge/mcp-1st-birthday__voicekit.svg?label=ToolVeto+NIM",
+      "scorecardUrl": "https://toolveto.ai/r/mcp-1st-birthday__voicekit",
+      "markdownBadge": "[![ToolVeto NVIDIA NIM Checked (93/100)](https://toolveto.ai/api/v1/badge/mcp-1st-birthday__voicekit.svg?label=ToolVeto+NIM)](https://toolveto.ai/r/mcp-1st-birthday__voicekit)",
+      "scannedAt": "2026-11-28T05:05:16.293Z"
+    },
+    {
+      "spaceId": "Agents-MCP-Hackathon/ShallowCodeResearch",
+      "slug": "agents-mcp-hackathon/shallowcoderesearch",
+      "encodedSlug": "agents-mcp-hackathon__shallowcoderesearch",
+      "spaceUrl": "https://huggingface.co/spaces/Agents-MCP-Hackathon/ShallowCodeResearch",
+      "commitSha": "ba636af632fdaa3240e0eb3d44d9e04de98a4854",
+      "shortSha": "ba636af6",
+      "likes": 51,
+      "sdk": "gradio",
+      "framework": "Gradio MCP (mcp_server=True)",
+      "category": "search",
+      "tags": [
+        "gradio",
+        "mcp",
+        "multi-agent",
+        "research",
+        "code-generation",
+        "ai-assistant",
+        "python",
+        "web-search"
+      ],
+      "evidenceQuality": "STATIC-ONLY",
+      "filesAudited": [
+        "app.py",
+        "mcp_api_call.py",
+        "mcp_hub/__init__.py",
+        "mcp_hub/advanced_config.py",
+        "mcp_hub/async_utils.py",
+        "mcp_hub/cache_utils.py"
+      ],
+      "toolCount": 12,
+      "tools": [
+        "agent_question_enhancer_service",
+        "agent_web_search_service",
+        "agent_llm_processor_service",
+        "agent_citation_formatter_service",
+        "agent_code_generator_service",
+        "agent_code_runner_service",
+        "run_async_in_thread",
+        "agent_research_request",
+        "get_health_status_service",
+        "get_performance_metrics_service",
+        "get_cache_status_service",
+        "get_sandbox_pool_status_service"
+      ],
+      "score": 93,
+      "tier": "Gold",
+      "fatalVetoTriggered": false,
+      "fatalVetoCode": "VETO_NONE",
+      "dimensions": {
+        "d1": 100,
+        "d2": 89,
+        "d3": 90,
+        "d4": 79,
+        "d5": 100
+      },
+      "passed": 230,
+      "failed": 2,
+      "warned": 50,
+      "criticalFailures": 0,
+      "highFailures": 1,
+      "manifestSha256": "f9459aa07d46d5a71f71c3b1e789b609cc65e6042d121711a2ce507a764dce4b",
+      "nvidiaNimProfile": {
+        "certified": false,
+        "kvCacheEvictionRisk": "CRITICAL",
+        "runawayLoopRisk": "ELEVATED",
+        "unboundedListTools": [],
+        "estimatedKvCacheWasteTokensPerCall": 32000,
+        "estimatedRunawayLoopWasteTokens": 144000,
+        "estimatedGpuTokenMultiplier": "10x–40x GPU token burn risk",
+        "vetoReasons": [
+          "1 context-bomb / schema-bloat FAIL check(s) detected"
+        ]
+      },
+      "findings": [
+        {
+          "checkId": "TC-SEC-004",
+          "tool": "agent_code_runner_service",
+          "severity": "HIGH",
+          "dimension": "D2",
+          "description": "Tool 'agent_code_runner_service' exposes unconstrained command/code/SQL string sink(s) [code_or_obj] without enum/pattern allowlist."
+        },
+        {
+          "checkId": "TC-SCHEMA-002",
+          "tool": "run_async_in_thread",
+          "severity": "MEDIUM",
+          "dimension": "D3",
+          "description": "Description entropy failure: Tool 'run_async_in_thread' description is too terse (0 chars, minimum 30 required for reliable LLM tool steering)"
+        }
+      ],
+      "badgeFile": "benchmarks/huggingface-mcp/badges/agents-mcp-hackathon__shallowcoderesearch.svg",
+      "liveBadgeUrl": "https://toolveto.ai/api/v1/badge/agents-mcp-hackathon__shallowcoderesearch.svg?label=ToolVeto+NIM",
+      "scorecardUrl": "https://toolveto.ai/r/agents-mcp-hackathon__shallowcoderesearch",
+      "markdownBadge": "[![ToolVeto NVIDIA NIM Checked (93/100)](https://toolveto.ai/api/v1/badge/agents-mcp-hackathon__shallowcoderesearch.svg?label=ToolVeto+NIM)](https://toolveto.ai/r/agents-mcp-hackathon__shallowcoderesearch)",
+      "scannedAt": "2026-11-28T05:05:18.857Z"
+    },
+    {
+      "spaceId": "Agents-MCP-Hackathon/doc-mcp",
+      "slug": "agents-mcp-hackathon/doc-mcp",
+      "encodedSlug": "agents-mcp-hackathon__doc-mcp",
+      "spaceUrl": "https://huggingface.co/spaces/Agents-MCP-Hackathon/doc-mcp",
+      "commitSha": "831be6f02fbebaee60ab21775049ac79362e531e",
+      "shortSha": "831be6f0",
+      "likes": 51,
+      "sdk": "gradio",
+      "framework": "Gradio MCP (mcp_server=True)",
+      "category": "search",
+      "tags": [
+        "gradio",
+        "mcp-server",
+        "region:us"
+      ],
+      "evidenceQuality": "STATIC-ONLY",
+      "filesAudited": [
+        "app.py",
+        "rag/config.py",
+        "rag/github_file_loader.py",
+        "rag/ingest.py",
+        "rag/query.py"
+      ],
+      "toolCount": 18,
+      "tools": [
+        "load_files_handler",
+        "select_all_handler",
+        "clear_all_handler",
+        "start_step1_generator",
+        "start_step2",
+        "refresh_progress",
+        "reset_progress",
+        "reset_repo_selection",
+        "list_available_docs",
+        "query_documentation",
+        "make_query",
+        "load_repository_stats",
+        "load_repository_details",
+        "update_delete_dropdown",
+        "delete_repository",
+        "list_repository_files",
+        "get_single_file",
+        "get_multiple_files"
+      ],
+      "score": 89,
+      "tier": "Gold",
+      "fatalVetoTriggered": false,
+      "fatalVetoCode": "VETO_NONE",
+      "dimensions": {
+        "d1": 100,
+        "d2": 90,
+        "d3": 78,
+        "d4": 74,
+        "d5": 98
+      },
+      "passed": 314,
+      "failed": 10,
+      "warned": 96,
+      "criticalFailures": 0,
+      "highFailures": 2,
+      "manifestSha256": "f3263a358bf7069abfc9eeb8e1dfcc5b2711d10d47eaae11acf4ff2b9c957509",
+      "nvidiaNimProfile": {
+        "certified": false,
+        "kvCacheEvictionRisk": "CRITICAL",
+        "runawayLoopRisk": "ELEVATED",
+        "unboundedListTools": [
+          "list_available_docs",
+          "query_documentation",
+          "list_repository_files"
+        ],
+        "estimatedKvCacheWasteTokensPerCall": 138000,
+        "estimatedRunawayLoopWasteTokens": 216000,
+        "estimatedGpuTokenMultiplier": "10x–40x GPU token burn risk",
+        "vetoReasons": [
+          "D3 Context Hygiene score 78/100 < 85 (KV-cache eviction risk)",
+          "10 context-bomb / schema-bloat FAIL check(s) detected",
+          "Unpaginated list/query tool(s) without limit/cursor: list_available_docs, query_documentation, list_repository_files"
+        ]
+      },
+      "findings": [
+        {
+          "checkId": "TC-SCHEMA-002",
+          "tool": "load_files_handler",
+          "severity": "MEDIUM",
+          "dimension": "D3",
+          "description": "Description entropy failure: Tool 'load_files_handler' description is too terse (0 chars, minimum 30 required for reliable LLM tool steering)"
+        },
+        {
+          "checkId": "TC-SCHEMA-002",
+          "tool": "select_all_handler",
+          "severity": "MEDIUM",
+          "dimension": "D3",
+          "description": "Description entropy failure: Tool 'select_all_handler' description is too terse (0 chars, minimum 30 required for reliable LLM tool steering)"
+        },
+        {
+          "checkId": "TC-SCHEMA-002",
+          "tool": "clear_all_handler",
+          "severity": "MEDIUM",
+          "dimension": "D3",
+          "description": "Description entropy failure: Tool 'clear_all_handler' description is too terse (0 chars, minimum 30 required for reliable LLM tool steering)"
+        },
+        {
+          "checkId": "TC-SCHEMA-002",
+          "tool": "refresh_progress",
+          "severity": "MEDIUM",
+          "dimension": "D3",
+          "description": "Description entropy failure: Tool 'refresh_progress' description is too terse (28 chars, minimum 30 required for reliable LLM tool steering)"
+        },
+        {
+          "checkId": "TC-SCHEMA-002",
+          "tool": "reset_progress",
+          "severity": "MEDIUM",
+          "dimension": "D3",
+          "description": "Description entropy failure: Tool 'reset_progress' description is too terse (18 chars, minimum 30 required for reliable LLM tool steering)"
+        },
+        {
+          "checkId": "TC-SCHEMA-002",
+          "tool": "reset_repo_selection",
+          "severity": "MEDIUM",
+          "dimension": "D3",
+          "description": "Description entropy failure: Tool 'reset_repo_selection' description is too terse (28 chars, minimum 30 required for reliable LLM tool steering)"
+        },
+        {
+          "checkId": "TC-SCHEMA-001",
+          "tool": "list_available_docs",
+          "severity": "HIGH",
+          "dimension": "D3",
+          "description": "Unbounded list response risk: Query tool 'list_available_docs' has no limit/cursor parameter and risks context bomb under production load"
+        },
+        {
+          "checkId": "TC-SCHEMA-002",
+          "tool": "query_documentation",
+          "severity": "MEDIUM",
+          "dimension": "D3",
+          "description": "Description entropy failure: Tool 'query_documentation' description is too terse (0 chars, minimum 30 required for reliable LLM tool steering)"
+        },
+        {
+          "checkId": "TC-SCHEMA-002",
+          "tool": "make_query",
+          "severity": "MEDIUM",
+          "dimension": "D3",
+          "description": "Description entropy failure: Tool 'make_query' description is too terse (0 chars, minimum 30 required for reliable LLM tool steering)"
+        },
+        {
+          "checkId": "TC-SCHEMA-001",
+          "tool": "list_repository_files",
+          "severity": "HIGH",
+          "dimension": "D3",
+          "description": "Unbounded list response risk: Query tool 'list_repository_files' has no limit/cursor parameter and risks context bomb under production load"
+        }
+      ],
+      "badgeFile": "benchmarks/huggingface-mcp/badges/agents-mcp-hackathon__doc-mcp.svg",
+      "liveBadgeUrl": "https://toolveto.ai/api/v1/badge/agents-mcp-hackathon__doc-mcp.svg?label=ToolVeto+NIM",
+      "scorecardUrl": "https://toolveto.ai/r/agents-mcp-hackathon__doc-mcp",
+      "markdownBadge": "[![ToolVeto NVIDIA NIM Checked (89/100)](https://toolveto.ai/api/v1/badge/agents-mcp-hackathon__doc-mcp.svg?label=ToolVeto+NIM)](https://toolveto.ai/r/agents-mcp-hackathon__doc-mcp)",
+      "scannedAt": "2026-11-28T05:05:18.057Z"
+    },
+    {
+      "spaceId": "burtenshaw/autotrain-mcp",
+      "slug": "burtenshaw/autotrain-mcp",
+      "encodedSlug": "burtenshaw__autotrain-mcp",
+      "spaceUrl": "https://huggingface.co/spaces/burtenshaw/autotrain-mcp",
+      "commitSha": "41036579e0fc60b8fb7d4ac11c7c7dd3b7c8b610",
+      "shortSha": "41036579",
+      "likes": 47,
+      "sdk": "gradio",
+      "framework": "Gradio MCP (mcp_server=True)",
+      "category": "devtools",
+      "tags": [
+        "gradio",
+        "mcp-server",
+        "region:us"
+      ],
+      "evidenceQuality": "STATIC-ONLY",
+      "filesAudited": [
+        "app.py"
+      ],
+      "toolCount": 6,
+      "tools": [
+        "get_system_status",
+        "get_training_runs",
+        "start_training_job",
+        "get_run_details",
+        "get_task_recommendations",
+        "refresh_ui_data"
+      ],
+      "score": 91,
+      "tier": "Gold",
+      "fatalVetoTriggered": false,
+      "fatalVetoCode": "VETO_NONE",
+      "dimensions": {
+        "d1": 100,
+        "d2": 91,
+        "d3": 85,
+        "d4": 73,
+        "d5": 100
+      },
+      "passed": 113,
+      "failed": 2,
+      "warned": 29,
+      "criticalFailures": 0,
+      "highFailures": 0,
+      "manifestSha256": "a0535f8e031b62eef50d8e90182fe95342fd9e8b39dca434075afee58dbc3981",
+      "nvidiaNimProfile": {
+        "certified": false,
+        "kvCacheEvictionRisk": "CRITICAL",
+        "runawayLoopRisk": "ELEVATED",
+        "unboundedListTools": [],
+        "estimatedKvCacheWasteTokensPerCall": 64000,
+        "estimatedRunawayLoopWasteTokens": 72000,
+        "estimatedGpuTokenMultiplier": "10x–40x GPU token burn risk",
+        "vetoReasons": [
+          "2 context-bomb / schema-bloat FAIL check(s) detected"
+        ]
+      },
+      "findings": [
+        {
+          "checkId": "TC-SCHEMA-002",
+          "tool": "start_training_job",
+          "severity": "MEDIUM",
+          "dimension": "D3",
+          "description": "Description entropy failure: Tool 'start_training_job' description is too terse (18 chars, minimum 30 required for reliable LLM tool steering)"
+        },
+        {
+          "checkId": "TC-SCHEMA-002",
+          "tool": "refresh_ui_data",
+          "severity": "MEDIUM",
+          "dimension": "D3",
+          "description": "Description entropy failure: Tool 'refresh_ui_data' description is too terse (0 chars, minimum 30 required for reliable LLM tool steering)"
+        }
+      ],
+      "badgeFile": "benchmarks/huggingface-mcp/badges/burtenshaw__autotrain-mcp.svg",
+      "liveBadgeUrl": "https://toolveto.ai/api/v1/badge/burtenshaw__autotrain-mcp.svg?label=ToolVeto+NIM",
+      "scorecardUrl": "https://toolveto.ai/r/burtenshaw__autotrain-mcp",
+      "markdownBadge": "[![ToolVeto NVIDIA NIM Checked (91/100)](https://toolveto.ai/api/v1/badge/burtenshaw__autotrain-mcp.svg?label=ToolVeto+NIM)](https://toolveto.ai/r/burtenshaw__autotrain-mcp)",
+      "scannedAt": "2026-11-28T05:05:18.261Z"
+    },
+    {
+      "spaceId": "aiqcamp/MCP-kokoro",
+      "slug": "aiqcamp/mcp-kokoro",
+      "encodedSlug": "aiqcamp__mcp-kokoro",
+      "spaceUrl": "https://huggingface.co/spaces/aiqcamp/MCP-kokoro",
+      "commitSha": "7a96399299c414eb82b664d0cfd357e6a153cd46",
+      "shortSha": "7a963992",
+      "likes": 43,
+      "sdk": "gradio",
+      "framework": "Gradio MCP (mcp_server=True)",
+      "category": "multimodal-ai",
+      "tags": [
+        "gradio",
+        "mcp-server",
+        "region:us"
+      ],
+      "evidenceQuality": "STATIC-ONLY",
+      "filesAudited": [
+        "app.py"
+      ],
+      "toolCount": 1,
+      "tools": [
+        "text_to_audio"
+      ],
+      "score": 94,
+      "tier": "Platinum",
+      "fatalVetoTriggered": false,
+      "fatalVetoCode": "VETO_NONE",
+      "dimensions": {
+        "d1": 100,
+        "d2": 93,
+        "d3": 93,
+        "d4": 80,
+        "d5": 100
+      },
+      "passed": 25,
+      "failed": 0,
+      "warned": 4,
+      "criticalFailures": 0,
+      "highFailures": 0,
+      "manifestSha256": "3870d09633bbd02aeef5d740aa7f600b2184d98afc642e058d5b173d6bde319c",
+      "nvidiaNimProfile": {
+        "certified": true,
+        "kvCacheEvictionRisk": "ELEVATED",
+        "runawayLoopRisk": "ELEVATED",
+        "unboundedListTools": [],
+        "estimatedKvCacheWasteTokensPerCall": 0,
+        "estimatedRunawayLoopWasteTokens": 12000,
+        "estimatedGpuTokenMultiplier": "2x–6x GPU token burn risk",
+        "vetoReasons": []
+      },
+      "findings": [],
+      "badgeFile": "benchmarks/huggingface-mcp/badges/aiqcamp__mcp-kokoro.svg",
+      "liveBadgeUrl": "https://toolveto.ai/api/v1/badge/aiqcamp__mcp-kokoro.svg?label=ToolVeto+NIM",
+      "scorecardUrl": "https://toolveto.ai/r/aiqcamp__mcp-kokoro",
+      "markdownBadge": "[![ToolVeto NVIDIA NIM Certified (94/100)](https://toolveto.ai/api/v1/badge/aiqcamp__mcp-kokoro.svg?label=ToolVeto+NIM)](https://toolveto.ai/r/aiqcamp__mcp-kokoro)",
+      "scannedAt": "2026-11-28T05:05:18.916Z"
+    },
+    {
+      "spaceId": "Agents-MCP-Hackathon/universal-file-converter",
+      "slug": "agents-mcp-hackathon/universal-file-converter",
+      "encodedSlug": "agents-mcp-hackathon__universal-file-converter",
+      "spaceUrl": "https://huggingface.co/spaces/Agents-MCP-Hackathon/universal-file-converter",
+      "commitSha": "252e4a86773b2da3d145059c18b105a8764fe339",
+      "shortSha": "252e4a86",
+      "likes": 41,
+      "sdk": "gradio",
+      "framework": "Gradio MCP (mcp_server=True)",
+      "category": "devtools",
+      "tags": [
+        "gradio",
+        "mcp-server-track",
+        "file-converter",
+        "api",
+        "mcp-server",
+        "region:us"
+      ],
+      "evidenceQuality": "STATIC-ONLY",
+      "filesAudited": [
+        "src/app.py"
+      ],
+      "toolCount": 2,
+      "tools": [
+        "convert_local_file",
+        "convert_from_url"
+      ],
+      "score": 91,
+      "tier": "Gold",
+      "fatalVetoTriggered": false,
+      "fatalVetoCode": "VETO_NONE",
+      "dimensions": {
+        "d1": 100,
+        "d2": 88,
+        "d3": 85,
+        "d4": 75,
+        "d5": 100
+      },
+      "passed": 40,
+      "failed": 0,
+      "warned": 12,
+      "criticalFailures": 0,
+      "highFailures": 0,
+      "manifestSha256": "daa648fd0fa99593f86fff524935a1727ee99666b4d3b32af4aa97a7aebd5a54",
+      "nvidiaNimProfile": {
+        "certified": true,
+        "kvCacheEvictionRisk": "ELEVATED",
+        "runawayLoopRisk": "ELEVATED",
+        "unboundedListTools": [],
+        "estimatedKvCacheWasteTokensPerCall": 0,
+        "estimatedRunawayLoopWasteTokens": 24000,
+        "estimatedGpuTokenMultiplier": "2x–6x GPU token burn risk",
+        "vetoReasons": []
+      },
+      "findings": [],
+      "badgeFile": "benchmarks/huggingface-mcp/badges/agents-mcp-hackathon__universal-file-converter.svg",
+      "liveBadgeUrl": "https://toolveto.ai/api/v1/badge/agents-mcp-hackathon__universal-file-converter.svg?label=ToolVeto+NIM",
+      "scorecardUrl": "https://toolveto.ai/r/agents-mcp-hackathon__universal-file-converter",
+      "markdownBadge": "[![ToolVeto NVIDIA NIM Certified (91/100)](https://toolveto.ai/api/v1/badge/agents-mcp-hackathon__universal-file-converter.svg?label=ToolVeto+NIM)](https://toolveto.ai/r/agents-mcp-hackathon__universal-file-converter)",
+      "scannedAt": "2026-11-28T05:05:19.081Z"
+    },
+    {
+      "spaceId": "Agents-MCP-Hackathon/multi-agent_deep-research",
+      "slug": "agents-mcp-hackathon/multi-agent_deep-research",
+      "encodedSlug": "agents-mcp-hackathon__multi-agent_deep-research",
+      "spaceUrl": "https://huggingface.co/spaces/Agents-MCP-Hackathon/multi-agent_deep-research",
+      "commitSha": "8e728b961c638d18fbbff2c9ca01eb218e03b842",
+      "shortSha": "8e728b96",
+      "likes": 38,
+      "sdk": "gradio",
+      "framework": "Gradio MCP (mcp_server=True)",
+      "category": "search",
+      "tags": [
+        "gradio",
+        "agent-demo-track",
+        "mcp-server",
+        "region:us"
+      ],
+      "evidenceQuality": "STATIC-ONLY",
+      "filesAudited": [
+        "agents.py",
+        "logger_config.py",
+        "mcp_server.py",
+        "utils.py"
+      ],
+      "toolCount": 2,
+      "tools": [
+        "run_research",
+        "process_query"
+      ],
+      "score": 91,
+      "tier": "Gold",
+      "fatalVetoTriggered": false,
+      "fatalVetoCode": "VETO_NONE",
+      "dimensions": {
+        "d1": 100,
+        "d2": 92,
+        "d3": 81,
+        "d4": 75,
+        "d5": 100
+      },
+      "passed": 41,
+      "failed": 1,
+      "warned": 10,
+      "criticalFailures": 0,
+      "highFailures": 0,
+      "manifestSha256": "f768f5ec488610279c1dd6ea9ba5529fecbb8c2189990fe5624db8aafc4e8dac",
+      "nvidiaNimProfile": {
+        "certified": false,
+        "kvCacheEvictionRisk": "CRITICAL",
+        "runawayLoopRisk": "ELEVATED",
+        "unboundedListTools": [],
+        "estimatedKvCacheWasteTokensPerCall": 32000,
+        "estimatedRunawayLoopWasteTokens": 24000,
+        "estimatedGpuTokenMultiplier": "10x–40x GPU token burn risk",
+        "vetoReasons": [
+          "D3 Context Hygiene score 81/100 < 85 (KV-cache eviction risk)",
+          "1 context-bomb / schema-bloat FAIL check(s) detected"
+        ]
+      },
+      "findings": [
+        {
+          "checkId": "TC-SCHEMA-002",
+          "tool": "run_research",
+          "severity": "MEDIUM",
+          "dimension": "D3",
+          "description": "Description entropy failure: Tool 'run_research' description is too terse (0 chars, minimum 30 required for reliable LLM tool steering)"
+        }
+      ],
+      "badgeFile": "benchmarks/huggingface-mcp/badges/agents-mcp-hackathon__multi-agent_deep-research.svg",
+      "liveBadgeUrl": "https://toolveto.ai/api/v1/badge/agents-mcp-hackathon__multi-agent_deep-research.svg?label=ToolVeto+NIM",
+      "scorecardUrl": "https://toolveto.ai/r/agents-mcp-hackathon__multi-agent_deep-research",
+      "markdownBadge": "[![ToolVeto NVIDIA NIM Checked (91/100)](https://toolveto.ai/api/v1/badge/agents-mcp-hackathon__multi-agent_deep-research.svg?label=ToolVeto+NIM)](https://toolveto.ai/r/agents-mcp-hackathon__multi-agent_deep-research)",
+      "scannedAt": "2026-11-28T05:05:20.435Z"
+    }
+  ]
+}

@@ -472,12 +472,87 @@ function mapPythonTypeToJsonSchema(typeExpr: string): Record<string, any> {
 }
 
 /**
- * Extracts MCP `@mcp.tool()` definitions statically from Python FastMCP / MCP SDK files.
+ * Extracts MCP `@mcp.tool()`, `@gr.mcp.tool()`, NVIDIA NeMo `@register_function`,
+ * and Hugging Face Gradio `mcp_server=True` tool definitions statically from Python files.
  */
 export function parsePythonSourceForTools(source: string, filePath = 'server.py'): McpToolDefinition[] {
   const tools: McpToolDefinition[] = [];
   const seen = new Set<string>();
-  const decoRe = /@[A-Za-z_][\w.]*\.tool\s*(?:\(([^)]*)\))?\s*\r?\n(?:async\s+)?def\s+([A-Za-z_]\w*)\s*\(/g;
+
+  const stripPythonComments = (raw: string): string => {
+    let out = '';
+    let quote: string | null = null;
+    let escaped = false;
+    for (let i = 0; i < raw.length; i++) {
+      const ch = raw[i]!;
+      if (quote) {
+        out += ch;
+        if (escaped) escaped = false;
+        else if (ch === '\\') escaped = true;
+        else if (ch === quote) quote = null;
+        continue;
+      }
+      if (ch === '"' || ch === "'") {
+        quote = ch;
+        out += ch;
+        continue;
+      }
+      if (ch === '#') {
+        while (i < raw.length && raw[i] !== '\n') i++;
+        if (i < raw.length) out += '\n';
+        continue;
+      }
+      out += ch;
+    }
+    return out;
+  };
+
+  const parsePythonParams = (paramsContent: string): { properties: Record<string, any>; required: string[] } => {
+    const properties: Record<string, any> = {};
+    const required: string[] = [];
+    const uncommented = stripPythonComments(paramsContent);
+    for (const rawParam of splitTopLevelArgs(uncommented)) {
+      const cleaned = rawParam.trim();
+      if (
+        !cleaned ||
+        cleaned === '/' ||
+        cleaned === 'self' ||
+        cleaned === 'cls' ||
+        cleaned.startsWith('*') ||
+        /\bContext\b/.test(cleaned) ||
+        /\bgr\.(?:Progress|Request)\b/.test(cleaned)
+      ) {
+        continue;
+      }
+
+      const eqIdx = findTopLevelEquals(cleaned);
+      const hasDefault = eqIdx !== -1;
+      const declPart = (hasDefault ? cleaned.slice(0, eqIdx) : cleaned).trim();
+      const colonIdx = findTopLevelColon(declPart);
+      const paramName = (colonIdx !== -1 ? declPart.slice(0, colonIdx) : declPart).trim();
+      if (
+        !paramName ||
+        !/^[A-Za-z_]\w*$/.test(paramName) ||
+        paramName === 'ctx' ||
+        paramName === 'progress' ||
+        paramName === 'request'
+      ) {
+        continue;
+      }
+
+      const typeExpr = colonIdx !== -1 ? declPart.slice(colonIdx + 1).trim() : 'str';
+      properties[paramName] = mapPythonTypeToJsonSchema(typeExpr);
+
+      if (!hasDefault && !/^Optional\s*\[/.test(typeExpr) && !/\|\s*None\b/.test(typeExpr)) {
+        required.push(paramName);
+      }
+    }
+    return { properties, required };
+  };
+
+  // 1. Decorated MCP / FastMCP / Gradio @gr.mcp.tool / NVIDIA NeMo @register_function handlers
+  const decoRe =
+    /@(?:[A-Za-z_][\w.]*\.tool|register_function|register_tool)\s*(?:\(([^)]*)\))?\s*(?:\r?\n\s*@[A-Za-z_][\w.]*(?:\([^)]*\))?)*\s*\r?\n\s*(?:async\s+)?def\s+([A-Za-z_]\w*)\s*\(/g;
   let match: RegExpExecArray | null;
 
   while ((match = decoRe.exec(source)) !== null) {
@@ -497,27 +572,7 @@ export function parsePythonSourceForTools(source: string, filePath = 'server.py'
     if (seen.has(toolName)) continue;
     seen.add(toolName);
 
-    const properties: Record<string, any> = {};
-    const required: string[] = [];
-
-    for (const rawParam of splitTopLevelArgs(balancedParams.content)) {
-      const cleaned = rawParam.trim();
-      if (!cleaned || cleaned === 'self' || cleaned.startsWith('*') || /\bContext\b/.test(cleaned)) continue;
-
-      const eqIdx = findTopLevelEquals(cleaned);
-      const hasDefault = eqIdx !== -1;
-      const declPart = (hasDefault ? cleaned.slice(0, eqIdx) : cleaned).trim();
-      const colonIdx = findTopLevelColon(declPart);
-      const paramName = (colonIdx !== -1 ? declPart.slice(0, colonIdx) : declPart).trim();
-      if (!paramName || paramName === 'ctx') continue;
-
-      const typeExpr = colonIdx !== -1 ? declPart.slice(colonIdx + 1).trim() : 'str';
-      properties[paramName] = mapPythonTypeToJsonSchema(typeExpr);
-
-      if (!hasDefault && !/^Optional\s*\[/.test(typeExpr) && !/\|\s*None\b/.test(typeExpr)) {
-        required.push(paramName);
-      }
-    }
+    const { properties, required } = parsePythonParams(balancedParams.content);
 
     const annotations: McpToolAnnotations = {};
     const ro = decoratorArgs.match(/readOnlyHint\s*[:=]\s*(True|False)/);
@@ -536,6 +591,117 @@ export function parsePythonSourceForTools(source: string, filePath = 'server.py'
       ...(Object.keys(annotations).length > 0 ? { annotations, ...annotations } : {}),
       sourceLocation: { file: filePath, line: lineNumberAt(source, match.index), language: 'python' },
     });
+  }
+
+  // 2. Hugging Face Gradio MCP Spaces (`demo.launch(..., mcp_server=True)`)
+  // Gradio 5+ exposes gr.Interface(fn=...), gr.api(fn), and public .click/.then/.submit(fn=..., api_name=...) handlers as MCP tools.
+  if (/\bmcp_server\s*=\s*True\b/.test(source)) {
+    const fnDefs = new Map<
+      string,
+      { paramsContent: string; docstring: string; line: number }
+    >();
+    const defRe = /^[ \t]*(?:async\s+)?def\s+([A-Za-z_]\w*)\s*\(/gm;
+    let dm: RegExpExecArray | null;
+    while ((dm = defRe.exec(source)) !== null) {
+      const name = dm[1]!;
+      const openIdx = dm.index + dm[0].length - 1;
+      const balanced = extractBalancedDelim(source, openIdx, '(', ')');
+      if (!balanced) continue;
+      const after = source.slice(balanced.endIndex + 1, balanced.endIndex + 600);
+      const docM = after.match(/^\s*(?:->[^:]+)?:\s*\r?\n\s*(?:"""([\s\S]*?)"""|'''([\s\S]*?)''')/);
+      const docstring = (docM?.[1] || docM?.[2] || '').trim().replace(/\s+/g, ' ');
+      if (!fnDefs.has(name)) {
+        fnDefs.set(name, {
+          paramsContent: balanced.content,
+          docstring,
+          line: lineNumberAt(source, dm.index),
+        });
+      }
+    }
+
+    const exposedGradioHandlers: Array<{ fnName: string; apiName?: string; description?: string }> = [];
+
+    // 2a. gr.Interface(...) / gradio.Interface(...)
+    const ifaceRe = /\b(?:gr|gradio)\.Interface\s*\(/g;
+    let im: RegExpExecArray | null;
+    while ((im = ifaceRe.exec(source)) !== null) {
+      const openIdx = im.index + im[0].length - 1;
+      const balanced = extractBalancedDelim(source, openIdx, '(', ')');
+      if (!balanced) continue;
+      const args = splitTopLevelArgs(balanced.content);
+      let fnName: string | undefined;
+      let apiName: string | undefined;
+      let ifaceDesc: string | undefined;
+      for (let i = 0; i < args.length; i++) {
+        const arg = args[i]!.trim();
+        const fnKw = arg.match(/^fn\s*=\s*([A-Za-z_]\w*)$/);
+        if (fnKw) fnName = fnKw[1];
+        else if (i === 0 && /^[A-Za-z_]\w*$/.test(arg)) fnName = arg;
+        const apiKw = arg.match(/^api_name\s*=\s*(['"])([^'"]+)\1/);
+        if (apiKw) apiName = apiKw[2];
+        const descKw = arg.match(/^(?:description|title)\s*=\s*(['"])([^'"]+)\1/);
+        if (descKw && !ifaceDesc) ifaceDesc = descKw[2];
+      }
+      if (fnName && !/\bapi_name\s*=\s*False\b/.test(balanced.content)) {
+        exposedGradioHandlers.push({ fnName, apiName, description: ifaceDesc });
+      }
+    }
+
+    // 2b. gr.api(fn, ...)
+    const apiRe = /\b(?:gr|gradio)\.api\s*\(/g;
+    while ((im = apiRe.exec(source)) !== null) {
+      const openIdx = im.index + im[0].length - 1;
+      const balanced = extractBalancedDelim(source, openIdx, '(', ')');
+      if (!balanced) continue;
+      const args = splitTopLevelArgs(balanced.content);
+      const first = args[0]?.trim() || '';
+      const fnKw = first.match(/^(?:fn\s*=\s*)?([A-Za-z_]\w*)$/);
+      const apiKw = balanced.content.match(/\bapi_name\s*=\s*(['"])([^'"]+)\1/);
+      if (fnKw && fnKw[1]) {
+        exposedGradioHandlers.push({ fnName: fnKw[1], apiName: apiKw?.[2] });
+      }
+    }
+
+    // 2c. .click(...) / .then(...) / .submit(...) with explicit public api_name or non-private fn
+    const eventRe = /\.(?:click|then|submit)\s*\(/g;
+    while ((im = eventRe.exec(source)) !== null) {
+      const openIdx = im.index + im[0].length - 1;
+      const balanced = extractBalancedDelim(source, openIdx, '(', ')');
+      if (!balanced) continue;
+      const body = balanced.content;
+      if (/\bapi_visibility\s*=\s*['"]private['"]/.test(body) || /\bapi_name\s*=\s*False\b/.test(body)) {
+        continue;
+      }
+      const args = splitTopLevelArgs(body);
+      let fnName: string | undefined;
+      let apiName: string | undefined;
+      for (let i = 0; i < args.length; i++) {
+        const arg = args[i]!.trim();
+        const fnKw = arg.match(/^fn\s*=\s*([A-Za-z_]\w*)$/);
+        if (fnKw) fnName = fnKw[1];
+        else if (i === 0 && /^[A-Za-z_]\w*$/.test(arg) && arg !== 'None') fnName = arg;
+        const apiKw = arg.match(/^api_name\s*=\s*(['"])([^'"]+)\1/);
+        if (apiKw) apiName = apiKw[2];
+      }
+      if (fnName && !fnName.startsWith('_') && (apiName || fnDefs.has(fnName))) {
+        exposedGradioHandlers.push({ fnName, apiName });
+      }
+    }
+
+    for (const handler of exposedGradioHandlers) {
+      const def = fnDefs.get(handler.fnName);
+      if (!def) continue;
+      const toolName = (handler.apiName || handler.fnName).replace(/^\/+/, '');
+      if (!toolName || seen.has(toolName)) continue;
+      seen.add(toolName);
+      const { properties, required } = parsePythonParams(def.paramsContent);
+      tools.push({
+        name: toolName,
+        description: def.docstring || handler.description || undefined,
+        inputSchema: { type: 'object', properties, ...(required.length > 0 ? { required } : {}) },
+        sourceLocation: { file: filePath, line: def.line, language: 'python' },
+      });
+    }
   }
 
   return tools;
@@ -741,7 +907,7 @@ export function extractSourceContextFromDir(targetPath: string): {
   for (const f of sourceFiles) {
     if (/\bStdioServerTransport\b|transport\s*=\s*["']stdio["']|stdio_server|process\.stdin/.test(f.content)) hasStdio = true;
     if (/\bStreamableHTTPServerTransport\b|\bhttp\.createServer\b/.test(f.content)) hasHttp = true;
-    if (/\bSSEServerTransport\b/.test(f.content)) hasSse = true;
+    if (/\bSSEServerTransport\b|\bmcp_server\s*=\s*True\b/.test(f.content)) hasSse = true;
   }
 
   const transportMode =

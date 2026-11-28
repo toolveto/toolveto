@@ -142,10 +142,16 @@ export function createProgram(): Command {
 
   program
     .command('badge')
-    .description('Generate an official ToolVeto SVG badge for README markdown')
+    .description('Generate an official ToolVeto SVG trust badge and GitHub / Hugging Face Space README embed snippets')
     .option('-s, --score <score>', 'Evaluated score (0-100)')
     .option('-t, --tier <tier>', 'Certification tier (Platinum, Gold, Silver, Bronze, Failed)')
     .option('-o, --output <path>', 'Output SVG file path', 'toolveto-badge.svg')
+    .option('--label <label>', 'Custom badge left-hand label (e.g. ToolVeto, ToolVeto NIM)')
+    .option('--huggingface', 'Emit Hugging Face Space README.md badge markdown and YAML frontmatter tags')
+    .option('--space <org/space>', 'Hugging Face Space ID or URL (e.g. Agents-MCP-Hackathon/Graphify)')
+    .option('--repo <owner/repo>', 'GitHub repository slug for live README badge markdown')
+    .option('--profile <profile>', 'Badge profile: default or nvidia-nim')
+    .option('--nim', 'Emit NVIDIA NIM GPU/KV-Cache certified badge variant')
     .action(async (options) => {
       await badgeCommand(options);
     });

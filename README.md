@@ -84,7 +84,18 @@ npx toolveto@latest fix ./my-fastmcp-server --lang fastmcp --apply
 npx toolveto@latest export-policy ./my-mcp-server --format nvidia-openshell -o openshell-policy.yaml
 npx toolveto@latest export-policy ./my-mcp-server --format nemo-guardrails -o ./nemo-guardrails
 npx toolveto@latest export-policy ./my-mcp-server --format weaveproof
+
+# Generate free GitHub & Hugging Face Space trust badges (including NVIDIA NIM certified variant)
+npx toolveto@latest badge --huggingface --space org/my-mcp-space --profile nvidia-nim
 ```
+
+### Hugging Face MCP Safety Index (2026)
+
+Explore our reproducible, zero-execution benchmark across 30 live public Hugging Face `mcp-server` & FastMCP Spaces (**39,686 likes**, **109 extracted tools**, **77% blocked under `--profile nvidia-nim`**):
+
+- **Full Report:** [`benchmarks/huggingface-mcp/STATE_OF_OPEN_WEIGHT_AND_FASTMCP_SAFETY_2026.md`](./benchmarks/huggingface-mcp/STATE_OF_OPEN_WEIGHT_AND_FASTMCP_SAFETY_2026.md)
+- **Machine-Readable Dataset:** [`benchmarks/huggingface-mcp/index.json`](./benchmarks/huggingface-mcp/index.json)
+- **Reproduce Live Anytime:** `node scripts/scan-hf-mcp-index.mjs`
 
 ### GitHub Actions CI Gate (`toolveto/toolveto@v2` — SARIF 2.1.0 + Sticky PR Bot)
 
