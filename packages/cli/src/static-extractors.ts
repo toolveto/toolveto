@@ -31,7 +31,8 @@ export function extractBalancedDelim(
   source: string,
   openIndex: number,
   openChar: string,
-  closeChar: string
+  closeChar: string,
+  pythonComments = false
 ): { content: string; endIndex: number } | null {
   if (openIndex < 0 || source[openIndex] !== openChar) return null;
   let depth = 0;
@@ -51,20 +52,27 @@ export function extractBalancedDelim(
       continue;
     }
 
-    if (ch === '/' && source[i + 1] === '/') {
+    if (pythonComments && ch === '#') {
       const nl = source.indexOf('\n', i);
       if (nl === -1) break;
       i = nl;
       continue;
     }
-    if (ch === '/' && source[i + 1] === '*') {
+
+    if (!pythonComments && ch === '/' && source[i + 1] === '/') {
+      const nl = source.indexOf('\n', i);
+      if (nl === -1) break;
+      i = nl;
+      continue;
+    }
+    if (!pythonComments && ch === '/' && source[i + 1] === '*') {
       const end = source.indexOf('*/', i + 2);
       if (end === -1) break;
       i = end + 1;
       continue;
     }
 
-    if (ch === '"' || ch === "'" || ch === '`') {
+    if (ch === '"' || ch === "'" || (!pythonComments && ch === '`')) {
       quote = ch;
       continue;
     }
@@ -306,13 +314,62 @@ function lineNumberAt(source: string, index: number): number {
 }
 
 /**
+ * Masks JS/TS single-line (`//`) and block (`/* ... *\/`) comments with spaces while preserving
+ * newlines and string literals so line numbers remain exact and commented-out tools are never extracted.
+ */
+function maskJsCommentsPreserveLines(source: string): string {
+  const chars = source.split('');
+  let quote: string | null = null;
+  let escaped = false;
+  for (let i = 0; i < chars.length; i++) {
+    const ch = chars[i]!;
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+      continue;
+    }
+    if (ch === '/' && chars[i + 1] === '/') {
+      while (i < chars.length && chars[i] !== '\n' && chars[i] !== '\r') {
+        chars[i] = ' ';
+        i++;
+      }
+      continue;
+    }
+    if (ch === '/' && chars[i + 1] === '*') {
+      chars[i] = ' ';
+      chars[i + 1] = ' ';
+      i += 2;
+      while (i < chars.length) {
+        if (chars[i] === '*' && chars[i + 1] === '/') {
+          chars[i] = ' ';
+          chars[i + 1] = ' ';
+          i++;
+          break;
+        }
+        if (chars[i] !== '\n' && chars[i] !== '\r') {
+          chars[i] = ' ';
+        }
+        i++;
+      }
+    }
+  }
+  return chars.join('');
+}
+
+/**
  * Extracts MCP tools statically from TypeScript / JavaScript sources without executing code.
  */
 export function parseTypeScriptSourceForTools(
-  source: string,
+  rawSource: string,
   filePath = 'server.ts',
   language: 'typescript' | 'javascript' = 'typescript'
 ): McpToolDefinition[] {
+  const source = maskJsCommentsPreserveLines(rawSource);
   const tools: McpToolDefinition[] = [];
   const seen = new Set<string>();
 
@@ -559,7 +616,7 @@ export function parsePythonSourceForTools(source: string, filePath = 'server.py'
     const decoratorArgs = match[1] || '';
     const fnName = match[2]!;
     const paramsOpen = match.index + match[0].length - 1;
-    const balancedParams = extractBalancedDelim(source, paramsOpen, '(', ')');
+    const balancedParams = extractBalancedDelim(source, paramsOpen, '(', ')', true);
     if (!balancedParams) continue;
 
     const afterParams = source.slice(balancedParams.endIndex + 1, balancedParams.endIndex + 400);
@@ -605,7 +662,7 @@ export function parsePythonSourceForTools(source: string, filePath = 'server.py'
     while ((dm = defRe.exec(source)) !== null) {
       const name = dm[1]!;
       const openIdx = dm.index + dm[0].length - 1;
-      const balanced = extractBalancedDelim(source, openIdx, '(', ')');
+      const balanced = extractBalancedDelim(source, openIdx, '(', ')', true);
       if (!balanced) continue;
       const after = source.slice(balanced.endIndex + 1, balanced.endIndex + 600);
       const docM = after.match(/^\s*(?:->[^:]+)?:\s*\r?\n\s*(?:"""([\s\S]*?)"""|'''([\s\S]*?)''')/);

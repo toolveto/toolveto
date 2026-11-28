@@ -135,10 +135,12 @@ jobs:
           trap - EXIT
           echo "✔ Acme FinTech MCP hardened passed & vulnerable vetoed as expected."
 
-      - name: Clean Customer Tarball Install Smoke Test (pnpm pack)
+      - name: Clean Customer Tarball Install Smoke Test (pnpm pack — Full CLI Subcommand E2E)
         run: |
+          set -euo pipefail
           PACK_DIR=$(mktemp -d)
           CUSTOMER_DIR=$(mktemp -d)
+          trap 'rm -rf "$PACK_DIR" "$CUSTOMER_DIR"' EXIT
           (cd packages/shield && pnpm pack --pack-destination "$PACK_DIR")
           (cd packages/core && pnpm pack --pack-destination "$PACK_DIR")
           (cd packages/gateway && pnpm pack --pack-destination "$PACK_DIR")
@@ -149,7 +151,34 @@ jobs:
           npx toolveto --version
           npx toolveto-gateway --help | grep -q "toolveto-gateway"
           node -e "const s = require('@toolveto/shield'); const pg = require('@toolveto/shield/stores/postgres'); const rd = require('@toolveto/shield/stores/redis'); if (!s.ShieldMiddleware || !pg.PostgresShieldStorage || !rd.RedisShieldStorage) process.exit(1);"
-          echo "✔ Clean npm tarball installation verified for all 4 published packages."
+          cat <<'EOF' > smoke_server.py
+          from mcp.server.fastmcp import FastMCP
+          mcp = FastMCP("tarball-smoke")
+          @mcp.tool()
+          async def list_orders(customer_id: str, **kwargs):
+              """Lists all customer orders from billing backend."""
+              return []
+          @mcp.tool(destructiveHint=True)
+          def delete_order(order_id: str):
+              """Deletes an order by ID."""
+              return {"ok": True}
+          EOF
+          if GITHUB_ACTIONS=false npx toolveto check ./smoke_server.py --profile nvidia-nim --skip-update-check --no-telemetry ; then
+            echo "❌ Expected unpaginated FastMCP tarball smoke to fail --profile nvidia-nim"
+            exit 1
+          fi
+          npx toolveto fix ./smoke_server.py --lang fastmcp --apply
+          python3 -m py_compile ./smoke_server.py
+          npx toolveto export-policy ./smoke_server.py --format nvidia-openshell -o openshell.yaml
+          grep -qi "openshell" openshell.yaml
+          npx toolveto export-policy ./smoke_server.py --format nemo-guardrails -o ./nemo-rails
+          test -f ./nemo-rails/config.yml
+          test -f ./nemo-rails/rails/toolveto_rails.co
+          npx toolveto badge --huggingface --space acme/tarball-smoke --profile nvidia-nim --score 94 --tier Platinum -o badge.svg
+          grep -q "ToolVeto NIM" badge.svg
+          npx toolveto lock ./smoke_server.py -o toolveto.lock.json
+          npx toolveto lock ./smoke_server.py -o toolveto.lock.json --verify
+          echo "✔ Clean npm tarball installation & all flagship CLI commands verified for all 4 published packages."
 
       - name: Production Gateway Container Build & Live Runtime Boot Gate
         run: |
@@ -246,7 +275,96 @@ jobs:
             echo "| Secret Hygiene Scan | Zero hardcoded fallback secrets across \`packages/\` | ✅ Passed |"
             echo "| Live Distributed Stores | \`PostgresShieldStorage\` (Postgres 16) + \`RedisShieldStorage\` (Redis 7 Lua) | ✅ Passed |"
             echo "| Official MCP SDK E2E | \`StreamableHTTPServerTransport\` + SSE + \`StdioServerTransport\` Proxy | ✅ Passed |"
-            echo "| Clean Customer Tarball Smoke | \`pnpm pack\` + isolated \`npm install\` of all 4 packages | ✅ Passed |"
+            echo "| Clean Customer Tarball Smoke | \`pnpm pack\` + isolated \`npm install\` + full CLI subcommand E2E | ✅ Passed |"
             echo "| Production Container Boot | \`packages/gateway/Dockerfile\` live \`/health\`, 401 fail-closed & \`/mcp\` proxy | ✅ Passed |"
             echo "| Shield Sub-2ms Micro-Benchmark | Inline interception latency SLA | ✅ Passed |"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  cross-os-cli-smoke:
+    name: Cross-OS Developer CLI Matrix (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      - name: Install Dependencies & Build
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build
+
+      - name: Run Core & CLI Unit/Fuzz/Regression Tests on ${{ matrix.os }}
+        run: |
+          pnpm --filter @toolveto/core test
+          node --test packages/cli/dist/src/__tests__/nvidia-policy-exporters.test.js packages/cli/dist/src/__tests__/nvidia-nim-and-fastmcp.test.js packages/cli/dist/src/__tests__/huggingface-index-and-badges.test.js packages/cli/dist/src/__tests__/fuzz-and-regression-corpus.test.js packages/cli/dist/src/__tests__/wild-environment-resilience.test.js
+
+      - name: Cross-Platform Clean Tarball & CRLF FastMCP Smoke (${{ matrix.os }})
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e '
+            const fs = require("node:fs");
+            const os = require("node:os");
+            const path = require("node:path");
+            const { execFileSync } = require("node:child_process");
+            const isWin = process.platform === "win32";
+            const pnpmBin = isWin ? "pnpm.cmd" : "pnpm";
+            const npmBin = isWin ? "npm.cmd" : "npm";
+            const npxBin = isWin ? "npx.cmd" : "npx";
+            const run = (cmd, args, cwd, allowFail = false) => {
+              try {
+                return execFileSync(cmd, args, { cwd, encoding: "utf8", shell: isWin, stdio: "pipe" });
+              } catch (err) {
+                if (allowFail) return err.stdout || "";
+                throw new Error(`Command failed (${cmd} ${args.join(" ")}): ${err.stderr || err.message}`);
+              }
+            };
+            const packDir = fs.mkdtempSync(path.join(os.tmpdir(), "tv-pack-"));
+            const custDir = fs.mkdtempSync(path.join(os.tmpdir(), "tv-cust-"));
+            try {
+              for (const pkg of ["shield", "core", "gateway", "cli"]) {
+                run(pnpmBin, ["pack", "--pack-destination", packDir], path.resolve("packages", pkg));
+              }
+              const tarballs = fs.readdirSync(packDir).filter((f) => f.endsWith(".tgz")).map((f) => path.join(packDir, f));
+              run(npmBin, ["init", "-y"], custDir);
+              run(npmBin, ["install", ...tarballs], custDir);
+              const ver = run(npxBin, ["toolveto", "--version"], custDir).trim();
+              if (!ver) throw new Error("Empty toolveto --version");
+              const pyPath = path.join(custDir, "server.py");
+              const crlfPy = [
+                "from mcp.server.fastmcp import FastMCP",
+                "mcp = FastMCP(\"cross-os\")",
+                "@mcp.tool()",
+                "async def list_items(query: str, **kwargs):",
+                "    \"\"\"Lists items from catalog.\"\"\"",
+                "    return []",
+              ].join("\r\n") + "\r\n";
+              fs.writeFileSync(pyPath, crlfPy, "utf8");
+              run(npxBin, ["toolveto", "fix", pyPath, "--lang", "fastmcp", "--apply"], custDir);
+              const patched = fs.readFileSync(pyPath, "utf8");
+              if (!patched.includes("limit: int = 25")) throw new Error("FastMCP fix failed on CRLF file");
+              run(npxBin, ["toolveto", "export-policy", pyPath, "--format", "nvidia-openshell", "-o", "policy.yaml"], custDir);
+              if (!fs.existsSync(path.join(custDir, "policy.yaml"))) throw new Error("Missing openshell policy.yaml");
+              run(npxBin, ["toolveto", "badge", "--huggingface", "--space", "acme/cross-os", "--profile", "nvidia-nim", "--score", "95", "--tier", "Platinum", "-o", "badge.svg"], custDir);
+              if (!fs.readFileSync(path.join(custDir, "badge.svg"), "utf8").includes("ToolVeto NIM")) {
+                throw new Error("Missing ToolVeto NIM badge");
+              }
+              console.log(`✔ Cross-OS (${process.platform}) tarball CLI E2E smoke passed (v${ver})`);
+            } finally {
+              fs.rmSync(packDir, { recursive: true, force: true });
+              fs.rmSync(custDir, { recursive: true, force: true });
+            }
+          '
