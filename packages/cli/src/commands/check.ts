@@ -21,6 +21,7 @@ export interface CheckCommandOptions {
   withLlm?: boolean;
   json?: boolean;
   format?: string;
+  profile?: 'default' | 'nvidia-nim' | 'nim' | string;
   timeoutMs?: number;
   allowDestructive?: boolean;
   allowExec?: boolean;
@@ -35,6 +36,181 @@ export interface CheckCommandOptions {
   skipUpdateCheck?: boolean;
   noTelemetry?: boolean;
   telemetryDryRun?: boolean;
+}
+
+export interface NvidiaNimCertificationReport {
+  profile: 'nvidia-nim';
+  certified: boolean;
+  kvCacheEvictionRisk: 'LOW' | 'ELEVATED' | 'CRITICAL';
+  runawayLoopRisk: 'LOW' | 'ELEVATED' | 'CRITICAL';
+  contextHygieneScore: number;
+  errorFeedbackScore: number;
+  unboundedListTools: string[];
+  ambiguousErrorTools: string[];
+  estimatedKvCacheWasteTokensPerCall: number;
+  estimatedRunawayLoopWasteTokens: number;
+  estimatedGpuTokenMultiplier: string;
+  vetoReasons: string[];
+}
+
+export function evaluateNvidiaNimProfile(
+  summary: SuiteSummary,
+  tools: McpToolDefinition[]
+): NvidiaNimCertificationReport {
+  const d3Score = Number(summary.dimensionalScores?.D3?.score ?? 0);
+  const d2Score = Number(summary.dimensionalScores?.D2?.score ?? 0);
+
+  const ctxFailures = summary.results.filter(
+    (r) => (r.checkId.startsWith('TC-CTX') || r.checkId.startsWith('TC-SCHEMA')) && r.status === 'FAIL'
+  );
+  const ctxWarnings = summary.results.filter(
+    (r) => (r.checkId.startsWith('TC-CTX') || r.checkId.startsWith('TC-SCHEMA')) && r.status === 'WARN'
+  );
+  const loopFailures = summary.results.filter(
+    (r) =>
+      (r.checkId.startsWith('TC-ERR') || r.checkId.startsWith('TC-FUZZ') || r.checkId.startsWith('TC-IDEMP')) &&
+      r.status === 'FAIL'
+  );
+  const loopWarnings = summary.results.filter(
+    (r) =>
+      (r.checkId.startsWith('TC-ERR') || r.checkId.startsWith('TC-FUZZ') || r.checkId.startsWith('TC-IDEMP')) &&
+      r.status === 'WARN'
+  );
+
+  // Detect unpaginated read/list/search tools that trigger 50k+ token KV-cache bombs on NIM
+  const unboundedListTools: string[] = [];
+  for (const tool of tools) {
+    const isListLike = /^(list|search|query|fetch_all|get_all|export|dump|scan)_/i.test(tool.name);
+    if (!isListLike) continue;
+    const props = Object.keys((tool.inputSchema as any)?.properties || {}).map((k) => k.toLowerCase());
+    const hasBound = props.some((k) =>
+      ['limit', 'page_size', 'pagesize', 'max_results', 'maxresults', 'top_k', 'cursor', 'offset'].includes(k)
+    );
+    if (!hasBound) {
+      unboundedListTools.push(tool.name);
+    }
+  }
+
+  const ambiguousErrorTools = Array.from(
+    new Set([...loopFailures, ...loopWarnings].map((r) => r.tool).filter((t) => t && !t.startsWith('_')))
+  );
+
+  const kvCacheEvictionRisk: 'LOW' | 'ELEVATED' | 'CRITICAL' =
+    ctxFailures.length > 0 || d3Score < 75 || unboundedListTools.length >= 2
+      ? 'CRITICAL'
+      : ctxWarnings.length > 0 || d3Score < 85 || unboundedListTools.length === 1
+        ? 'ELEVATED'
+        : 'LOW';
+
+  const runawayLoopRisk: 'LOW' | 'ELEVATED' | 'CRITICAL' =
+    loopFailures.length > 0 || d2Score < 75
+      ? 'CRITICAL'
+      : loopWarnings.length > 0 || d2Score < 80
+        ? 'ELEVATED'
+        : 'LOW';
+
+  const estimatedKvCacheWasteTokensPerCall =
+    unboundedListTools.length > 0
+      ? unboundedListTools.length * 46_000
+      : ctxFailures.length > 0
+        ? ctxFailures.length * 32_000
+        : 0;
+
+  const estimatedRunawayLoopWasteTokens =
+    loopFailures.length > 0
+      ? loopFailures.length * 48_000
+      : loopWarnings.length > 0
+        ? loopWarnings.length * 12_000
+        : 0;
+
+  const estimatedGpuTokenMultiplier =
+    kvCacheEvictionRisk === 'CRITICAL' || runawayLoopRisk === 'CRITICAL'
+      ? '10x–40x GPU token burn risk'
+      : kvCacheEvictionRisk === 'ELEVATED' || runawayLoopRisk === 'ELEVATED'
+        ? '2x–6x GPU token burn risk'
+        : '1.0x (KV-cache & retry optimal)';
+
+  const vetoReasons: string[] = [];
+  if (summary.fatalVetoTriggered) {
+    vetoReasons.push(`Core fatal safety veto triggered (${summary.fatalVetoCode || 'FATAL'})`);
+  }
+  if (d3Score < 85) {
+    vetoReasons.push(`D3 Context Hygiene score ${d3Score}/100 < 85 (KV-cache eviction risk)`);
+  }
+  if (ctxFailures.length > 0) {
+    vetoReasons.push(`${ctxFailures.length} context-bomb / schema-bloat FAIL check(s) detected`);
+  }
+  if (unboundedListTools.length > 0) {
+    vetoReasons.push(`Unpaginated list/query tool(s) without limit/cursor: ${unboundedListTools.join(', ')}`);
+  }
+  if (d2Score < 80) {
+    vetoReasons.push(`D2 Error Feedback score ${d2Score}/100 < 80 (agent retry-loop burn risk)`);
+  }
+  if (summary.score < 80) {
+    vetoReasons.push(`Overall score ${summary.score}/100 < 80 minimum for NVIDIA NIM certification`);
+  }
+
+  return {
+    profile: 'nvidia-nim',
+    certified: vetoReasons.length === 0,
+    kvCacheEvictionRisk,
+    runawayLoopRisk,
+    contextHygieneScore: d3Score,
+    errorFeedbackScore: d2Score,
+    unboundedListTools,
+    ambiguousErrorTools,
+    estimatedKvCacheWasteTokensPerCall,
+    estimatedRunawayLoopWasteTokens,
+    estimatedGpuTokenMultiplier,
+    vetoReasons,
+  };
+}
+
+export function formatNvidiaNimTerminalSection(report: NvidiaNimCertificationReport): string {
+  const lines = [
+    '',
+    '────────────────────────────────────────────────────────────────────────────',
+    `${report.certified ? '🟢' : '🔴'} NVIDIA NIM GPU & KV-Cache Certification Profile: ${report.certified ? 'CERTIFIED (PASS)' : 'BLOCKED (FAIL)'}`,
+    '────────────────────────────────────────────────────────────────────────────',
+    `  KV-Cache Eviction Risk : ${report.kvCacheEvictionRisk} (D3 Context Hygiene: ${report.contextHygieneScore}/100)`,
+    `  Runaway Loop Burn Risk : ${report.runawayLoopRisk} (D2 Error Feedback: ${report.errorFeedbackScore}/100)`,
+    `  Est. GPU Token Impact  : ${report.estimatedGpuTokenMultiplier}`,
+    `  Est. KV-Cache Waste    : ${report.estimatedKvCacheWasteTokensPerCall.toLocaleString()} tokens/unbounded call`,
+    `  Est. Retry-Loop Waste  : ${report.estimatedRunawayLoopWasteTokens.toLocaleString()} tokens/runaway incident`,
+  ];
+  if (report.unboundedListTools.length > 0) {
+    lines.push(`  Unpaginated Tools      : ${report.unboundedListTools.join(', ')}`);
+  }
+  if (report.vetoReasons.length > 0) {
+    lines.push('  NIM Blocking Reasons:');
+    for (const reason of report.vetoReasons) {
+      lines.push(`    - ${reason}`);
+    }
+    lines.push('  Remediation:');
+    lines.push('    1. Auto-inject pagination & idempotency: npx toolveto fix . --lang fastmcp --apply');
+    lines.push('    2. Export NeMo Guardrails token rails:   npx toolveto export-policy . --format nemo-guardrails -o ./nemo-guardrails');
+  }
+  lines.push('────────────────────────────────────────────────────────────────────────────');
+  return lines.join('\n');
+}
+
+export function formatNvidiaNimMarkdownSection(report: NvidiaNimCertificationReport): string {
+  const rows = [
+    '',
+    '### NVIDIA NIM GPU & KV-Cache Certification (`--profile nvidia-nim`)',
+    '',
+    '| Metric | Value |',
+    '| :--- | :--- |',
+    `| Status | **${report.certified ? 'CERTIFIED (PASS)' : 'BLOCKED (FAIL)'}** |`,
+    `| KV-Cache Eviction Risk | \`${report.kvCacheEvictionRisk}\` (D3: \`${report.contextHygieneScore}/100\`) |`,
+    `| Runaway Loop Burn Risk | \`${report.runawayLoopRisk}\` (D2: \`${report.errorFeedbackScore}/100\`) |`,
+    `| Estimated GPU Impact | ${report.estimatedGpuTokenMultiplier} |`,
+    `| Estimated KV-Cache Waste | ${report.estimatedKvCacheWasteTokensPerCall.toLocaleString()} tokens/call |`,
+  ];
+  if (report.vetoReasons.length > 0) {
+    rows.push('', '**Blocking NIM Findings:**', ...report.vetoReasons.map((r) => `- ${r}`));
+  }
+  return rows.join('\n') + '\n';
 }
 
 const DEMO_CHECK_TOOLS: McpToolDefinition[] = [
@@ -277,6 +453,16 @@ export async function checkCommand(
 ): Promise<SuiteSummary | undefined> {
   const { apiUrl, token: cloudToken } = resolveCloudCredentials({ apiUrl: options.apiUrl });
 
+  const normalizedProfile = (options.profile || 'default').trim().toLowerCase();
+  const isNvidiaNimProfile = normalizedProfile === 'nvidia-nim' || normalizedProfile === 'nim';
+  if (normalizedProfile !== 'default' && !isNvidiaNimProfile) {
+    console.error(
+      `❌ Unknown --profile '${options.profile}'. Supported profiles: default, nvidia-nim\n`
+    );
+    process.exitCode = 1;
+    return undefined;
+  }
+
   if (options.upload && !cloudToken) {
     console.error(
       `❌ --upload requires TOOLVETO_LICENSE_KEY or 'npx toolveto login --token <tv_live_...>'\n`
@@ -395,6 +581,11 @@ export async function checkCommand(
       }
     }
 
+    const nimReport = isNvidiaNimProfile ? evaluateNvidiaNimProfile(summary, tools) : undefined;
+    if (nimReport) {
+      (summary as any).nvidiaNimProfile = nimReport;
+    }
+
     if (options.json || options.format === 'json') {
       console.log(JSON.stringify(summary, null, 2));
     } else if (options.format === 'sarif') {
@@ -477,9 +668,19 @@ export async function checkCommand(
       };
       console.log(JSON.stringify(sarifReport, null, 2));
     } else if (options.format === 'github-pr') {
-      console.log(renderPRComment(summary));
+      console.log(renderPRComment(summary) + (nimReport ? formatNvidiaNimMarkdownSection(nimReport) : ''));
     } else {
-      console.log(formatTerminalReport(summary));
+      let terminalReport = formatTerminalReport(summary);
+      if (nimReport && !nimReport.certified) {
+        terminalReport = terminalReport.replace(
+          '✅ MERGE READY: All ToolVeto safety gates and invariant checks passed.',
+          '❌ MERGE BLOCKED: NVIDIA NIM GPU & KV-Cache certification profile failed (see below).'
+        );
+      }
+      console.log(terminalReport);
+      if (nimReport) {
+        console.log(formatNvidiaNimTerminalSection(nimReport));
+      }
       if (process.env.GITHUB_ACTIONS === 'true') {
         for (const r of summary.results) {
           if (r.status === 'FAIL') {
@@ -509,13 +710,20 @@ export async function checkCommand(
     // Automatically append rich PR comment to GitHub Step Summary if running in GitHub Actions
     if (process.env.GITHUB_STEP_SUMMARY) {
       try {
-        fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, '\n' + renderPRComment(summary) + '\n');
+        fs.appendFileSync(
+          process.env.GITHUB_STEP_SUMMARY,
+          '\n' + renderPRComment(summary) + (nimReport ? formatNvidiaNimMarkdownSection(nimReport) : '') + '\n'
+        );
       } catch {
         // Silently continue if step summary file is not writable
       }
     }
 
     if (summary.fatalVetoTriggered && options.failOnVeto !== false) {
+      process.exitCode = 1;
+    }
+
+    if (nimReport && !nimReport.certified && options.failOnVeto !== false) {
       process.exitCode = 1;
     }
 

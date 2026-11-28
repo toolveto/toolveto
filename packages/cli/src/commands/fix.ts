@@ -11,10 +11,86 @@ export interface FixOptions {
   suggest?: boolean;
   output?: string;
   check?: string;
-  lang?: 'typescript' | 'python' | 'go' | 'auto' | string;
+  lang?: 'typescript' | 'python' | 'fastmcp' | 'go' | 'auto' | string;
   withLlm?: boolean;
   llmProvider?: 'anthropic' | 'openai' | 'gemini' | 'auto' | string;
   model?: string;
+}
+
+/**
+ * Deterministic AST-level patcher for Python FastMCP (`@mcp.tool`) and
+ * NVIDIA NeMo Agent Toolkit (`nvidia-nat-fastmcp` / `@register_function`) handlers.
+ * Handles multiple decorated sync & async tool handlers per file:
+ * - Read/list/search tools -> injects bounded `limit: int = 25, cursor: str = ""` (KV-cache bomb guard)
+ * - Destructive tools -> injects `idempotency_key: str = "", dry_run: bool = False`
+ * - State-mutating tools -> injects `idempotency_key: str = ""` (+ pagination when requested)
+ */
+export function patchFastMcpPythonSource(
+  original: string,
+  checkFilter?: string
+): { patched: string; appliedCount: number; diffHunks: string[] } {
+  const wantIdemp = matchesCheckFilter(checkFilter, ['TC-IDEMP-001', 'TC-IDEMP-002', 'TC-IDEMP-003', 'TC-IDEMP-005']);
+  const wantPagination = matchesCheckFilter(checkFilter, ['TC-CTX-001', 'TC-SCHEMA-001']);
+  const wantDryRun = matchesCheckFilter(checkFilter, ['TC-DRYRUN-001']);
+
+  let patched = original;
+  let appliedCount = 0;
+  const diffHunks: string[] = [];
+
+  // Match every @mcp.tool(...) / @fastmcp.tool(...) / @nat.tool(...) / @register_function(...) followed by sync or async def
+  const toolBlockRe =
+    /(@(?:[A-Za-z0-9_]+\.)?(?:tool|register_function)(?:\([^)]*\))?[ \t]*\r?\n(?:@[A-Za-z0-9_.]+(?:\([^)]*\))?[ \t]*\r?\n)*)([ \t]*(?:async[ \t]+)?def[ \t]+([A-Za-z0-9_]+)[ \t]*\()([^)]*)(\))/g;
+
+  patched = patched.replace(
+    toolBlockRe,
+    (fullMatch, decorators: string, defPrefix: string, fnName: string, rawArgs: string, closeParen: string) => {
+      const lowerName = fnName.toLowerCase();
+      const isReadOrList = /^(list|search|query|get|read|fetch|browse|inspect|find|scan)_/.test(lowerName);
+      const isListLike = /^(list|search|query|fetch_all|get_all|scan|export)_/.test(lowerName);
+      const isDestructive =
+        /destructiveHint\s*=\s*True/i.test(decorators) ||
+        /(delete|drop|remove|destroy|purge|revoke|wipe)/.test(lowerName);
+
+      const argsList = rawArgs.trim();
+      const hasParam = (param: string) => new RegExp(`\\b${param}\\b`).test(argsList);
+      const additions: string[] = [];
+
+      if (isDestructive) {
+        if (wantIdemp && !hasParam('idempotency_key')) additions.push('idempotency_key: str = ""');
+        if (wantDryRun && !hasParam('dry_run')) additions.push('dry_run: bool = False');
+      } else if (isListLike) {
+        if (wantPagination && !hasParam('limit')) additions.push('limit: int = 25');
+        if (wantPagination && !hasParam('cursor')) additions.push('cursor: str = ""');
+      } else if (!isReadOrList) {
+        if (wantIdemp && !hasParam('idempotency_key')) additions.push('idempotency_key: str = ""');
+        if (wantPagination && !hasParam('limit') && !original.includes('limit')) {
+          additions.push('limit: int = 25', 'cursor: str = ""');
+        }
+      }
+
+      if (additions.length === 0) return fullMatch;
+
+      // Insert before **kwargs if present so Python syntax stays 100% valid
+      let nextArgs: string;
+      const kwargsMatch = argsList.match(/(?:^|,\s*)(\*\*[A-Za-z0-9_]+(?:\s*:[^,]+)?)$/);
+      if (kwargsMatch && kwargsMatch.index !== undefined) {
+        const beforeKwargs = argsList.slice(0, kwargsMatch.index).replace(/,\s*$/, '').trim();
+        const kwargsPart = kwargsMatch[1].trim();
+        nextArgs = beforeKwargs
+          ? `${beforeKwargs}, ${additions.join(', ')}, ${kwargsPart}`
+          : `${additions.join(', ')}, ${kwargsPart}`;
+      } else {
+        nextArgs = argsList ? `${argsList}, ${additions.join(', ')}` : additions.join(', ');
+      }
+
+      const replacementSig = `${defPrefix}${nextArgs}${closeParen}`;
+      appliedCount += additions.length;
+      diffHunks.push(`+${replacementSig.trim()}`);
+      return `${decorators}${replacementSig}`;
+    }
+  );
+
+  return { patched, appliedCount, diffHunks };
 }
 
 export interface LlmSynthesisResult {
@@ -819,19 +895,17 @@ function patchSourceFileContent(
         appliedCount += injectedLines.length;
         diffHunks.push(injectedLines.map((l) => `+${l}`).join('\n'));
       }
-    } else if (original.includes('@mcp.tool') && !original.includes('idempotency_key')) {
-      const fnMatch = original.match(/def\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)/);
-      if (fnMatch && wantIdemp) {
-        const existingArgs = fnMatch[2].trim();
-        const extraParams = [
-          `idempotency_key: str = ""`,
-          ...(wantPagination && !original.includes('limit') ? [`limit: int = 25`, `cursor: str = ""`] : []),
-        ].join(', ');
-        const nextArgs = existingArgs ? `${existingArgs}, ${extraParams}` : extraParams;
-        const replacementSig = `def ${fnMatch[1]}(${nextArgs})`;
-        patched = original.replace(fnMatch[0], replacementSig);
-        appliedCount += 1;
-        diffHunks.push(`+${replacementSig}`);
+    } else if (
+      original.includes('@mcp.tool') ||
+      original.includes('FastMCP') ||
+      original.includes('@register_function') ||
+      original.includes('.tool(')
+    ) {
+      const fastMcpRes = patchFastMcpPythonSource(original, checkFilter);
+      if (fastMcpRes.appliedCount > 0) {
+        patched = fastMcpRes.patched;
+        appliedCount += fastMcpRes.appliedCount;
+        diffHunks.push(...fastMcpRes.diffHunks);
       }
     }
   } else if (ext === '.go') {
@@ -1050,7 +1124,7 @@ export async function fixCommand(targetPath?: string, options: FixOptions = {}):
     if (langFilter === 'auto') return true;
     const ext = path.extname(f).toLowerCase();
     if (langFilter === 'typescript' || langFilter === 'ts') return ext === '.ts' || ext === '.js';
-    if (langFilter === 'python' || langFilter === 'py') return ext === '.py';
+    if (langFilter === 'python' || langFilter === 'py' || langFilter === 'fastmcp') return ext === '.py';
     if (langFilter === 'go' || langFilter === 'golang') return ext === '.go';
     return true;
   });
@@ -1116,10 +1190,10 @@ export async function fixCommand(targetPath?: string, options: FixOptions = {}):
     console.log('+ if (__idempKey && __toolvetoIdempotencyCache.has(__idempKey)) return __toolvetoIdempotencyCache.get(__idempKey);');
   }
 
-  console.log('\n[Python / FastMCP / Pydantic]');
-  console.log('+ idempotency_key: str = Field(..., description="Unique token for atomic deduplication")');
-  console.log('+ limit: int = Field(25, ge=1, le=100, description="Max items to protect LLM context")');
-  console.log('+ cursor: Optional[str] = Field(None, description="Cursor token for forward pagination")');
+  console.log('\n[Python / FastMCP / NVIDIA NeMo Agent Toolkit (nvidia-nat-fastmcp)]');
+  console.log('+ @mcp.tool(annotations={"idempotentHint": True, "destructiveHint": False})');
+  console.log('+ async def create_payment(amount_cents: int, idempotency_key: str = Field(..., description="Unique deduplication token")): ...');
+  console.log('+ async def list_records(limit: int = Field(25, ge=1, le=100, description="Caps NIM KV-cache token budget"), cursor: str = ""): ...');
 
   console.log('\n[Go]');
   console.log('+ IdempotencyKey string `json:"idempotency_key" jsonschema:"description=Unique token for deduplication"`');

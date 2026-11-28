@@ -74,6 +74,12 @@ npx toolveto@latest discover --json
 # Generate a cryptographic SHA-256 lockfile (toolveto.lock.json) to prevent rug-pulls
 npx toolveto@latest lock ./my-mcp-server
 
+# Run NVIDIA NIM GPU waste & KV-cache bomb certification profile
+npx toolveto@latest check ./my-mcp-server --profile nvidia-nim
+
+# Auto-apply deterministic FastMCP / NeMo Agent Toolkit (nvidia-nat-fastmcp) patches
+npx toolveto@latest fix ./my-fastmcp-server --lang fastmcp --apply
+
 # Export least-privilege policies (AWS Cedar, OPA Rego, NVIDIA OpenShell YAML, NVIDIA NeMo Guardrails YAML+Colang, or WeaveProof)
 npx toolveto@latest export-policy ./my-mcp-server --format nvidia-openshell -o openshell-policy.yaml
 npx toolveto@latest export-policy ./my-mcp-server --format nemo-guardrails -o ./nemo-guardrails
