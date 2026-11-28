@@ -82,8 +82,15 @@ jobs:
 
       - name: Verify Live PostgreSQL 16 & Redis 7 Shield Stores Executed (Zero Skips)
         run: |
+          set +e
           LIVE_OUT=$(node --test packages/shield/dist/__tests__/live-stores.test.js 2>&1)
+          LIVE_RC=$?
+          set -e
           echo "$LIVE_OUT"
+          if [ "$LIVE_RC" -ne 0 ]; then
+            echo "❌ live-stores.test.js failed with exit code $LIVE_RC"
+            exit "$LIVE_RC"
+          fi
           if ! echo "$LIVE_OUT" | grep -q "skipped 0"; then
             echo "❌ Expected 0 skipped tests in live-stores.test.js!"
             exit 1

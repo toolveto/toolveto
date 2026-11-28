@@ -64,7 +64,10 @@ server.connect(transport).catch((err) => {
         await discovered.client.close();
       }
     } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      if (process.platform === 'win32') {
+        await new Promise((r) => setTimeout(r, 150));
+      }
+      fs.rmSync(tmpDir, { recursive: true, force: true, maxRetries: 15, retryDelay: 100 });
     }
   });
 
@@ -99,7 +102,10 @@ setInterval(() => {}, 60_000);
       assert.ok(threwOrTimedOut, 'Hanging MCP server must trigger deterministic timeout or safe empty fallback');
       assert.ok(elapsedMs < 5000, `Expected timeout enforcement well under 5000ms, took ${elapsedMs}ms`);
     } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      if (process.platform === 'win32') {
+        await new Promise((r) => setTimeout(r, 150));
+      }
+      fs.rmSync(tmpDir, { recursive: true, force: true, maxRetries: 15, retryDelay: 100 });
     }
   });
 

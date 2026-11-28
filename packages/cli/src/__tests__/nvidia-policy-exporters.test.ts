@@ -13,17 +13,50 @@ import {
   generateNemoGuardrailsBundle,
 } from '../commands/export-policy.js';
 
-function parseYamlViaPython(yamlText: string): any | null {
-  try {
-    const out = execFileSync(
-      'python3',
-      ['-c', 'import sys, json, yaml; print(json.dumps(yaml.safe_load(sys.stdin.read())))'],
-      { input: yamlText, encoding: 'utf-8' }
-    );
-    return JSON.parse(out);
-  } catch {
-    return null;
+function loadStrictNodeYamlParser(): ((text: string) => any) | null {
+  const candidates = [
+    'yaml',
+    path.resolve(__dirname, '../../../../gateway/node_modules/yaml'),
+    path.resolve(process.cwd(), '../gateway/node_modules/yaml'),
+    path.resolve(process.cwd(), 'packages/gateway/node_modules/yaml'),
+  ];
+  for (const mod of candidates) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const loaded = require(mod);
+      if (loaded && typeof loaded.parse === 'function') {
+        return (txt: string) => loaded.parse(txt, { strict: true });
+      }
+    } catch {
+      // Try next candidate
+    }
   }
+  return null;
+}
+
+const nodeYamlParse = loadStrictNodeYamlParser();
+
+function parseYamlViaPython(yamlText: string): any | null {
+  if (nodeYamlParse) {
+    try {
+      return nodeYamlParse(yamlText);
+    } catch {
+      return null;
+    }
+  }
+  for (const pyBin of process.platform === 'win32' ? ['python', 'python3'] : ['python3', 'python']) {
+    try {
+      const out = execFileSync(
+        pyBin,
+        ['-c', 'import sys, json, yaml; print(json.dumps(yaml.safe_load(sys.stdin.read())))'],
+        { input: yamlText, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
+      );
+      return JSON.parse(out);
+    } catch {
+      // Try next interpreter
+    }
+  }
+  return null;
 }
 
 const TRIFECTA_AND_NETWORK_TOOLS: McpToolDefinition[] = [
