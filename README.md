@@ -74,7 +74,9 @@ npx toolveto@latest discover --json
 # Generate a cryptographic SHA-256 lockfile (toolveto.lock.json) to prevent rug-pulls
 npx toolveto@latest lock ./my-mcp-server
 
-# Export least-privilege AWS Cedar, OPA Rego, or WeaveProof taint-boundary policies (blocks TC-TOXIC-001)
+# Export least-privilege policies (AWS Cedar, OPA Rego, NVIDIA OpenShell YAML, NVIDIA NeMo Guardrails YAML+Colang, or WeaveProof)
+npx toolveto@latest export-policy ./my-mcp-server --format nvidia-openshell -o openshell-policy.yaml
+npx toolveto@latest export-policy ./my-mcp-server --format nemo-guardrails -o ./nemo-guardrails
 npx toolveto@latest export-policy ./my-mcp-server --format weaveproof
 ```
 

@@ -215,10 +215,16 @@ export function createProgram(): Command {
 
   program
     .command('export-policy')
-    .description('Generate AWS Cedar, OPA/Rego, WeaveProof Cedar, or WeaveProof Genome SHA-256 hash-pin manifests from MCP tool definitions')
+    .description(
+      'Generate AWS Cedar, OPA/Rego, NVIDIA OpenShell YAML, NVIDIA NeMo Guardrails (YAML+Colang), WeaveProof Cedar, or WeaveProof Genome SHA-256 hash-pin manifests from MCP tool definitions'
+    )
     .argument('[target]', 'Target MCP server directory, Streamable HTTP URL, or tool manifest', '.')
-    .option('-f, --format <format>', 'Policy language: cedar, opa, weaveproof, or weaveproof-genome', 'cedar')
-    .option('-o, --output <path>', 'Output policy file path')
+    .option(
+      '-f, --format <format>',
+      'Policy language: cedar, opa, nvidia-openshell, nemo-guardrails, weaveproof, or weaveproof-genome',
+      'cedar'
+    )
+    .option('-o, --output <path>', 'Output policy file path (or config directory for nemo-guardrails)')
     .option('--allow-exec', 'Authorize spawning local server entrypoint scripts discovered inside target directory')
     .option('--demo', 'Allow synthetic demo tools when target has zero tools')
     .option('--api-url <url>', 'ToolVeto Cloud API base URL')
